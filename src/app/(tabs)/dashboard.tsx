@@ -2,13 +2,13 @@ import { View, Text, StyleSheet, Dimensions, Pressable, ScrollView } from 'react
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
-import orders from '../data/orders.json';
+import orders from '../../data/orders.json';
 
 export default function Dashboard() {
   const { width: screenWidth } = Dimensions.get("window");
   const [fontsLoaded] = useFonts({
-    FredokaOne: require("../../assets/fonts/FredokaOne-Regular.ttf"),
-    Inter: require("../../assets/fonts/Inter-VariableFont_opsz,wght.ttf"),
+    FredokaOne: require("../../../assets/fonts/FredokaOne-Regular.ttf"),
+    Inter: require("../../../assets/fonts/Inter-VariableFont_opsz,wght.ttf"),
   });
 
   if (!fontsLoaded) {
@@ -104,20 +104,6 @@ export default function Dashboard() {
             </Text>
           </View>
         </LinearGradient>
-
-        <View className="mt-[20px]">
-          <Pressable className="bg-black/80 items-center justify-center rounded-full h-[40px]">
-            <Text className="text-white"
-              style={{
-                fontFamily: "Inter",
-                fontWeight: 500,
-                fontSize: screenWidth * 0.038,
-              }}
-            >
-              + New Sale
-            </Text>
-          </Pressable>
-        </View>
 
         <View className="flex-row py-[20px] justify-between">
           <View className="rounded-[10px] h-[149px] w-[172px] flex-col bg-white px-[15px] py-[15px]">
