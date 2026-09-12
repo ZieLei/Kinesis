@@ -22,11 +22,14 @@ export default function TabLayout() {
 
       <TabList
         style={{
+          position: 'relative',
           flexDirection: 'row',
           alignItems: 'center',
           paddingVertical: 13,
 
           boxShadow: '0px -4px 10px 1px rgba(0, 0, 0, 0.05)',
+          zIndex: 10,
+          elevation: 10,
         }}
       >
         <TabTrigger name="dashboard" href="/dashboard" style={{ flex: 1 }}>
