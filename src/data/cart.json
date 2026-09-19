@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "name": "Brake Pads",
+    "price": 450,
+    "quantity": 1
+  },
+  {
+    "id": 2,
+    "name": "Spark Plug",
+    "price": 180,
+    "quantity": 2
+  },
+  {
+    "id": 3,
+    "name": "Tires (17in)",
+    "price": 2100,
+    "quantity": 1
+  },
+  {
+    "id": 4,
+    "name": "Chain Kit",
+    "price": 1650,
+    "quantity": 1
+  },
+  {
+    "id": 5,
+    "name": "Engine Oil",
+    "price": 320,
+    "quantity": 2
+  }
+]

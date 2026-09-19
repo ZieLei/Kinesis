@@ -6,7 +6,12 @@ module.exports = {
   ],
   presets: [require("nativewind/preset")],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        inter: ['Inter'],
+        fredoka: ['FredokaOne'],
+      },
+    },
   },
   plugins: [],
 }

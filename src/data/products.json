@@ -1,0 +1,352 @@
+[
+  {
+    "id": 1,
+    "name": "Brake Pads",
+    "category": "Brakes",
+    "price": 450,
+    "stock": 12
+  },
+  {
+    "id": 2,
+    "name": "Brake Shoes",
+    "category": "Brakes",
+    "price": 380,
+    "stock": 8
+  },
+  {
+    "id": 3,
+    "name": "Brake Fluid 500ml",
+    "category": "Brakes",
+    "price": 220,
+    "stock": 15
+  },
+  {
+    "id": 4,
+    "name": "Brake Master Cylinder",
+    "category": "Brakes",
+    "price": 1250,
+    "stock": 4
+  },
+  {
+    "id": 5,
+    "name": "Brake Lever",
+    "category": "Brakes",
+    "price": 280,
+    "stock": 10
+  },
+  {
+    "id": 6,
+    "name": "Brake Caliper",
+    "category": "Brakes",
+    "price": 1850,
+    "stock": 3
+  },
+  {
+    "id": 7,
+    "name": "Spark Plug",
+    "category": "Engine",
+    "price": 180,
+    "stock": 25
+  },
+  {
+    "id": 8,
+    "name": "Oil Filter",
+    "category": "Engine",
+    "price": 250,
+    "stock": 18
+  },
+  {
+    "id": 9,
+    "name": "Air Filter",
+    "category": "Engine",
+    "price": 420,
+    "stock": 9
+  },
+  {
+    "id": 10,
+    "name": "Engine Oil 1L",
+    "category": "Engine",
+    "price": 350,
+    "stock": 20
+  },
+  {
+    "id": 11,
+    "name": "Engine Oil 800ml",
+    "category": "Engine",
+    "price": 290,
+    "stock": 14
+  },
+  {
+    "id": 12,
+    "name": "Piston Ring Set",
+    "category": "Engine",
+    "price": 780,
+    "stock": 5
+  },
+  {
+    "id": 13,
+    "name": "Clutch Plate Set",
+    "category": "Engine",
+    "price": 1450,
+    "stock": 6
+  },
+  {
+    "id": 14,
+    "name": "Cylinder Head Gasket",
+    "category": "Engine",
+    "price": 520,
+    "stock": 7
+  },
+  {
+    "id": 15,
+    "name": "Motorcycle Battery",
+    "category": "Electrical",
+    "price": 1850,
+    "stock": 6
+  },
+  {
+    "id": 16,
+    "name": "LED Headlight Bulb",
+    "category": "Electrical",
+    "price": 650,
+    "stock": 12
+  },
+  {
+    "id": 17,
+    "name": "Turn Signal Relay",
+    "category": "Electrical",
+    "price": 320,
+    "stock": 8
+  },
+  {
+    "id": 18,
+    "name": "Horn",
+    "category": "Electrical",
+    "price": 280,
+    "stock": 10
+  },
+  {
+    "id": 19,
+    "name": "Ignition Coil",
+    "category": "Electrical",
+    "price": 550,
+    "stock": 5
+  },
+  {
+    "id": 20,
+    "name": "Fuse Set",
+    "category": "Electrical",
+    "price": 120,
+    "stock": 30
+  },
+  {
+    "id": 21,
+    "name": "17-inch Front Tire",
+    "category": "Tires",
+    "price": 2100,
+    "stock": 7
+  },
+  {
+    "id": 22,
+    "name": "17-inch Rear Tire",
+    "category": "Tires",
+    "price": 2450,
+    "stock": 5
+  },
+  {
+    "id": 23,
+    "name": "Tire Inner Tube",
+    "category": "Tires",
+    "price": 280,
+    "stock": 16
+  },
+  {
+    "id": 24,
+    "name": "Tubeless Tire Valve",
+    "category": "Tires",
+    "price": 150,
+    "stock": 20
+  },
+  {
+    "id": 25,
+    "name": "Wheel Bearing",
+    "category": "Tires",
+    "price": 380,
+    "stock": 11
+  },
+  {
+    "id": 26,
+    "name": "Chain and Sprocket Set",
+    "category": "Drivetrain",
+    "price": 1650,
+    "stock": 6
+  },
+  {
+    "id": 27,
+    "name": "Drive Chain",
+    "category": "Drivetrain",
+    "price": 850,
+    "stock": 9
+  },
+  {
+    "id": 28,
+    "name": "Front Sprocket",
+    "category": "Drivetrain",
+    "price": 320,
+    "stock": 12
+  },
+  {
+    "id": 29,
+    "name": "Rear Sprocket",
+    "category": "Drivetrain",
+    "price": 680,
+    "stock": 8
+  },
+  {
+    "id": 30,
+    "name": "Clutch Cable",
+    "category": "Drivetrain",
+    "price": 240,
+    "stock": 14
+  },
+  {
+    "id": 31,
+    "name": "Throttle Cable",
+    "category": "Drivetrain",
+    "price": 260,
+    "stock": 10
+  },
+  {
+    "id": 32,
+    "name": "Side Mirror Pair",
+    "category": "Accessories",
+    "price": 580,
+    "stock": 9
+  },
+  {
+    "id": 33,
+    "name": "Motorcycle Phone Holder",
+    "category": "Accessories",
+    "price": 450,
+    "stock": 13
+  },
+  {
+    "id": 34,
+    "name": "Handlebar Grips",
+    "category": "Accessories",
+    "price": 280,
+    "stock": 15
+  },
+  {
+    "id": 35,
+    "name": "Motorcycle Cover",
+    "category": "Accessories",
+    "price": 650,
+    "stock": 7
+  },
+  {
+    "id": 36,
+    "name": "USB Charging Port",
+    "category": "Accessories",
+    "price": 380,
+    "stock": 8
+  },
+  {
+    "id": 37,
+    "name": "Rear Shock Absorber",
+    "category": "Suspension",
+    "price": 2200,
+    "stock": 4
+  },
+  {
+    "id": 38,
+    "name": "Front Fork Seal",
+    "category": "Suspension",
+    "price": 450,
+    "stock": 9
+  },
+  {
+    "id": 39,
+    "name": "Fork Oil 500ml",
+    "category": "Suspension",
+    "price": 320,
+    "stock": 12
+  },
+  {
+    "id": 40,
+    "name": "Swingarm Bushing",
+    "category": "Suspension",
+    "price": 580,
+    "stock": 6
+  },
+  {
+    "id": 41,
+    "name": "Handlebar",
+    "category": "Body Parts",
+    "price": 850,
+    "stock": 5
+  },
+  {
+    "id": 42,
+    "name": "Footrest Set",
+    "category": "Body Parts",
+    "price": 620,
+    "stock": 8
+  },
+  {
+    "id": 43,
+    "name": "Motorcycle Seat Cover",
+    "category": "Body Parts",
+    "price": 480,
+    "stock": 10
+  },
+  {
+    "id": 44,
+    "name": "Front Fender",
+    "category": "Body Parts",
+    "price": 950,
+    "stock": 3
+  },
+  {
+    "id": 45,
+    "name": "Side Stand",
+    "category": "Body Parts",
+    "price": 550,
+    "stock": 6
+  },
+  {
+    "id": 46,
+    "name": "Chain Lubricant",
+    "category": "Maintenance",
+    "price": 380,
+    "stock": 18
+  },
+  {
+    "id": 47,
+    "name": "Contact Cleaner",
+    "category": "Maintenance",
+    "price": 280,
+    "stock": 14
+  },
+  {
+    "id": 48,
+    "name": "Multi-Purpose Grease",
+    "category": "Maintenance",
+    "price": 220,
+    "stock": 20
+  },
+  {
+    "id": 49,
+    "name": "Microfiber Cleaning Cloth",
+    "category": "Maintenance",
+    "price": 100,
+    "stock": 25
+  },
+  {
+    "id": 50,
+    "name": "Motorcycle Wash Shampoo",
+    "category": "Maintenance",
+    "price": 350,
+    "stock": 11
+  }
+]
