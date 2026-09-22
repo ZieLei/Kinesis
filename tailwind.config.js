@@ -8,7 +8,17 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        inter: ['Inter'],
+        inter: ['Inter-Regular'],
+        'inter-regular': ['Inter-Regular'],
+        'inter-thin': ['Inter-Thin'],
+        'inter-extralight': ['Inter-ExtraLight'],
+        'inter-light': ['Inter-Light'],
+        'inter-medium': ['Inter-Medium'],
+        'inter-semibold': ['Inter-SemiBold'],
+        'inter-bold': ['Inter-Bold'],
+        'inter-extrabold': ['Inter-ExtraBold'],
+        'inter-black': ['Inter-Black'],
+
         fredoka: ['FredokaOne'],
       },
     },

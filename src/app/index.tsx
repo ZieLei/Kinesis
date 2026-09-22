@@ -1,19 +1,10 @@
 import { View, Text, StyleSheet, Dimensions, Pressable } from 'react-native';
-import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
 export default function Home() {
   const router = useRouter();
   const { width: screenWidth } = Dimensions.get("window");
-  const [fontsLoaded] = useFonts({
-    FredokaOne: require("../../assets/fonts/FredokaOne-Regular.ttf"),
-    Inter: require("../../assets/fonts/Inter-VariableFont_opsz,wght.ttf"),
-  });
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   const CARD_WIDTH = screenWidth * 0.9;
   const LOGO_SIZE = screenWidth * 0.035;
@@ -35,9 +26,8 @@ export default function Home() {
           <View className="mr-3 h-9 w-9 rounded-full bg-white" />
 
           <Text
-            className="text-white text-xl"
+            className="text-white text-xl font-fredoka"
             style={{
-              fontFamily: 'FredokaOne',
               fontSize: LOGO_SIZE,
             }}
           >
@@ -46,18 +36,14 @@ export default function Home() {
         </View>
 
         <View className="items-center pt-8">
-          <Text className="text-white "
+          <Text className="text-white font-inter-semibold"
             style={{
-              fontFamily: "Inter",
-              fontWeight: 600,
               fontSize: screenWidth * 0.055,
             }}>
             Powering Your Business.
           </Text>
-          <Text className="text-center text-white/70 pt-7 w-[300px]"
+          <Text className="text-center text-white/70 pt-7 w-[300px] font-inter-regular"
             style={{
-              fontFamily: "Inter",
-              fontWeight: 400,
               fontSize: screenWidth * 0.035
             }}>
             A mobile POS build to make
@@ -71,10 +57,8 @@ export default function Home() {
           >
             <Text
               selectable={false}
-              className="text-black group-active:text-white "
+              className="text-black group-active:text-white font-inter-bold"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 700,
                 fontSize: screenWidth * 0.035,
               }}
             >
@@ -82,10 +66,8 @@ export default function Home() {
             </Text>
           </Pressable>
           <Pressable className="border border-white rounded-full px-8 py-2 mt-4">
-            <Text className="text-white"
+            <Text className="text-white font-inter-regular"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 400,
                 fontSize: screenWidth * 0.035,
               }}>
               Explore Features
@@ -94,29 +76,23 @@ export default function Home() {
         </View>
 
         <View className="items-center pt-10">
-          <Text className="text-white"
+          <Text className="text-white font-inter-semibold"
             style={{
-              fontFamily: "Inter",
-              fontWeight: 600,
               fontSize: screenWidth * 0.045,
             }}>
             From part to purchase
           </Text>
           <View className="flex-row items-center justify-between gap-4 py-5">
             <View className="items-center">
-              <Text className="text-white/80"
+              <Text className="text-white/80 font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.040,
                 }}>
                 01
               </Text>
               <View className="bg-white w-7 h-7 my-1.5" />
-              <Text className="text-white"
+              <Text className="text-white font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.03,
                 }}>
                 FIND
@@ -131,19 +107,15 @@ export default function Home() {
             </Text>
 
             <View className="items-center">
-              <Text className="text-white/80"
+              <Text className="text-white/80 font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.040,
                 }}>
                 02
               </Text>
               <View className="bg-white w-7 h-7 my-1.5" />
-              <Text className="text-white"
+              <Text className="text-white font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.03,
                 }}>
                 CART
@@ -158,19 +130,15 @@ export default function Home() {
             </Text>
 
             <View className="items-center">
-              <Text className="text-white/80"
+              <Text className="text-white/80 font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.040,
                 }}>
                 03
               </Text>
               <View className="bg-white w-7 h-7 my-1.5" />
-              <Text className="text-white"
+              <Text className="text-white font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.03,
                 }}>
                 PAY
@@ -185,19 +153,15 @@ export default function Home() {
             </Text>
 
             <View className="items-center">
-              <Text className="text-white/80"
+              <Text className="text-white/80 font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.040,
                 }}>
                 04
               </Text>
               <View className="bg-white w-7 h-7 my-1.5" />
-              <Text className="text-white"
+              <Text className="text-white font-inter-semibold"
                 style={{
-                  fontFamily: "Inter",
-                  fontWeight: 600,
                   fontSize: screenWidth * 0.03,
                 }}>
                 STOCK

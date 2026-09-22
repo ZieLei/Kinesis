@@ -1,20 +1,12 @@
 import { Tabs, TabList, TabTrigger, TabSlot } from 'expo-router/ui';
 import { Text, View, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
+import { CartProvider } from '@/app/context/CartContext';
 
 export default function TabLayout() {
 
   const { width: screenWidth } = Dimensions.get("window");
-  const [fontsLoaded] = useFonts({
-    FredokaOne: require("../../../assets/fonts/FredokaOne-Regular.ttf"),
-    Inter: require("../../../assets/fonts/Inter-VariableFont_opsz,wght.ttf"),
-  });
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   return (
     <Tabs>
@@ -22,36 +14,34 @@ export default function TabLayout() {
 
       <TabList
         style={{
-          position: 'relative',
           flexDirection: 'row',
           alignItems: 'center',
           paddingVertical: 13,
 
-          boxShadow: '0px -4px 10px 1px rgba(0, 0, 0, 0.05)',
-          zIndex: 10,
-          elevation: 10,
+          backgroundColor: '#F5F5F5',
+          borderTopWidth: 0,
+          borderTopColor: 'transparent',
+          elevation: 0,
+          shadowOpacity: 0,
+          shadowRadius: 0,
         }}
       >
-        <TabTrigger name="dashboard" href="/dashboard" style={{ flex: 1 }}>
+        <TabTrigger name="dashboard" href="/dashboard" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
           <View className="items-center">
             <View className="aspect-square h-[20px] bg-black/20" />
-            <Text className="pt-2"
+            <Text className="pt-2 font-inter-bold"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 700,
                 fontSize: screenWidth * 0.03
               }}
             >HOME</Text>
           </View>
         </TabTrigger>
 
-        <TabTrigger name="cart" href="/cart" style={{ flex: 1 }}>
+        <TabTrigger name="cart" href="/cart" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
           <View className="items-center">
             <View className="aspect-square h-[20px] bg-black/20" />
-            <Text className="pt-2"
+            <Text className="pt-2 font-inter-bold"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 700,
                 fontSize: screenWidth * 0.03
               }}
             >CART</Text>
@@ -75,10 +65,8 @@ export default function TabLayout() {
               justifyContent: 'center',
             }}
           >
-            <Text className="text-white text-center"
+            <Text className="text-white text-center font-inter-light"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 300,
                 fontSize: screenWidth * 0.09,
                 lineHeight: screenWidth * 0.09,
                 transform: [{ translateY: -2 }],
@@ -87,26 +75,22 @@ export default function TabLayout() {
           </LinearGradient>
         </TabTrigger>
 
-        <TabTrigger name="stock" href="/stock" style={{ flex: 1 }}>
+        <TabTrigger name="stock" href="/stock" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
           <View className="items-center">
             <View className="aspect-square h-[20px] bg-black/20" />
-            <Text className="pt-2"
+            <Text className="pt-2 font-inter-bold"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 700,
                 fontSize: screenWidth * 0.03
               }}
             >STOCK</Text>
           </View>
         </TabTrigger>
 
-        <TabTrigger name="reports" href="/reports" style={{ flex: 1 }}>
+        <TabTrigger name="reports" href="/reports" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
           <View className="items-center">
             <View className="aspect-square h-[20px] bg-black/20" />
-            <Text className="pt-2"
+            <Text className="pt-2 font-inter-bold"
               style={{
-                fontFamily: "Inter",
-                fontWeight: 700,
                 fontSize: screenWidth * 0.03
               }}
             >REPORTS</Text>
