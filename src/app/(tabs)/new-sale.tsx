@@ -4,6 +4,7 @@ import {
   Pressable,
   ScrollView,
   TextInput,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import products from '@/data/products.json';
@@ -22,6 +23,10 @@ export default function NewSale() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const { addToCart, items, decreaseQuantity, total } = useCart();
+
+  const cartItemsById = useMemo(() => {
+    return new Map(items.map(item => [item.id, item]));
+  }, [items]);
 
   const categories = useMemo(() => [
     'All',
@@ -150,20 +155,20 @@ export default function NewSale() {
             }}
 
             renderItem={({ item }) => {
-              const cartItem = items.find(
-                (cartItem) => cartItem.id === item.id
-              );
+              const cartItem = cartItemsById.get(item.id);
 
               return (
                 <View className="my-2 flex-row rounded-xl bg-white">
                   <Pressable
-                    onPress={() =>
+                    onPress={() => {
+
                       addToCart({
                         id: item.id,
                         name: item.name,
                         price: item.price,
-                      })
-                    }
+                      });
+
+                    }}
                     className="flex-1 flex-row px-3 py-[10px]"
                     android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
                   >
@@ -190,12 +195,18 @@ export default function NewSale() {
                   {cartItem && (
                     <Pressable
                       onPress={() => decreaseQuantity(item.id)}
-                      className="w-14 "
+                      className="w-[60px] mt-2 mr-2 bg-white border-[1px] flex-row h-8 items-center justify-center rounded-lg border-black/20"
                     >
-                      <View className="flex-row items-center gap-3 ">
-                        <Text className="font-inter-medium">{cartItem?.quantity}</Text>
-                        <View className="h-8 w-8 items-center justify-center rounded-lg bg-white border-[1px] border-black/10">
-                          <Text className="font-inter-medium text-xl">−</Text>
+                      <View className="flex-row items-center gap-1 justify-evenly">
+                        <View className="w-5">
+                          <Text className="font-inter-medium text-center">
+                            {cartItem?.quantity}
+                          </Text>
+                        </View>
+                        <View className="h-8 w-8 items-center justify-center">
+                          <Text className="font-inter-medium text-center text-xl">
+                            −
+                          </Text>
                         </View>
                       </View>
                     </Pressable>

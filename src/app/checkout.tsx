@@ -2,6 +2,7 @@ import { View, Text, Pressable, TextInput } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useCart } from "./context/CartContext"
 import { useState } from "react";
+import { router } from 'expo-router'
 
 export default function Checkout() {
   const { total } = useCart();
@@ -97,7 +98,12 @@ export default function Checkout() {
                 </Text>
               </View>
 
-              <Pressable className="mt-auto rounded-lg bg-black/80 py-4">
+              <Pressable className="mt-auto rounded-lg bg-black/80 py-4"
+                onPress={() => {
+                  console.log('COMPLETE SALE PRESSED');
+                  router.push('/receipt');
+                }}
+              >
                 <Text className="text-center font-inter-semibold text-lg text-white">
                   Complete Sale
                 </Text>
@@ -136,7 +142,12 @@ export default function Checkout() {
                   />
                 </View>
 
-                <Pressable className="mt-auto rounded-lg bg-[#05008E] py-4">
+                <Pressable className="mt-auto rounded-lg bg-[#05008E] py-4"
+                  onPress={() => {
+                    console.log('COMPLETE SALE PRESSED');
+                    router.push('/receipt');
+                  }}
+                >
                   <Text className="text-center font-inter-semibold text-lg text-white">
                     Complete Sale
                   </Text>
