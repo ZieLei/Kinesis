@@ -246,40 +246,124 @@ export default function Stock() {
 
                 <View className="py-5">
                   <View>
-                    <Pressable className="bg-white rounded-2xl p-2 flex-row">
+                    <Pressable className="bg-white border-[1px] border-black/5 rounded-2xl p-2 flex-row">
                       <View className="bg-black/5 w-20 h-20 rounded-2xl mr-3" />
-                      <View className="justify-center">
+                      <View className="justify-between w-[270px] flex-row items-center">
                         <Text className="font-inter-semibold">
                           Add product image
+                        </Text>
+                        <Text className="font-inter text-xl">
+                          ➔
                         </Text>
                       </View>
                     </Pressable>
                   </View>
 
-                  <Text className="font-inter-medium text-base mt-4">
+                  <Text className="font-inter-semibold text-base mt-10 mb-2">
                     Product Name
                   </Text>
 
                   <TextInput
-                    className="bg-black/5 w-full rounded-2xl px-2"
-                    placeholder="Name"
-                    placeholderTextColor="#000000"
+                    className="bg-black/5 border-[1px] border-black/10 w-full rounded-lg px-4 font-inter-semibold text-black"
+                    placeholder="Enter Product Name"
+                    placeholderTextColor="rgba(0, 0, 0, 0.3)"
                   />
+
+                  <View>
+                    <Text className="font-inter-semibold text-base mt-10 mb-2">
+                      Stock Status
+                    </Text>
+
+                    <View className="flex-row gap-4">
+                      <Pressable className="bg-white p-4 flex-row gap-2 items-center rounded-lg">
+                        <View className="rounded-3xl h-5 w-5 bg-black/20" />
+                        <Text className="font-inter-semibold text-[13px]">
+                          Out of stock
+                        </Text>
+                      </Pressable>
+
+                      <Pressable className="bg-white p-4 flex-row gap-2 rounded-lg border-[1.5px] items-center border-blue-900">
+                        <View className="rounded-3xl h-5 w-5 bg-blue-900" />
+                        <TextInput
+                          className="bg-[rgba(0,0,0,0.04)] border-[1px] border-black/5 -my-2.5 rounded-md w-20 text-black"
+                          placeholder="Stock"
+                          placeholderTextColor="rgba(0, 0, 0, 0.3)"
+                          keyboardType="numeric"
+                          inputMode="numeric"
+                        />
+                        <Pressable className="bg-[rgba(0,0,0,0.02)] px-3 py-1 -my-2 border-black/20 border-[1px] items-center justify-center rounded-md">
+                          <Text className="font-inter-semibold text-center">
+                            +
+                          </Text>
+                        </Pressable>
+                        <Pressable className="bg-[rgba(0,0,0,0.02)] px-3 py-1 -my-2 border-black/20 border-[1px] items-center justify-center rounded-md">
+                          <Text className="font-inter-semibold text-center">
+                            -
+                          </Text>
+                        </Pressable>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className="font-inter-semibold text-base mt-10 mb-2">
+                      Category
+                    </Text>
+
+                    <View className="flex-col gap-2 p-2">
+                      <View className="bg-black/5 rounded-lg p-3 border-[1px] border-black/10">
+                        <Text className="font-inter-medium">
+                          Brakes
+                        </Text>
+                      </View>
+                      <View className="bg-black/5 rounded-lg p-3">
+                        <Text className="font-inter-medium">
+                          + Add Category
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className="font-inter-semibold text-base mt-10 mb-2">
+                      Price
+                    </Text>
+
+                    <View className="flex-col gap-2 p-2">
+                      <View className="bg-black/5 rounded-lg p-3 border-[1px] border-black/10">
+                        <Text className="font-inter-medium">
+                          ₱ 1,000.00
+                        </Text>
+                      </View>
+                      <View className="bg-black/5 flex-row rounded-lg gap-2 p-3">
+                        <Text className="text-center font-inter-semibold">
+                          ₱
+                        </Text>
+                        <TextInput
+                          className="font-inter-medium -my-2.5 text-black"
+                          placeholder="Enter Price"
+                          placeholderTextColor="rgba(0,0,0,0.3)"
+                          keyboardType="numeric"
+                          inputMode="numeric"
+                        />
+                      </View>
+                    </View>
+                  </View>
                 </View>
 
-                <View className="flex-row justify-between">
+                <View className="flex-row justify-between gap-3">
                   <Pressable
                     onPress={() => setEditingItem(null)}
-                    className="bg-black/5 rounded-lg p-4"
+                    className="flex-1 rounded-md p-4 border-[1.5px] border-black/90"
                   >
-                    <Text className="font-inter-semibold">
+                    <Text className="font-inter-semibold text-center">
                       Cancel
                     </Text>
                   </Pressable>
 
-                  <Pressable className="bg-white rounded-lg p-4">
-                    <Text className="font-inter-semibold">
-                      Done
+                  <Pressable className="bg-blue-600 flex-1 rounded-lg p-4">
+                    <Text className="font-inter-semibold text-center text-white">
+                      Save Changes
                     </Text>
                   </Pressable>
                 </View>
