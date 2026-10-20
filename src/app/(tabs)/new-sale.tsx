@@ -18,6 +18,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useCart } from '../context/CartContext';
 import { router } from 'expo-router'
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import Funnel from "lucide-react-native/icons/funnel";
+import Search from "lucide-react-native/icons/search";
 
 export default function NewSale() {
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -85,30 +88,45 @@ export default function NewSale() {
       <View className="flex-1 px-5 pt-7">
 
         <View className="mb-5 flex-row items-center justify-between">
-          <View className="h-5 w-5 bg-black/20" />
+          <Pressable
+            onPress={() => router.back()}
+            className="h-5 w-5 items-center justify-center"
+          >
+            <ChevronLeft size={20} color="#000000" />
+          </Pressable>
 
           <Text className="font-inter-semibold text-lg">
             New Sale
           </Text>
 
-          <View className="h-5 w-5 bg-black/20" />
+          <View className="h-5 w-5 items-center justify-center">
+            <Funnel size={20} color="#000000" />
+          </View>
         </View>
 
         <Animated.View
           style={[searchBarStyle, { overflow: 'hidden' }]}
         >
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search parts..."
-            placeholderTextColor="#666666"
-            selectionColor="#000000"
-            style={{
-              fontFamily: 'Inter',
-              fontWeight: '400',
-            }}
-            className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white px-3 font-inter-regular"
-          />
+          <View className="justify-center">
+            <View
+              pointerEvents="none"
+              className="absolute left-3 z-10"
+            >
+              <Search size={18} color="#666666" />
+            </View>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search parts..."
+              placeholderTextColor="#666666"
+              selectionColor="#000000"
+              style={{
+                fontFamily: 'Inter',
+                fontWeight: '400',
+              }}
+              className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-3 font-inter-regular"
+            />
+          </View>
         </Animated.View>
 
         <View className="flex-1">
@@ -246,7 +264,10 @@ export default function NewSale() {
             </Text>
 
             <View className="ml-auto flex-row gap-3">
-              <Pressable className="ml-auto bg-black rounded-lg py-2 px-2">
+              <Pressable
+                onPress={() => router.push('/cart')}
+                className="ml-auto bg-black rounded-lg py-2 px-2
+              ">
                 <Text className="text-white text-sm font-inter-semibold"
                 >
                   Cart</Text>

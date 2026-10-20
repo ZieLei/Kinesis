@@ -3,6 +3,10 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { useCart } from "./context/CartContext"
 import { useState } from "react";
 import { router } from 'expo-router'
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import Funnel from "lucide-react-native/icons/funnel";
+import Banknote from "lucide-react-native/icons/banknote";
+import Smartphone from "lucide-react-native/icons/smartphone";
 
 export default function Checkout() {
   const { total } = useCart();
@@ -16,13 +20,20 @@ export default function Checkout() {
       <View className="flex-1 px-5 pt-7">
 
         <View className="mb-5 flex-row items-center justify-between">
-          <View className="h-5 w-5 bg-black/20" />
+          <Pressable
+            onPress={() => router.back()}
+            className="h-5 w-5 items-center justify-center"
+          >
+            <ChevronLeft size={20} color="#000000" />
+          </Pressable>
 
           <Text className="font-inter-semibold text-lg">
             New Sale
           </Text>
 
-          <View className="h-5 w-5 bg-black/20" />
+          <View className="h-5 w-5 items-center justify-center">
+            <Funnel size={20} color="#000000" />
+          </View>
         </View>
 
         <View className="py-5 flex-col mb-10">
@@ -45,7 +56,9 @@ export default function Checkout() {
               : 'border-black/20'
               }`}
           >
-            <View className="h-20 w-20 bg-black/10" />
+            <View className="h-20 w-20 items-center justify-center bg-black/10">
+              <Banknote size={40} color="#000000" />
+            </View>
 
             <Text className="text-center font-inter-semibold text-black/80">
               CASH
@@ -59,7 +72,9 @@ export default function Checkout() {
               : 'border-black/20'
               }`}
           >
-            <View className="h-20 w-20 bg-black/10" />
+            <View className="h-20 w-20 items-center justify-center bg-black/10">
+              <Smartphone size={40} color="#05008E" />
+            </View>
 
             <Text className="text-center font-inter-semibold text-[#05008E]">
               GCASH

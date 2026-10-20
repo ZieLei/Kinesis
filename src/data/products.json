@@ -4,349 +4,999 @@
     "name": "Brake Pads",
     "category": "Brakes",
     "price": 450,
-    "stock": 12
+    "stock": 12,
+    "sold": 34,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 2,
     "name": "Brake Shoes",
     "category": "Brakes",
     "price": 380,
-    "stock": 8
+    "stock": 8,
+    "sold": 21,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 3,
     "name": "Brake Fluid 500ml",
     "category": "Brakes",
     "price": 220,
-    "stock": 15
+    "stock": 15,
+    "sold": 42,
+    "inCart": true,
+    "image": null
   },
   {
     "id": 4,
     "name": "Brake Master Cylinder",
     "category": "Brakes",
     "price": 1250,
-    "stock": 4
+    "stock": 4,
+    "sold": 8,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 5,
     "name": "Brake Lever",
     "category": "Brakes",
     "price": 280,
-    "stock": 10
+    "stock": 10,
+    "sold": 27,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 6,
     "name": "Brake Caliper",
     "category": "Brakes",
     "price": 1850,
-    "stock": 3
+    "stock": 3,
+    "sold": 5,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 7,
     "name": "Spark Plug",
     "category": "Engine",
     "price": 180,
-    "stock": 25
+    "stock": 25,
+    "sold": 56,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 8,
     "name": "Oil Filter",
     "category": "Engine",
     "price": 250,
-    "stock": 18
+    "stock": 18,
+    "sold": 39,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 9,
     "name": "Air Filter",
     "category": "Engine",
     "price": 420,
-    "stock": 9
+    "stock": 9,
+    "sold": 24,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 10,
     "name": "Engine Oil 1L",
     "category": "Engine",
     "price": 350,
-    "stock": 20
+    "stock": 20,
+    "sold": 63,
+    "inCart": true,
+    "image": null
   },
   {
     "id": 11,
     "name": "Engine Oil 800ml",
     "category": "Engine",
     "price": 290,
-    "stock": 14
+    "stock": 14,
+    "sold": 47,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 12,
     "name": "Piston Ring Set",
     "category": "Engine",
     "price": 780,
-    "stock": 5
+    "stock": 5,
+    "sold": 9,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 13,
     "name": "Clutch Plate Set",
     "category": "Engine",
     "price": 1450,
-    "stock": 6
+    "stock": 6,
+    "sold": 12,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 14,
     "name": "Cylinder Head Gasket",
     "category": "Engine",
     "price": 520,
-    "stock": 7
+    "stock": 7,
+    "sold": 15,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 15,
     "name": "Motorcycle Battery",
     "category": "Electrical",
     "price": 1850,
-    "stock": 6
+    "stock": 6,
+    "sold": 11,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 16,
     "name": "LED Headlight Bulb",
     "category": "Electrical",
     "price": 650,
-    "stock": 12
+    "stock": 12,
+    "sold": 29,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 17,
     "name": "Turn Signal Relay",
     "category": "Electrical",
     "price": 320,
-    "stock": 8
+    "stock": 8,
+    "sold": 17,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 18,
     "name": "Horn",
     "category": "Electrical",
     "price": 280,
-    "stock": 10
+    "stock": 10,
+    "sold": 23,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 19,
     "name": "Ignition Coil",
     "category": "Electrical",
     "price": 550,
-    "stock": 5
+    "stock": 5,
+    "sold": 8,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 20,
     "name": "Fuse Set",
     "category": "Electrical",
     "price": 120,
-    "stock": 30
+    "stock": 30,
+    "sold": 45,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 21,
     "name": "17-inch Front Tire",
     "category": "Tires",
     "price": 2100,
-    "stock": 7
+    "stock": 7,
+    "sold": 13,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 22,
     "name": "17-inch Rear Tire",
     "category": "Tires",
     "price": 2450,
-    "stock": 5
+    "stock": 5,
+    "sold": 10,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 23,
     "name": "Tire Inner Tube",
     "category": "Tires",
     "price": 280,
-    "stock": 16
+    "stock": 16,
+    "sold": 31,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 24,
     "name": "Tubeless Tire Valve",
     "category": "Tires",
     "price": 150,
-    "stock": 20
+    "stock": 20,
+    "sold": 36,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 25,
     "name": "Wheel Bearing",
     "category": "Tires",
     "price": 380,
-    "stock": 11
+    "stock": 11,
+    "sold": 22,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 26,
     "name": "Chain and Sprocket Set",
     "category": "Drivetrain",
     "price": 1650,
-    "stock": 6
+    "stock": 6,
+    "sold": 14,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 27,
     "name": "Drive Chain",
     "category": "Drivetrain",
     "price": 850,
-    "stock": 9
+    "stock": 9,
+    "sold": 19,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 28,
     "name": "Front Sprocket",
     "category": "Drivetrain",
     "price": 320,
-    "stock": 12
+    "stock": 12,
+    "sold": 25,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 29,
     "name": "Rear Sprocket",
     "category": "Drivetrain",
     "price": 680,
-    "stock": 8
+    "stock": 8,
+    "sold": 16,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 30,
     "name": "Clutch Cable",
     "category": "Drivetrain",
     "price": 240,
-    "stock": 14
+    "stock": 14,
+    "sold": 28,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 31,
     "name": "Throttle Cable",
     "category": "Drivetrain",
     "price": 260,
-    "stock": 10
+    "stock": 10,
+    "sold": 20,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 32,
     "name": "Side Mirror Pair",
     "category": "Accessories",
     "price": 580,
-    "stock": 9
+    "stock": 9,
+    "sold": 18,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 33,
     "name": "Motorcycle Phone Holder",
     "category": "Accessories",
     "price": 450,
-    "stock": 13
+    "stock": 13,
+    "sold": 32,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 34,
     "name": "Handlebar Grips",
     "category": "Accessories",
     "price": 280,
-    "stock": 15
+    "stock": 15,
+    "sold": 38,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 35,
     "name": "Motorcycle Cover",
     "category": "Accessories",
     "price": 650,
-    "stock": 7
+    "stock": 7,
+    "sold": 12,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 36,
     "name": "USB Charging Port",
     "category": "Accessories",
     "price": 380,
-    "stock": 8
+    "stock": 8,
+    "sold": 17,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 37,
     "name": "Rear Shock Absorber",
     "category": "Suspension",
     "price": 2200,
-    "stock": 4
+    "stock": 4,
+    "sold": 7,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 38,
     "name": "Front Fork Seal",
     "category": "Suspension",
     "price": 450,
-    "stock": 9
+    "stock": 9,
+    "sold": 16,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 39,
     "name": "Fork Oil 500ml",
     "category": "Suspension",
     "price": 320,
-    "stock": 12
+    "stock": 12,
+    "sold": 21,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 40,
     "name": "Swingarm Bushing",
     "category": "Suspension",
     "price": 580,
-    "stock": 6
+    "stock": 6,
+    "sold": 9,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 41,
     "name": "Handlebar",
     "category": "Body Parts",
     "price": 850,
-    "stock": 5
+    "stock": 5,
+    "sold": 11,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 42,
     "name": "Footrest Set",
     "category": "Body Parts",
     "price": 620,
-    "stock": 8
+    "stock": 8,
+    "sold": 14,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 43,
     "name": "Motorcycle Seat Cover",
     "category": "Body Parts",
     "price": 480,
-    "stock": 10
+    "stock": 10,
+    "sold": 19,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 44,
     "name": "Front Fender",
     "category": "Body Parts",
     "price": 950,
-    "stock": 3
+    "stock": 3,
+    "sold": 6,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 45,
     "name": "Side Stand",
     "category": "Body Parts",
     "price": 550,
-    "stock": 6
+    "stock": 6,
+    "sold": 10,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 46,
     "name": "Chain Lubricant",
     "category": "Maintenance",
     "price": 380,
-    "stock": 18
+    "stock": 18,
+    "sold": 35,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 47,
     "name": "Contact Cleaner",
     "category": "Maintenance",
     "price": 280,
-    "stock": 14
+    "stock": 14,
+    "sold": 26,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 48,
     "name": "Multi-Purpose Grease",
     "category": "Maintenance",
     "price": 220,
-    "stock": 20
+    "stock": 20,
+    "sold": 30,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 49,
     "name": "Microfiber Cleaning Cloth",
     "category": "Maintenance",
     "price": 100,
-    "stock": 25
+    "stock": 25,
+    "sold": 48,
+    "inCart": false,
+    "image": null
   },
   {
     "id": 50,
     "name": "Motorcycle Wash Shampoo",
     "category": "Maintenance",
     "price": 350,
-    "stock": 11
+    "stock": 11,
+    "sold": 23,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 51,
+    "name": "Brake Shoe Spring",
+    "category": "Brakes",
+    "price": 90,
+    "stock": 18,
+    "sold": 20,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 52,
+    "name": "Brake Disc Rotor",
+    "category": "Brakes",
+    "price": 1350,
+    "stock": 5,
+    "sold": 7,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 53,
+    "name": "Brake Master Cylinder Repair Kit",
+    "category": "Brakes",
+    "price": 320,
+    "stock": 8,
+    "sold": 13,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 54,
+    "name": "Brake Hose",
+    "category": "Brakes",
+    "price": 480,
+    "stock": 10,
+    "sold": 15,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 55,
+    "name": "Brake Light Switch",
+    "category": "Brakes",
+    "price": 180,
+    "stock": 12,
+    "sold": 22,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 56,
+    "name": "Cylinder Block",
+    "category": "Engine",
+    "price": 2850,
+    "stock": 3,
+    "sold": 4,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 57,
+    "name": "Piston Kit",
+    "category": "Engine",
+    "price": 980,
+    "stock": 6,
+    "sold": 10,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 58,
+    "name": "Camshaft",
+    "category": "Engine",
+    "price": 1250,
+    "stock": 4,
+    "sold": 6,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 59,
+    "name": "Timing Chain",
+    "category": "Engine",
+    "price": 420,
+    "stock": 9,
+    "sold": 16,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 60,
+    "name": "Rocker Arm Set",
+    "category": "Engine",
+    "price": 680,
+    "stock": 7,
+    "sold": 12,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 61,
+    "name": "Starter Motor",
+    "category": "Electrical",
+    "price": 1450,
+    "stock": 4,
+    "sold": 6,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 62,
+    "name": "Rectifier Regulator",
+    "category": "Electrical",
+    "price": 780,
+    "stock": 6,
+    "sold": 11,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 63,
+    "name": "Stator Coil",
+    "category": "Electrical",
+    "price": 1100,
+    "stock": 5,
+    "sold": 8,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 64,
+    "name": "Ignition Switch",
+    "category": "Electrical",
+    "price": 420,
+    "stock": 9,
+    "sold": 17,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 65,
+    "name": "Battery Charger",
+    "category": "Electrical",
+    "price": 950,
+    "stock": 6,
+    "sold": 9,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 66,
+    "name": "14-inch Front Tire",
+    "category": "Tires",
+    "price": 1850,
+    "stock": 6,
+    "sold": 10,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 67,
+    "name": "14-inch Rear Tire",
+    "category": "Tires",
+    "price": 2200,
+    "stock": 5,
+    "sold": 8,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 68,
+    "name": "Tire Patch Kit",
+    "category": "Tires",
+    "price": 120,
+    "stock": 20,
+    "sold": 33,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 69,
+    "name": "Tire Lever Set",
+    "category": "Tires",
+    "price": 250,
+    "stock": 14,
+    "sold": 24,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 70,
+    "name": "Wheel Spoke Set",
+    "category": "Tires",
+    "price": 480,
+    "stock": 10,
+    "sold": 15,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 71,
+    "name": "Chain Adjuster Pair",
+    "category": "Drivetrain",
+    "price": 180,
+    "stock": 12,
+    "sold": 19,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 72,
+    "name": "Clutch Cable Adjuster",
+    "category": "Drivetrain",
+    "price": 110,
+    "stock": 16,
+    "sold": 25,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 73,
+    "name": "Clutch Lever",
+    "category": "Drivetrain",
+    "price": 260,
+    "stock": 10,
+    "sold": 18,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 74,
+    "name": "Gear Shift Pedal",
+    "category": "Drivetrain",
+    "price": 380,
+    "stock": 8,
+    "sold": 13,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 75,
+    "name": "Drive Belt",
+    "category": "Drivetrain",
+    "price": 780,
+    "stock": 7,
+    "sold": 11,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 76,
+    "name": "Helmet Lock",
+    "category": "Accessories",
+    "price": 220,
+    "stock": 12,
+    "sold": 21,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 77,
+    "name": "Cargo Net",
+    "category": "Accessories",
+    "price": 150,
+    "stock": 18,
+    "sold": 29,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 78,
+    "name": "Handlebar Phone Mount",
+    "category": "Accessories",
+    "price": 520,
+    "stock": 9,
+    "sold": 20,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 79,
+    "name": "Motorcycle Top Box",
+    "category": "Accessories",
+    "price": 1850,
+    "stock": 4,
+    "sold": 6,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 80,
+    "name": "Reflective Sticker Set",
+    "category": "Accessories",
+    "price": 130,
+    "stock": 20,
+    "sold": 31,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 81,
+    "name": "Front Fork Assembly",
+    "category": "Suspension",
+    "price": 3200,
+    "stock": 2,
+    "sold": 3,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 82,
+    "name": "Rear Shock Bushing",
+    "category": "Suspension",
+    "price": 160,
+    "stock": 12,
+    "sold": 18,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 83,
+    "name": "Fork Dust Seal",
+    "category": "Suspension",
+    "price": 220,
+    "stock": 10,
+    "sold": 16,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 84,
+    "name": "Steering Bearing Set",
+    "category": "Suspension",
+    "price": 580,
+    "stock": 7,
+    "sold": 10,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 85,
+    "name": "Rear Shock Mount Bolt",
+    "category": "Suspension",
+    "price": 120,
+    "stock": 15,
+    "sold": 23,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 86,
+    "name": "Fuel Tank Cap",
+    "category": "Body Parts",
+    "price": 350,
+    "stock": 8,
+    "sold": 12,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 87,
+    "name": "Side Cover Panel",
+    "category": "Body Parts",
+    "price": 780,
+    "stock": 4,
+    "sold": 6,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 88,
+    "name": "Rear Fender",
+    "category": "Body Parts",
+    "price": 850,
+    "stock": 5,
+    "sold": 8,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 89,
+    "name": "Seat Lock Assembly",
+    "category": "Body Parts",
+    "price": 420,
+    "stock": 7,
+    "sold": 11,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 90,
+    "name": "Footrest Rubber",
+    "category": "Body Parts",
+    "price": 140,
+    "stock": 14,
+    "sold": 24,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 91,
+    "name": "Engine Degreaser",
+    "category": "Maintenance",
+    "price": 320,
+    "stock": 13,
+    "sold": 22,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 92,
+    "name": "Carburetor Cleaner",
+    "category": "Maintenance",
+    "price": 280,
+    "stock": 15,
+    "sold": 27,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 93,
+    "name": "Threadlocker",
+    "category": "Maintenance",
+    "price": 190,
+    "stock": 12,
+    "sold": 18,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 94,
+    "name": "Air Pump",
+    "category": "Maintenance",
+    "price": 650,
+    "stock": 6,
+    "sold": 9,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 95,
+    "name": "Tool Kit",
+    "category": "Maintenance",
+    "price": 580,
+    "stock": 8,
+    "sold": 14,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 96,
+    "name": "Carburetor Assembly",
+    "category": "Fuel System",
+    "price": 1650,
+    "stock": 4,
+    "sold": 7,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 97,
+    "name": "Fuel Filter",
+    "category": "Fuel System",
+    "price": 120,
+    "stock": 20,
+    "sold": 32,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 98,
+    "name": "Fuel Hose",
+    "category": "Fuel System",
+    "price": 150,
+    "stock": 18,
+    "sold": 26,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 99,
+    "name": "Carburetor Float",
+    "category": "Fuel System",
+    "price": 280,
+    "stock": 9,
+    "sold": 13,
+    "inCart": false,
+    "image": null
+  },
+  {
+    "id": 100,
+    "name": "Fuel Petcock Valve",
+    "category": "Fuel System",
+    "price": 380,
+    "stock": 7,
+    "sold": 10,
+    "inCart": false,
+    "image": null
   }
 ]

@@ -1,16 +1,125 @@
-import { Tabs, TabList, TabTrigger, TabSlot } from 'expo-router/ui';
-import { Text, View, Dimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { CartProvider } from '@/app/context/CartContext';
+import {
+  Tabs,
+  TabList,
+  TabTrigger,
+  TabSlot,
+  type TabTriggerSlotProps,
+} from 'expo-router/ui';
+import { Dimensions, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { useEffect } from 'react';
+import House from "lucide-react-native/icons/house";
+import DollarSign from "lucide-react-native/icons/dollar-sign";
+import Layers from "lucide-react-native/icons/layers";
+import ChartColumn from "lucide-react-native/icons/chart-column";
 
-export default function TabLayout() {
+const tabs = [
+  {
+    name: 'dashboard',
+    href: '/dashboard',
+    label: 'HOME',
+    Icon: House,
+  },
+  {
+    name: 'new-sale',
+    href: '/new-sale',
+    label: 'SALE',
+    Icon: DollarSign,
+  },
+  {
+    name: 'stock',
+    href: '/stock',
+    label: 'STOCK',
+    Icon: Layers,
+  },
+  {
+    name: 'reports',
+    href: '/reports',
+    label: 'REPORTS',
+    Icon: ChartColumn,
+  },
+] as const;
 
-  const { width: screenWidth } = Dimensions.get("window");
+type Tab = (typeof tabs)[number];
+
+type TabButtonProps = TabTriggerSlotProps & {
+  tab: Tab;
+  screenWidth: number;
+};
+
+function AnimatedTabContent({
+  tab,
+  isFocused,
+  screenWidth,
+  ...props
+}: TabButtonProps) {
+  const progress = useSharedValue(isFocused ? 1 : 0);
+
+  useEffect(() => {
+    progress.value = withSpring(isFocused ? 1 : 0, {
+      damping: 15,
+      stiffness: 200,
+    });
+  }, [isFocused, progress]);
+
+  const iconStyle = useAnimatedStyle(() => ({
+    opacity: 0.5 + progress.value * 0.5,
+  }));
+
+  const textStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      progress.value,
+      [0, 1],
+      ['#999999', '#000000']
+    ),
+  }));
+
+  const { Icon } = tab;
 
   return (
-    <GestureHandlerRootView>
+    <Pressable
+      {...props}
+      style={{
+        flex: 1,
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}
+      android_ripple={{ color: 'transparent' }}
+    >
+      <Animated.View style={iconStyle}>
+        <Icon
+          size={22}
+          color={isFocused ? '#000000' : '#999999'}
+        />
+      </Animated.View>
+
+      <Animated.Text
+        className="mt-2"
+        style={[
+          {
+            fontSize: screenWidth * 0.03,
+            fontWeight: isFocused ? '700' : '500',
+          },
+          textStyle,
+        ]}
+      >
+        {tab.label}
+      </Animated.Text>
+    </Pressable>
+  );
+}
+
+export default function TabLayout() {
+  const { width: screenWidth } = Dimensions.get('window');
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <Tabs>
         <TabSlot style={{ flex: 1 }} />
 
@@ -19,7 +128,7 @@ export default function TabLayout() {
             flexDirection: 'row',
             alignItems: 'center',
             paddingVertical: 13,
-
+            paddingBottom: 28,
             backgroundColor: '#F5F5F5',
             borderTopWidth: 0,
             borderTopColor: 'transparent',
@@ -28,78 +137,21 @@ export default function TabLayout() {
             shadowRadius: 0,
           }}
         >
-          <TabTrigger name="dashboard" href="/dashboard" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
-            <View className="items-center">
-              <View className="aspect-square h-[20px] bg-black/20" />
-              <Text className="pt-2 font-inter-bold"
-                style={{
-                  fontSize: screenWidth * 0.03
-                }}
-              >HOME</Text>
-            </View>
-          </TabTrigger>
-
-          <TabTrigger name="cart" href="/cart" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
-            <View className="items-center">
-              <View className="aspect-square h-[20px] bg-black/20" />
-              <Text className="pt-2 font-inter-bold"
-                style={{
-                  fontSize: screenWidth * 0.03
-                }}
-              >CART</Text>
-            </View>
-          </TabTrigger>
-
-          <TabTrigger name="new-sale" href="/new-sale"
-            style={{
-              flex: 1,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-            <LinearGradient
-              colors={['#575757', '#000000']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                height: 50,
-                width: 50,
-                borderRadius: 100,
-                justifyContent: 'center',
-              }}
+          {tabs.map((tab) => (
+            <TabTrigger
+              key={tab.name}
+              name={tab.name}
+              href={tab.href}
+              asChild
             >
-              <Text className="text-white text-center font-inter-light"
-                style={{
-                  fontSize: screenWidth * 0.09,
-                  lineHeight: screenWidth * 0.09,
-                  transform: [{ translateY: -2 }],
-                }}
-              >+</Text>
-            </LinearGradient>
-          </TabTrigger>
-
-          <TabTrigger name="stock" href="/stock" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
-            <View className="items-center">
-              <View className="aspect-square h-[20px] bg-black/20" />
-              <Text className="pt-2 font-inter-bold"
-                style={{
-                  fontSize: screenWidth * 0.03
-                }}
-              >STOCK</Text>
-            </View>
-          </TabTrigger>
-
-          <TabTrigger name="reports" href="/reports" style={{ flex: 1 }} android_ripple={{ color: 'transparent' }}>
-            <View className="items-center">
-              <View className="aspect-square h-[20px] bg-black/20" />
-              <Text className="pt-2 font-inter-bold"
-                style={{
-                  fontSize: screenWidth * 0.03
-                }}
-              >REPORTS</Text>
-            </View>
-          </TabTrigger>
+              <AnimatedTabContent
+                tab={tab}
+                screenWidth={screenWidth}
+              />
+            </TabTrigger>
+          ))}
         </TabList>
-      </Tabs >
+      </Tabs>
     </GestureHandlerRootView>
   );
 }

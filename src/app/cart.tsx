@@ -1,7 +1,8 @@
 import { View, Text, Pressable, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useCart } from '../context/CartContext';
+import { useCart } from '../app/context/CartContext';
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
 
 export default function Cart() {
   const router = useRouter();
@@ -19,7 +20,12 @@ export default function Cart() {
       <View className="flex-1 pt-7 px-5">
 
         <View className="flex-row justify-between items-center mb-5">
-          <View className="h-5 w-5 bg-black/20" />
+          <Pressable
+            onPress={() => router.back()}
+            className="h-5 w-5 items-center justify-center"
+          >
+            <ChevronLeft size={20} color="#000000" />
+          </Pressable>
 
           <Text className="text-lg font-inter-semibold">
             Cart

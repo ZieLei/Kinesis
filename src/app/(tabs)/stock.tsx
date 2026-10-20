@@ -22,6 +22,12 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Host, BottomSheet, RNHostView } from "@expo/ui"
+import Pencil from "lucide-react-native/icons/pencil";
+import Trash from "lucide-react-native/icons/trash";
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import Funnel from "lucide-react-native/icons/funnel";
+import Search from "lucide-react-native/icons/search";
+import Circle from "lucide-react-native/icons/circle";
 
 import products from "@/data/products.json";
 import { useCart } from "@/app/context/CartContext";
@@ -66,6 +72,14 @@ export default function Stock() {
     });
   }, [selectedCategory, searchQuery]);
 
+  const stockStats = useMemo(() => {
+    const outOfStock = products.filter((p) => p.stock === 0).length;
+    const lowStock = products.filter((p) => p.stock > 0 && p.stock < 10).length;
+    const totalItems = products.reduce((sum, p) => sum + p.stock, 0);
+    const totalProducts = products.length;
+    return { outOfStock, lowStock, totalItems, totalProducts };
+  }, []);
+
   const scrollY = useSharedValue(0);
 
   const scrollHandler = useAnimatedScrollHandler({
@@ -84,7 +98,7 @@ export default function Stock() {
     marginBottom: interpolate(
       scrollY.value,
       [0, 100],
-      [20, 0],
+      [8, 0],
       Extrapolation.CLAMP
     ),
     opacity: interpolate(
@@ -118,51 +132,75 @@ export default function Stock() {
 
         {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
-          <View className="h-5 w-5 bg-black/20" />
+          <Pressable
+            onPress={() => router.back()}
+            className="h-5 w-5 items-center justify-center"
+          >
+            <ChevronLeft size={20} color="#000000" />
+          </Pressable>
 
           <Text className="font-inter-semibold text-lg">
             Inventory
           </Text>
 
-          <View className="h-5 w-5 bg-black/20" />
+          <View className="h-5 w-5 items-center justify-center">
+            <Funnel size={20} color="#000000" />
+          </View>
         </View>
 
         <Animated.View style={searchBarStyle}>
-          <TextInput
-            placeholder="Search parts..."
-            placeholderTextColor="#666666"
-            selectionColor="#000000"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white px-3 font-inter-regular"
-          />
+          <View className="justify-center">
+            <View
+              pointerEvents="none"
+              className="absolute left-3 z-10"
+            >
+              <Search size={18} color="#666666" />
+            </View>
+            <TextInput
+              placeholder="Search parts..."
+              placeholderTextColor="#666666"
+              selectionColor="#000000"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-3 font-inter-regular"
+            />
+          </View>
         </Animated.View>
 
-        <View className="flex-row justify-between py-4">
-          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2">
+        <View className="flex-row flex-wrap justify-between py-4 gap-2">
+          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2" style={{ width: '48%' }}>
             <Text className="text-center font-inter-medium text-sm">
               Out of stock
             </Text>
             <Text className="text-center font-inter-semibold text-sm">
-              0
+              {stockStats.outOfStock}
             </Text>
           </View>
 
-          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2">
+          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2" style={{ width: '48%' }}>
             <Text className="text-center font-inter-medium text-sm">
               Low stock
             </Text>
             <Text className="text-center font-inter-semibold text-sm">
-              5
+              {stockStats.lowStock}
             </Text>
           </View>
 
-          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2">
+          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2" style={{ width: '48%' }}>
             <Text className="text-center font-inter-medium text-sm">
               Total items
             </Text>
             <Text className="text-center font-inter-semibold text-sm">
-              350
+              {stockStats.totalItems}
+            </Text>
+          </View>
+
+          <View className="rounded-lg border-[1px] border-black/5 bg-white p-2" style={{ width: '48%' }}>
+            <Text className="text-center font-inter-medium text-sm">
+              Total products
+            </Text>
+            <Text className="text-center font-inter-semibold text-sm">
+              {stockStats.totalProducts}
             </Text>
           </View>
         </View>
@@ -276,14 +314,14 @@ export default function Stock() {
 
                     <View className="flex-row gap-4">
                       <Pressable className="bg-white p-4 flex-row gap-2 items-center rounded-lg">
-                        <View className="rounded-3xl h-5 w-5 bg-black/20" />
+                        <Circle size={20} color="#000000" fill="none" />
                         <Text className="font-inter-semibold text-[13px]">
                           Out of stock
                         </Text>
                       </Pressable>
 
                       <Pressable className="bg-white p-4 flex-row gap-2 rounded-lg border-[1.5px] items-center border-blue-900">
-                        <View className="rounded-3xl h-5 w-5 bg-blue-900" />
+                        <Circle size={20} color="#1e3a8a" fill="#1e3a8a" />
                         <TextInput
                           className="bg-[rgba(0,0,0,0.04)] border-[1px] border-black/5 -my-2.5 rounded-md w-20 text-black"
                           placeholder="Stock"
@@ -447,22 +485,18 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
         <Pressable
           onPress={() => onEdit(item)}
           className="h-[40px] rounded-lg w-[40px] items-center justify-center bg-white/80">
-          <Text className="font-inter-semibold text-blue-800">
-            E
-          </Text>
+          <Pencil size={20} color="#1e40af" />
         </Pressable>
 
         <Pressable className="h-[40px] rounded-lg w-[40px] items-center justify-center bg-white/80">
-          <Text className="font-inter-semibold text-red-800">
-            D
-          </Text>
+          <Trash size={20} color="#dc2626" />
         </Pressable>
 
       </View>
 
       <GestureDetector gesture={gesture}>
         <Animated.View
-          style={swipeStyle}
+          style={[swipeStyle, item.stock > 0 && item.stock < 10 ? { borderLeftWidth: 4, borderLeftColor: "#fb923c" } : {}]}
           className="flex-row rounded-xl bg-white">
           <View
             className="flex-1 flex-row px-3 py-[10px]"
@@ -482,7 +516,7 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
                 })}
               </Text>
 
-              <Text className="mt-auto font-inter-medium text-sm">
+              <Text className={`mt-auto font-inter-medium text-sm ${item.stock > 0 && item.stock < 10 ? "text-orange-600" : ""}`}>
                 Stock: {item.stock}
               </Text>
             </View>

@@ -2,6 +2,11 @@ import { View, Text, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import orders from '../../data/orders.json';
+import Package from "lucide-react-native/icons/package";
+import LayoutGrid from "lucide-react-native/icons/layout-grid";
+import ShoppingCart from "lucide-react-native/icons/shopping-cart";
+import DollarSign from "lucide-react-native/icons/dollar-sign";
+import User from "lucide-react-native/icons/user";
 
 export default function Dashboard() {
   const statusStyles = {
@@ -26,7 +31,9 @@ export default function Dashboard() {
             Kinesis
           </Text>
 
-          <View className="bg-black/10 h-10 w-10 rounded-full" />
+          <View className="bg-black/10 h-10 w-10 rounded-full items-center justify-center">
+            <User size={20} color="#000000" />
+          </View>
         </View>
 
         <Text className="py-6 text-lg font-inter-medium">
@@ -66,7 +73,9 @@ export default function Dashboard() {
         <View className="flex-row py-[20px] justify-between">
           <View className="rounded-[10px] h-[149px] w-[172px] flex-col bg-white px-[15px] py-[15px]">
             <View className="flex-row items-center gap-1.5">
-              <View className="h-8 w-8 rounded-full bg-black/10" />
+              <View className="h-8 w-8 rounded-full bg-black/10 items-center justify-center">
+                <Package size={16} color="#000000" />
+              </View>
 
               <Text className="text-md font-inter-semibold">
                 Products
@@ -92,7 +101,9 @@ export default function Dashboard() {
 
           <View className="rounded-[10px] h-[149px] w-[172px] flex-col bg-white px-[15px] py-[15px]">
             <View className="flex-row items-center gap-1.5">
-              <View className="h-8 w-8 rounded-full bg-black/10" />
+              <View className="h-8 w-8 rounded-full bg-black/10 items-center justify-center">
+                <LayoutGrid size={16} color="#000000" />
+              </View>
 
               <Text className="text-md font-inter-semibold">
                 Categories
@@ -120,7 +131,9 @@ export default function Dashboard() {
         <View className="flex-row justify-between">
           <View className="rounded-[10px] h-[149px] w-[172px] flex-col bg-white px-[15px] py-[15px]">
             <View className="flex-row items-center gap-1.5">
-              <View className="h-8 w-8 rounded-full bg-black/10" />
+              <View className="h-8 w-8 rounded-full bg-black/10 items-center justify-center">
+                <ShoppingCart size={16} color="#000000" />
+              </View>
 
               <Text className="text-md font-inter-semibold">
                 Items sold
@@ -146,7 +159,9 @@ export default function Dashboard() {
 
           <View className="rounded-[10px] h-[149px] w-[172px] flex-col bg-white px-[15px] py-[15px]">
             <View className="flex-row items-center gap-1.5">
-              <View className="h-8 w-8 rounded-full bg-black/10" />
+              <View className="h-8 w-8 rounded-full bg-black/10 items-center justify-center">
+                <DollarSign size={16} color="#000000" />
+              </View>
 
               <Text className="text-md font-inter-semibold">
                 Monthly sales

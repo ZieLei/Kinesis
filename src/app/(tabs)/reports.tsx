@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { router } from "expo-router";
+import products from "@/data/products.json";
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import Download from "lucide-react-native/icons/download";
+import Funnel from "lucide-react-native/icons/funnel";
 
 export default function Reports() {
   const [selected, setSelected] = useState("sale");
@@ -24,18 +29,36 @@ export default function Reports() {
   const selectedFilter =
     filters.find((filters) => filters.value === filter)?.label;
 
+  const topProducts = useMemo(() => {
+    return [...products]
+      .sort((a, b) => b.sold - a.sold)
+      .slice(0, 5)
+      .map((product, index) => ({
+        ...product,
+        rank: index + 1,
+        change: index % 2 === 0 ? "↑0.0" + (index + 1) : "↓0.0" + (index + 1),
+      }));
+  }, []);
+
   return (
     <SafeAreaView className="flex-1 bg-[#F5F5F5]">
       <View className="flex-1 px-5 pt-7">
 
         <View className="mb-5 flex-row items-center justify-between">
-          <View className="h-5 w-5 bg-black/20" />
+          <Pressable
+            onPress={() => router.back()}
+            className="h-5 w-5 items-center justify-center"
+          >
+            <ChevronLeft size={20} color="#000000" />
+          </Pressable>
 
           <Text className="font-inter-semibold text-lg">
             Reports
           </Text>
 
-          <View className="h-5 w-5 bg-black/20" />
+          <View className="h-5 w-5 items-center justify-center">
+            <Download size={20} color="#000000" />
+          </View>
         </View>
 
         <View className="flex-row justify-center gap-4 rounded-md border-[1px] border-black/5 bg-white p-2">
@@ -296,7 +319,9 @@ export default function Reports() {
                   </Text>
 
                   <View className="flex-row items-center gap-3">
-                    <View className="w-7 h-7 items-center justify-center rounded-md bg-black/10" />
+                    <View className="h-7 w-7 items-center justify-center rounded-md bg-black/10">
+                      <Funnel size={14} color="#000000" />
+                    </View>
 
                     <Pressable className="rounded-md bg-black/10 px-2 py-2">
                       <Text
@@ -309,13 +334,7 @@ export default function Reports() {
                   </View>
                 </View>
 
-                {[
-                  { name: "Air Filter", price: "₱ 300.00", pcs: 234, change: "↑0.04", rank: 1 },
-                  { name: "Brake Pads", price: "₱ 450.00", pcs: 189, change: "↑0.02", rank: 2 },
-                  { name: "Spark Plug", price: "₱ 150.00", pcs: 156, change: "↑0.01", rank: 3 },
-                  { name: "Engine Oil", price: "₱ 550.00", pcs: 120, change: "↑0.03", rank: 4 },
-                  { name: "Chain Set", price: "₱ 800.00", pcs: 98, change: "↓0.01", rank: 5 },
-                ].map((product) => (
+                {topProducts.map((product) => (
                   <View
                     key={product.rank}
                     className={`bg-white rounded-lg flex-row m-2 ${product.rank === 1
@@ -338,13 +357,16 @@ export default function Reports() {
                       </Text>
 
                       <Text className="font-inter-semibold text-sm text-black/50">
-                        {product.price}
+                        ₱{product.price.toLocaleString('en-PH', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </Text>
                     </View>
 
                     <View className="justify-between ml-auto mr-3 my-3 items-end">
                       <Text className="font-inter-semibold">
-                        {product.pcs} pcs
+                        {product.sold} pcs
                       </Text>
 
                       <Text
