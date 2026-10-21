@@ -167,7 +167,7 @@ export default function Stock() {
           </View>
         </Animated.View>
 
-        <View className="flex-row flex-wrap justify-between py-4 gap-2">
+        <View className="flex-row flex-wrap justify-between pb-4 gap-2">
           <View className="rounded-lg border-[1px] border-black/5 bg-white p-2" style={{ width: '48%' }}>
             <Text className="text-center font-inter-medium text-sm">
               Out of stock
@@ -207,7 +207,7 @@ export default function Stock() {
 
         <View className="flex-1">
 
-          <Text className="font-inter-semibold text-base text-black/80">
+          <Text className="font-inter-semibold text-lg pb-2 text-black/80">
             Categories
           </Text>
 
@@ -496,7 +496,15 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
 
       <GestureDetector gesture={gesture}>
         <Animated.View
-          style={[swipeStyle, item.stock > 0 && item.stock < 10 ? { borderLeftWidth: 4, borderLeftColor: "#fb923c" } : {}]}
+
+          style={[
+            swipeStyle,
+            item.stock === 0
+              ? { borderLeftWidth: 4, borderLeftColor: "#ef4444" }
+              : item.stock < 10
+                ? { borderLeftWidth: 4, borderLeftColor: "#e8b900" }
+                : {},
+          ]}
           className="flex-row rounded-xl bg-white">
           <View
             className="flex-1 flex-row px-3 py-[10px]"
@@ -516,7 +524,15 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
                 })}
               </Text>
 
-              <Text className={`mt-auto font-inter-medium text-sm ${item.stock > 0 && item.stock < 10 ? "text-orange-600" : ""}`}>
+
+              <Text
+                className={`mt-auto font-inter-semibold text-sm ${item.stock === 0
+                  ? "text-red-800"
+                  : item.stock < 10
+                    ? "text-yellow-400"
+                    : "text-black"
+                  }`}
+              >
                 Stock: {item.stock}
               </Text>
             </View>

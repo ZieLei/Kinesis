@@ -7,6 +7,7 @@ import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Funnel from "lucide-react-native/icons/funnel";
 import Banknote from "lucide-react-native/icons/banknote";
 import Smartphone from "lucide-react-native/icons/smartphone";
+import GCashLogo from "@/assets/images/gcash-seeklogo-2.svg";
 
 export default function Checkout() {
   const { total } = useCart();
@@ -31,9 +32,7 @@ export default function Checkout() {
             New Sale
           </Text>
 
-          <View className="h-5 w-5 items-center justify-center">
-            <Funnel size={20} color="#000000" />
-          </View>
+          <View className="h-5 w-5" />
         </View>
 
         <View className="py-5 flex-col mb-10">
@@ -56,7 +55,7 @@ export default function Checkout() {
               : 'border-black/20'
               }`}
           >
-            <View className="h-20 w-20 items-center justify-center bg-black/10">
+            <View className="h-20 w-20 items-center justify-center">
               <Banknote size={40} color="#000000" />
             </View>
 
@@ -72,8 +71,8 @@ export default function Checkout() {
               : 'border-black/20'
               }`}
           >
-            <View className="h-20 w-20 items-center justify-center bg-black/10">
-              <Smartphone size={40} color="#05008E" />
+            <View className="h-20 w-20 items-center justify-center">
+              <GCashLogo width={60} height={60} />
             </View>
 
             <Text className="text-center font-inter-semibold text-[#05008E]">
