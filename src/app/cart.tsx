@@ -63,26 +63,23 @@ export default function Cart() {
                   })}
                 </Text>
 
-                <View className="flex-row bg-white items-center justify-between w-15 px-2 py-1 rounded-md border-[1px] border-black/5 mt-auto">
-
+                <View
+                  className="mt-auto self-start flex-row items-center justify-between rounded-md border-[1px] border-black/5 bg-white px-2 py-1"
+                  style={{ width: 90 }}
+                >
                   <Pressable
                     className="h-5 w-5 items-center justify-center"
                     onPress={() => decreaseQuantity(item.id)}
                   >
                     <Text
                       className="text-base font-inter-semibold"
-                      style={{
-                        transform: [{ translateY: -1 }],
-                      }}
+                      style={{ transform: [{ translateY: -1 }] }}
                     >
                       −
                     </Text>
                   </Pressable>
 
-                  <Text
-                    className="px-2 text-base font-inter-regular"
-                    selectable={false}
-                  >
+                  <Text className="text-base font-inter-regular" selectable={false}>
                     {item.quantity}
                   </Text>
 
@@ -93,14 +90,11 @@ export default function Cart() {
                     <Text
                       className="text-base font-inter-semibold"
                       selectable={false}
-                      style={{
-                        transform: [{ translateY: -1 }],
-                      }}
+                      style={{ transform: [{ translateY: -1 }] }}
                     >
                       +
                     </Text>
                   </Pressable>
-
                 </View>
               </View>
 
@@ -108,13 +102,11 @@ export default function Cart() {
 
                 <Pressable
                   onPress={() => removeFromCart(item.id)}
-                  className="bg-black/3 items-center justify-center w-6 h-6 ml-auto py-1 px-2 rounded-md border-[1px] border-black/10"
+                  className="ml-auto h-6 w-6 items-center justify-center rounded-md border-[1px] border-black/10 bg-black/3"
                 >
                   <Text
-                    className="text-black/70 text-base font-inter-medium"
-                    style={{
-                      transform: [{ translateY: -1 }],
-                    }}
+                    className="text-base font-inter-medium text-black/70"
+                    style={{ transform: [{ translateY: -1 }] }}
                   >
                     ×
                   </Text>
