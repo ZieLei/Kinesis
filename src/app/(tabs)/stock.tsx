@@ -130,13 +130,12 @@ export default function Stock() {
     <SafeAreaView className="flex-1 bg-[#F5F5F5]">
       <View className="flex-1 px-5 pt-7">
 
-        {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
             className="h-5 w-5 items-center justify-center"
           >
-            <ChevronLeft size={20} color="#000000" />
+            <ChevronLeft size={22} color="#000000" />
           </Pressable>
 
           <Text className="font-inter-semibold text-lg">
@@ -144,7 +143,6 @@ export default function Stock() {
           </Text>
 
           <View className="h-5 w-5 items-center justify-center">
-            <Funnel size={20} color="#000000" />
           </View>
         </View>
 

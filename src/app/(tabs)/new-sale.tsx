@@ -21,6 +21,7 @@ import { router } from 'expo-router'
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Funnel from "lucide-react-native/icons/funnel";
 import Search from "lucide-react-native/icons/search";
+import Camera from "lucide-react-native/icons/focus";
 
 export default function NewSale() {
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -92,7 +93,7 @@ export default function NewSale() {
             onPress={() => router.back()}
             className="h-5 w-5 items-center justify-center"
           >
-            <ChevronLeft size={20} color="#000000" />
+            <ChevronLeft size={22} color="#000000" />
           </Pressable>
 
           <Text className="font-inter-semibold text-lg">
@@ -100,7 +101,7 @@ export default function NewSale() {
           </Text>
 
           <View className="h-5 w-5 items-center justify-center">
-            <Funnel size={20} color="#000000" />
+            <Camera size={22} color="#000000" />
           </View>
         </View>
 

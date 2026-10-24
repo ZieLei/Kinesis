@@ -11,6 +11,8 @@ import ShoppingCart from 'lucide-react-native/icons/shopping-cart';
 import DollarSign from 'lucide-react-native/icons/dollar-sign';
 import User from 'lucide-react-native/icons/user';
 
+import { useRouter } from 'expo-router';
+
 type Transaction = {
   id: number;
   date: string;
@@ -133,6 +135,7 @@ const statusStyles = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
   const stats = useMemo(() => {
     const now = new Date();
     const today = startOfDay(now);
@@ -440,7 +443,7 @@ export default function Dashboard() {
             <Pressable
               className="ml-auto rounded-md bg-black/10 px-2 py-2"
               onPress={() => {
-                // e connect sa view all para sa transactions (wala pani ron)
+                router.push('/transactions')
               }}
             >
               <Text
