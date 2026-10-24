@@ -10,6 +10,11 @@ import {
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 
+import FilterModal, {
+  type FilterSection,
+  type FilterValues,
+} from "@/components/modals/FilterModal";
+
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ChevronsLeft from "lucide-react-native/icons/chevrons-left";
@@ -35,15 +40,92 @@ export default function ProductPerformance() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<FilterValues>({
+    sold: ["all"],
+  });
+
+  const filterSections = useMemo<FilterSection[]>(() => {
+    const categories = [
+      ...new Set(products.map((product) => product.category)),
+    ]
+      .filter(Boolean)
+      .sort();
+
+    return [
+      {
+        key: "category",
+        title: "Category",
+        type: "multiple",
+        options: categories.map((category) => ({
+          label: category,
+          value: category,
+        })),
+      },
+      {
+        key: "soldRange",
+        title: "Units Sold",
+        type: "single",
+        options: [
+          { label: "Any amount", value: "all" },
+          { label: "1–10 pcs", value: "1-10" },
+          { label: "11–50 pcs", value: "11-50" },
+          { label: "51+ pcs", value: "51+" },
+          { label: "Not yet sold", value: "zero" },
+        ],
+      },
+    ];
+  }, []);
+
   const filteredProducts = useMemo(() => {
+    const selectedCategories = activeFilters.category ?? [];
+    const selectedSoldRange = activeFilters.soldRange?.[0];
+
     return [...products]
-      .sort((a, b) => b.sold - a.sold)
-      .filter((product) =>
-        product.name
+      .filter((product) => {
+        const matchesSearch = product.name
           .toLowerCase()
-          .includes(searchQuery.trim().toLowerCase()),
-      );
-  }, [searchQuery]);
+          .includes(searchQuery.trim().toLowerCase());
+
+        const matchesCategory =
+          selectedCategories.length === 0 ||
+          selectedCategories.includes(product.category);
+
+        let matchesSoldRange = true;
+
+        switch (selectedSoldRange) {
+          case "1-10":
+            matchesSoldRange =
+              product.sold >= 1 && product.sold <= 10;
+            break;
+
+          case "11-50":
+            matchesSoldRange =
+              product.sold >= 11 && product.sold <= 50;
+            break;
+
+          case "51+":
+            matchesSoldRange = product.sold >= 51;
+            break;
+
+          case "zero":
+            matchesSoldRange = product.sold === 0;
+            break;
+
+          case "all":
+          default:
+            matchesSoldRange = true;
+            break;
+        }
+
+        return (
+          matchesSearch &&
+          matchesCategory &&
+          matchesSoldRange
+        );
+      })
+      .sort((a, b) => b.sold - a.sold);
+  }, [searchQuery, activeFilters]);
 
   const totalPages = Math.max(
     1,
@@ -80,9 +162,31 @@ export default function ProductPerformance() {
     setCurrentPage(1);
   };
 
+  const handleApplyFilters = (values: FilterValues) => {
+    setActiveFilters(values);
+    setCurrentPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setActiveFilters({});
+    setCurrentPage(1);
+  };
+
+  const activeFilterCount = Object.entries(activeFilters).reduce(
+    (total, [key, values]) => {
+      if (key === "soldRange" && values.includes("all")) {
+        return total;
+      }
+
+      return total + values.length;
+    },
+    0,
+  );
+
   return (
     <SafeAreaView className="flex-1 bg-[#F5F5F5]">
       <View className="flex-1 px-5 pt-7">
+        {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
@@ -98,6 +202,7 @@ export default function ProductPerformance() {
           <View className="h-8 w-8" />
         </View>
 
+        {/* Search and filter */}
         <View className="mb-3 justify-center">
           <View
             pointerEvents="none"
@@ -113,18 +218,31 @@ export default function ProductPerformance() {
             value={searchQuery}
             onChangeText={handleSearch}
             autoCapitalize="none"
-            className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-3 font-inter-regular"
+            className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-12 font-inter-regular"
           />
 
-          <View
-            pointerEvents="none"
-            className="absolute right-3 z-10">
+          <Pressable
+            onPress={() => setFilterVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Filter products"
+            className="absolute right-2 z-10 h-9 min-w-9 flex-row items-center justify-center rounded-md px-1"
+          >
+            <Funnel
+              size={18}
+              color={activeFilterCount > 0 ? "#000000" : "#666666"}
+            />
 
-            <Funnel size={18} color="#666666" />
-
-          </View>
+            {activeFilterCount > 0 && (
+              <View className="ml-1 h-5 min-w-5 items-center justify-center rounded-full bg-black px-1">
+                <Text className="font-inter-semibold text-xs text-white">
+                  {activeFilterCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
         </View>
 
+        {/* Result count */}
         <View className="mb-2 flex-row items-center justify-between">
           <Text className="font-inter-medium text-sm text-black/50">
             {filteredProducts.length} products found
@@ -135,6 +253,7 @@ export default function ProductPerformance() {
           </Text>
         </View>
 
+        {/* Product list */}
         <ScrollView
           className="flex-1"
           showsVerticalScrollIndicator={false}
@@ -174,14 +293,12 @@ export default function ProductPerformance() {
                       "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                   }}
                 >
-                  {/* Product image placeholder */}
-                  <View className="m-2 h-20 w-20 rounded-lg bg-black/10 items-center justify-center">
+                  <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-black/10">
                     <Text className="font-inter-medium text-xs text-black/30">
                       No image
                     </Text>
                   </View>
 
-                  {/* Product details */}
                   <View className="my-3 mx-1 flex-1 justify-between">
                     <Text
                       numberOfLines={2}
@@ -195,13 +312,14 @@ export default function ProductPerformance() {
                     </Text>
                   </View>
 
-                  {/* Performance */}
                   <View className="my-3 mr-3 items-end justify-between">
                     <Text className="font-inter-semibold text-sm">
                       {number(product.sold)} pcs
                     </Text>
 
-                    <Text className={`font-inter-semibold text-sm ${rankText}`}>
+                    <Text
+                      className={`font-inter-semibold text-sm ${rankText}`}
+                    >
                       Rank #{rank}
                     </Text>
                   </View>
@@ -217,7 +335,7 @@ export default function ProductPerformance() {
               </Text>
 
               <Text className="mt-1 text-sm text-black/50">
-                Try searching for a different part.
+                Try changing your search or filters.
               </Text>
             </View>
           )}
@@ -227,7 +345,6 @@ export default function ProductPerformance() {
         {filteredProducts.length > 0 && (
           <View className="flex-row items-center justify-center border-t border-black/5 py-4">
             <View className="w-full flex-row items-center justify-center gap-1.5">
-              {/* First page */}
               <Pressable
                 onPress={() => setCurrentPage(1)}
                 disabled={safePage === 1}
@@ -240,7 +357,6 @@ export default function ProductPerformance() {
                 />
               </Pressable>
 
-              {/* Previous page */}
               <Pressable
                 onPress={() =>
                   setCurrentPage((page) => Math.max(1, page - 1))
@@ -255,7 +371,6 @@ export default function ProductPerformance() {
                 />
               </Pressable>
 
-              {/* Page numbers */}
               {pageNumbers.map((page) => (
                 <Pressable
                   key={page}
@@ -274,7 +389,6 @@ export default function ProductPerformance() {
                 </Pressable>
               ))}
 
-              {/* Next page */}
               <Pressable
                 onPress={() =>
                   setCurrentPage((page) =>
@@ -293,7 +407,6 @@ export default function ProductPerformance() {
                 />
               </Pressable>
 
-              {/* Last page */}
               <Pressable
                 onPress={() => setCurrentPage(totalPages)}
                 disabled={safePage === totalPages}
@@ -317,6 +430,17 @@ export default function ProductPerformance() {
           </Text>
         )}
       </View>
+
+      {/* Reusable filter modal */}
+      <FilterModal
+        visible={filterVisible}
+        title="Filter Products"
+        sections={filterSections}
+        initialValues={activeFilters}
+        onClose={() => setFilterVisible(false)}
+        onApply={handleApplyFilters}
+        onReset={handleResetFilters}
+      />
     </SafeAreaView>
   );
 }
