@@ -367,7 +367,9 @@ export default function Reports() {
                       <Funnel size={14} color="#000000" />
                     </View>
 
-                    <Pressable className="rounded-md bg-black/10 px-2 py-2">
+                    <Pressable
+                      onPress={() => router.push('/product-performance')}
+                      className="rounded-md bg-black/10 px-2 py-2">
                       <Text className="text-xs font-inter-bold">
                         View All
                       </Text>
