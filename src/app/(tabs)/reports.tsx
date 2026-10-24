@@ -387,7 +387,7 @@ export default function Reports() {
                         : product.rank === 3
                           ? "border-amber-700"
                           : "border-transparent"
-                      } ${product.rank <= 3 ? "border-b-4" : ""}`}
+                      } ${product.rank <= 3 ? "border-[1px]" : ""}`}
                     style={{
                       boxShadow:
                         "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
