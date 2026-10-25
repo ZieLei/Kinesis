@@ -12,11 +12,11 @@ export default function TopbarButtonProps({
   return (
     <button
       onClick={onClick}
-      className={`p-2 rounded-md transition-colors duration-200 ${active ? "bg-white shadow-sm" : "hover:bg-black/10"
+      className={`p-2 rounded-md transition-colors duration-200 ${active ? "bg-ctp-surface0 shadow-sm border border-ctp-surface1" : "hover:bg-ctp-surface2/30"
         }`}
     >
       <span
-        className={`font-inter font-medium text-sm ${active ? "text-black" : "text-black/60"
+        className={`font-inter font-medium text-sm ${active ? "text-ctp-text" : "text-ctp-subtext0"
           }`}
       >
         {children}
