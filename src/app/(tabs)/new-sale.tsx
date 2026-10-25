@@ -24,6 +24,8 @@ import Camera from 'lucide-react-native/icons/focus';
 
 import { styledIcon } from '@/components/StyledIcon';
 
+import { useColorScheme } from "nativewind";
+
 const ChevronLeftIcon = styledIcon(ChevronLeft);
 const SearchIcon = styledIcon(Search);
 const CameraIcon = styledIcon(Camera);
@@ -31,6 +33,8 @@ const CameraIcon = styledIcon(Camera);
 export default function NewSale() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
 
   const { addToCart, items, decreaseQuantity, total } = useCart();
 
@@ -143,13 +147,9 @@ export default function NewSale() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search parts..."
-              placeholderTextColor="#A6ADC8"
-              selectionColor="#89B4FA"
-              style={{
-                fontFamily: 'Inter',
-                fontWeight: '400',
-              }}
-              className="h-[42px] w-full rounded-md border border-ctp-surface2 bg-ctp-mantle pl-10 pr-3 text-ctp-text"
+              placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+              selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+              className="h-[42px] font-inter-regular w-full rounded-md border-[1.5px] border-ctp-surface2 bg-ctp-mantle pl-10 pr-3 text-ctp-text"
             />
           </View>
         </Animated.View>
@@ -174,14 +174,14 @@ export default function NewSale() {
                   key={category}
                   onPress={() => setSelectedCategory(category)}
                   className={`self-start rounded-full px-3 py-[8px] ${isSelected
-                      ? 'bg-ctp-surface1'
-                      : 'bg-transparent'
+                    ? 'bg-ctp-surface1'
+                    : 'bg-transparent'
                     }`}
                 >
                   <Text
                     className={`font-inter-semibold text-base ${isSelected
-                        ? 'text-ctp-text'
-                        : 'text-ctp-subtext0'
+                      ? 'text-ctp-text'
+                      : 'text-ctp-subtext0'
                       }`}
                   >
                     {category}
@@ -278,7 +278,7 @@ export default function NewSale() {
 
           {/* Bottom checkout bar */}
           <View
-            className="-mx-5 flex-row items-center rounded-tl-lg rounded-tr-lg border-t border-ctp-surface0 bg-ctp-mantle px-5 py-5"
+            className="-mx-5 flex-row items-center rounded-tl-lg rounded-tr-lg border-t border-l border-r border-ctp-surface0 bg-ctp-mantle px-5 py-4"
             style={{
               boxShadow: '0px -4px 10px 1px rgba(0, 0, 0, 0.05)',
               zIndex: 0,

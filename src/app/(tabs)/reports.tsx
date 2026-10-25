@@ -214,7 +214,7 @@ export default function Reports() {
 
             <View className="h-3 flex-1 overflow-hidden rounded-full bg-ctp-surface0">
               <View
-                className="h-3 rounded-full bg-ctp-overlay1"
+                className="h-3 rounded-full bg-ctp-overlay0"
                 style={{
                   width: `${(previous / maxValue) * 100}%`,
                 }}
@@ -229,8 +229,8 @@ export default function Reports() {
 
         <View
           className={`self-start rounded-2xl border px-3 py-1 ${positive
-              ? "border-ctp-green/50 bg-ctp-green/15"
-              : "border-ctp-red/50 bg-ctp-red/15"
+            ? "border-ctp-green/50 bg-ctp-green/15"
+            : "border-ctp-red/50 bg-ctp-red/15"
             }`}
         >
           <Text
@@ -288,14 +288,14 @@ export default function Reports() {
                 setOpen(null);
               }}
               className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab
-                  ? "bg-ctp-blue"
-                  : "bg-ctp-mantle"
+                ? "bg-ctp-blue"
+                : "bg-ctp-mantle"
                 }`}
             >
               <Text
                 className={`font-inter-medium text-base ${selected === tab
-                    ? "text-ctp-crust"
-                    : "text-ctp-text"
+                  ? "text-ctp-crust"
+                  : "text-ctp-text"
                   }`}
               >
                 {tab === "sale" ? "Sale" : "Product"}
@@ -401,17 +401,16 @@ export default function Reports() {
                 {topProducts.map((product) => (
                   <View
                     key={product.rank}
-                    className={`m-2 flex-row rounded-lg bg-ctp-base ${product.rank === 1
-                        ? "border-ctp-yellow"
-                        : product.rank === 2
-                          ? "border-ctp-overlay1"
-                          : product.rank === 3
-                            ? "border-ctp-peach"
-                            : "border-transparent"
-                      } ${product.rank <= 3 ? "border-[1px]" : ""}`}
+                    className={`m-2 flex-row rounded-lg border-[1.5px] bg-ctp-base ${product.rank === 1
+                      ? "border-ctp-yellow"
+                      : product.rank === 2
+                        ? "border-ctp-rosewater/60"
+                        : product.rank === 3
+                          ? "border-ctp-peach/90"
+                          : "border-transparent"
+                      }`}
                     style={{
-                      boxShadow:
-                        "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
+                      boxShadow: "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                     }}
                   >
                     <View className="m-2 h-20 w-20 rounded-lg bg-ctp-surface0" />
@@ -433,8 +432,8 @@ export default function Reports() {
 
                       <Text
                         className={`font-inter-semibold ${product.change.startsWith("↑")
-                            ? "text-ctp-green"
-                            : "text-ctp-red"
+                          ? "text-ctp-green"
+                          : "text-ctp-red"
                           }`}
                       >
                         {product.change}
