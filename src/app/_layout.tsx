@@ -1,16 +1,17 @@
-import { DarkTheme, DefaultTheme, ThemeProvider, Slot } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { DarkTheme, DefaultTheme, ThemeProvider, Slot } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { View } from "react-native";
+import { useColorScheme } from "nativewind";
 import "../../global.css";
-import { useFonts } from 'expo-font';
-import { CartProvider } from '@/app/context/CartContext';
-
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { useFonts } from "expo-font";
+import { CartProvider } from "@/app/context/CartContext";
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { latte, mocha } from "@/theme";
 
 SplashScreen.preventAutoHideAsync();
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
+  const { colorScheme } = useColorScheme();
 
   const [fontsLoaded] = useFonts({
     FredokaOne: require("../../assets/fonts/FredokaOne-Regular.ttf"),
@@ -28,12 +29,22 @@ export default function TabLayout() {
   if (!fontsLoaded) {
     return null;
   }
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <CartProvider>
-        <AnimatedSplashOverlay />
-        <Slot />
-      </CartProvider>
+    <ThemeProvider
+      value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+    >
+      <View
+        style={[
+          { flex: 1 },
+          colorScheme === "dark" ? mocha : latte,
+        ]}
+      >
+        <CartProvider>
+          <AnimatedSplashOverlay />
+          <Slot />
+        </CartProvider>
+      </View>
     </ThemeProvider>
   );
 }

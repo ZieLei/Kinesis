@@ -1,4 +1,3 @@
-
 import { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,6 +7,12 @@ import dashboardData from "@/data/dashboard-data.json";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Download from "lucide-react-native/icons/download";
 import Funnel from "lucide-react-native/icons/funnel";
+import { styledIcon } from "@/components/StyledIcon";
+import { useColorScheme } from "nativewind";
+
+const StyledChevronLeft = styledIcon(ChevronLeft);
+const StyledDownload = styledIcon(Download);
+const StyledFunnel = styledIcon(Funnel);
 
 const options = [
   { label: "Daily", value: "daily" },
@@ -37,6 +42,9 @@ function monthKey(date: Date) {
 }
 
 export default function Reports() {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+
   const [selected, setSelected] = useState<"sale" | "product">("sale");
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("monthly");
@@ -120,16 +128,16 @@ export default function Reports() {
         onPress={() =>
           setOpen(open === "period" ? null : "period")
         }
-        className="h-11 w-[130px] flex-row items-center justify-between rounded-md border border-black/10 bg-white px-3"
+        className="h-11 w-[130px] flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-mantle px-3"
       >
-        <Text className="font-inter-medium text-black">
+        <Text className="font-inter-medium text-ctp-text">
           {selectedLabel}
         </Text>
-        <Text className="text-black">▼</Text>
+        <Text className="text-ctp-subtext0">▼</Text>
       </Pressable>
 
       {open === "period" && (
-        <View className="absolute right-0 top-12 z-50 w-[150px] rounded-xl border border-black/10 bg-white p-1">
+        <View className="absolute right-0 top-12 z-50 w-[150px] rounded-xl border border-ctp-surface0 bg-ctp-mantle p-1">
           {options.map((option) => (
             <Pressable
               key={option.value}
@@ -139,7 +147,7 @@ export default function Reports() {
               }}
               className="rounded-lg px-3 py-3"
             >
-              <Text className="font-inter-medium text-black">
+              <Text className="font-inter-medium text-ctp-text">
                 {option.label}
               </Text>
             </Pressable>
@@ -168,52 +176,52 @@ export default function Reports() {
     const positive = change === null ? current > 0 : change >= 0;
 
     return (
-      <View className="gap-3 rounded-md bg-white p-3">
+      <View className="gap-3 rounded-md bg-ctp-mantle p-3">
         <View className="flex-row justify-between gap-3">
-          <Text className="flex-1 font-inter-semibold">
+          <Text className="flex-1 font-inter-semibold text-ctp-text">
             {title}
           </Text>
 
-          <Text className="font-inter-semibold">
+          <Text className="font-inter-semibold text-ctp-text">
             {format(total)}
           </Text>
         </View>
 
         <View className="gap-3">
           <View className="flex-row items-center gap-2">
-            <Text className="w-[90px] text-xs font-inter-medium">
+            <Text className="w-[90px] text-xs font-inter-medium text-ctp-subtext0">
               This Month
             </Text>
 
-            <View className="h-3 flex-1 overflow-hidden rounded-full bg-black/10">
+            <View className="h-3 flex-1 overflow-hidden rounded-full bg-ctp-surface0">
               <View
-                className="h-3 rounded-full bg-black/80"
+                className="h-3 rounded-full bg-ctp-blue"
                 style={{
                   width: `${(current / maxValue) * 100}%`,
                 }}
               />
             </View>
 
-            <Text className="w-[75px] text-right text-xs">
+            <Text className="w-[75px] text-right text-xs text-ctp-text">
               {format(current)}
             </Text>
           </View>
 
           <View className="flex-row items-center gap-2">
-            <Text className="w-[90px] text-xs font-inter-medium">
+            <Text className="w-[90px] text-xs font-inter-medium text-ctp-subtext0">
               Last Month
             </Text>
 
-            <View className="h-3 flex-1 overflow-hidden rounded-full bg-black/10">
+            <View className="h-3 flex-1 overflow-hidden rounded-full bg-ctp-surface0">
               <View
-                className="h-3 rounded-full bg-black/40"
+                className="h-3 rounded-full bg-ctp-overlay1"
                 style={{
                   width: `${(previous / maxValue) * 100}%`,
                 }}
               />
             </View>
 
-            <Text className="w-[75px] text-right text-xs">
+            <Text className="w-[75px] text-right text-xs text-ctp-text">
               {format(previous)}
             </Text>
           </View>
@@ -221,12 +229,12 @@ export default function Reports() {
 
         <View
           className={`self-start rounded-2xl border px-3 py-1 ${positive
-            ? "border-green-500 bg-green-100"
-            : "border-red-500 bg-red-100"
+              ? "border-ctp-green/50 bg-ctp-green/15"
+              : "border-ctp-red/50 bg-ctp-red/15"
             }`}
         >
           <Text
-            className={`text-sm font-inter-semibold ${positive ? "text-green-700" : "text-red-700"
+            className={`text-sm font-inter-semibold ${positive ? "text-ctp-green" : "text-ctp-red"
               }`}
           >
             {change === null
@@ -241,7 +249,7 @@ export default function Reports() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F5F5]">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
@@ -249,10 +257,13 @@ export default function Reports() {
             onPress={() => router.back()}
             className="h-8 w-8 items-center justify-center"
           >
-            <ChevronLeft size={22} color="#000000" />
+            <StyledChevronLeft
+              size={22}
+              className="text-ctp-text"
+            />
           </Pressable>
 
-          <Text className="font-inter-semibold text-lg">
+          <Text className="font-inter-semibold text-lg text-ctp-text">
             Reports
           </Text>
 
@@ -261,11 +272,14 @@ export default function Reports() {
             className="h-8 w-8 items-center justify-center"
             accessibilityLabel="Report options"
           >
-            <Download size={22} color="#000000" />
+            <StyledDownload
+              size={22}
+              className="text-ctp-text"
+            />
           </Pressable>
         </View>
 
-        <View className="flex-row justify-center gap-4 rounded-md border border-black/5 bg-white p-2">
+        <View className="flex-row justify-center gap-4 rounded-md border border-ctp-surface0 bg-ctp-mantle p-2">
           {(["sale", "product"] as const).map((tab) => (
             <Pressable
               key={tab}
@@ -273,11 +287,15 @@ export default function Reports() {
                 setSelected(tab);
                 setOpen(null);
               }}
-              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab ? "bg-blue-700" : "bg-white"
+              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab
+                  ? "bg-ctp-blue"
+                  : "bg-ctp-mantle"
                 }`}
             >
               <Text
-                className={`font-inter-medium text-base ${selected === tab ? "text-white" : "text-black"
+                className={`font-inter-medium text-base ${selected === tab
+                    ? "text-ctp-crust"
+                    : "text-ctp-text"
                   }`}
               >
                 {tab === "sale" ? "Sale" : "Product"}
@@ -292,10 +310,10 @@ export default function Reports() {
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
-              <View className="rounded-lg bg-white p-3">
+              <View className="rounded-lg bg-ctp-mantle p-3">
                 <View className="flex-row items-center justify-between pb-2">
                   <View>
-                    <Text className="font-inter-semibold text-lg">
+                    <Text className="font-inter-semibold text-lg text-ctp-text">
                       Sales Report
                     </Text>
                   </View>
@@ -303,8 +321,8 @@ export default function Reports() {
                   {renderPeriodSelector()}
                 </View>
 
-                <View className="items-center justify-center rounded-lg bg-gray-50 py-8">
-                  <Text className="font-inter-medium text-base text-black">
+                <View className="items-center justify-center rounded-lg bg-ctp-base py-8">
+                  <Text className="font-inter-medium text-base text-ctp-text">
                     GRAPH
                   </Text>
                 </View>
@@ -333,44 +351,47 @@ export default function Reports() {
                 monthlyComparison.previous.items,
                 number
               )}
-
             </ScrollView>
           ) : (
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
-              <View className="rounded-lg bg-white p-3">
+              <View className="rounded-lg bg-ctp-mantle p-3">
                 <View className="flex-row items-center justify-between pb-2">
-                  <Text className="font-inter-semibold text-lg">
+                  <Text className="font-inter-semibold text-lg text-ctp-text">
                     Top Categories
                   </Text>
 
                   {renderPeriodSelector()}
                 </View>
 
-                <View className="h-52 w-full items-center justify-center rounded-lg bg-gray-100">
-                  <Text className="text-base text-black">
+                <View className="h-52 w-full items-center justify-center rounded-lg bg-ctp-base">
+                  <Text className="text-base text-ctp-text">
                     CHART
                   </Text>
                 </View>
               </View>
 
-              <View className="rounded-lg bg-white p-3">
+              <View className="rounded-lg bg-ctp-mantle p-3">
                 <View className="flex-row items-center justify-between pb-2">
-                  <Text className="font-inter-semibold text-lg">
+                  <Text className="font-inter-semibold text-lg text-ctp-text">
                     Top Products
                   </Text>
 
                   <View className="flex-row items-center gap-3">
-                    <View className="h-7 w-7 items-center justify-center rounded-md bg-black/10">
-                      <Funnel size={14} color="#000000" />
+                    <View className="h-7 w-7 items-center justify-center rounded-md bg-ctp-surface0">
+                      <StyledFunnel
+                        size={14}
+                        className="text-ctp-text"
+                      />
                     </View>
 
                     <Pressable
-                      onPress={() => router.push('/product-performance')}
-                      className="rounded-md bg-black/10 px-2 py-2">
-                      <Text className="text-xs font-inter-bold">
+                      onPress={() => router.push("/product-performance")}
+                      className="rounded-md bg-ctp-surface0 px-2 py-2"
+                    >
+                      <Text className="text-xs font-inter-bold text-ctp-text">
                         View All
                       </Text>
                     </Pressable>
@@ -380,40 +401,40 @@ export default function Reports() {
                 {topProducts.map((product) => (
                   <View
                     key={product.rank}
-                    className={`m-2 flex-row rounded-lg bg-white ${product.rank === 1
-                      ? "border-yellow-400"
-                      : product.rank === 2
-                        ? "border-gray-400"
-                        : product.rank === 3
-                          ? "border-amber-700"
-                          : "border-transparent"
+                    className={`m-2 flex-row rounded-lg bg-ctp-base ${product.rank === 1
+                        ? "border-ctp-yellow"
+                        : product.rank === 2
+                          ? "border-ctp-overlay1"
+                          : product.rank === 3
+                            ? "border-ctp-peach"
+                            : "border-transparent"
                       } ${product.rank <= 3 ? "border-[1px]" : ""}`}
                     style={{
                       boxShadow:
                         "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                     }}
                   >
-                    <View className="m-2 h-20 w-20 rounded-lg bg-black/15" />
+                    <View className="m-2 h-20 w-20 rounded-lg bg-ctp-surface0" />
 
                     <View className="my-3 mx-1 flex-1 justify-between">
-                      <Text className="font-inter-semibold text-md">
+                      <Text className="font-inter-semibold text-md text-ctp-text">
                         {product.name}
                       </Text>
 
-                      <Text className="font-inter-semibold text-sm text-black/50">
+                      <Text className="font-inter-semibold text-sm text-ctp-subtext0">
                         {money(product.price)}
                       </Text>
                     </View>
 
                     <View className="my-3 mr-3 items-end justify-between">
-                      <Text className="font-inter-semibold">
+                      <Text className="font-inter-semibold text-ctp-text">
                         {number(product.sold)} pcs
                       </Text>
 
                       <Text
                         className={`font-inter-semibold ${product.change.startsWith("↑")
-                          ? "text-green-500"
-                          : "text-red-500"
+                            ? "text-ctp-green"
+                            : "text-ctp-red"
                           }`}
                       >
                         {product.change}

@@ -1,4 +1,5 @@
 
+
 import {
   Text,
   TextInput,
@@ -10,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
 import { router } from "expo-router";
+import { useColorScheme } from "nativewind";
 import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -28,13 +30,23 @@ import Trash from "lucide-react-native/icons/trash";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Funnel from "lucide-react-native/icons/funnel";
 import Search from "lucide-react-native/icons/search";
-import Circle from "lucide-react-native/icons/circle";
+import Plus from "lucide-react-native/icons/plus";
+import X from "lucide-react-native/icons/x";
 
 import products from "@/data/products.json";
 import FilterModal, {
   FilterSection,
   FilterValues,
 } from "@/components/modals/FilterModal";
+import { styledIcon } from "@/components/StyledIcon";
+
+const StyledPencil = styledIcon(Pencil);
+const StyledTrash = styledIcon(Trash);
+const StyledChevronLeft = styledIcon(ChevronLeft);
+const StyledFunnel = styledIcon(Funnel);
+const StyledSearch = styledIcon(Search);
+const StyledPlus = styledIcon(Plus);
+const StyledX = styledIcon(X);
 
 type Product = (typeof products)[number];
 
@@ -47,6 +59,10 @@ const formatPrice = (price: number) =>
 export default function Stock() {
   const openItemId = useSharedValue<number | null>(null);
   const scrollY = useSharedValue(0);
+
+  const { width } = useWindowDimensions();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
 
   const [inventory, setInventory] = useState<Product[]>(products);
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -65,15 +81,11 @@ export default function Stock() {
   const [customPercent, setCustomPercent] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
-
-  const { width } = useWindowDimensions();
+  const [editError, setEditError] = useState("");
 
   const categories = useMemo(
-    () => [
-      "All",
-      ...new Set(inventory.map((product) => product.category)),
-    ],
-    [inventory]
+    () => ["All", ...new Set(inventory.map((product) => product.category))],
+    [inventory],
   );
 
   const filterSections: FilterSection[] = [
@@ -102,12 +114,9 @@ export default function Stock() {
     const options = activeFilters.inventoryOptions ?? [];
 
     const selectedStatus =
-      options.find((value) => value.startsWith("status:")) ??
-      "status:all";
+      options.find((value) => value.startsWith("status:")) ?? "status:all";
 
-    const selectedSort = options.find((value) =>
-      value.startsWith("sort:")
-    );
+    const selectedSort = options.find((value) => value.startsWith("sort:"));
 
     const minText = activeFilters.priceRange?.[0] ?? "";
     const maxText = activeFilters.priceRange?.[1] ?? "";
@@ -117,8 +126,7 @@ export default function Stock() {
 
     const result = inventory.filter((product) => {
       const matchesCategory =
-        selectedCategory === "All" ||
-        product.category === selectedCategory;
+        selectedCategory === "All" || product.category === selectedCategory;
 
       const matchesSearch = product.name
         .toLowerCase()
@@ -172,16 +180,16 @@ export default function Stock() {
 
   const stockStats = useMemo(() => {
     const outOfStock = inventory.filter(
-      (product) => product.stock === 0
+      (product) => product.stock === 0,
     ).length;
 
     const lowStock = inventory.filter(
-      (product) => product.stock > 0 && product.stock < 10
+      (product) => product.stock > 0 && product.stock < 10,
     ).length;
 
     const totalItems = inventory.reduce(
       (sum, product) => sum + product.stock,
-      0
+      0,
     );
 
     return {
@@ -201,27 +209,62 @@ export default function Stock() {
     setCustomPercent("");
     setNewCategory("");
     setShowNewCategory(false);
+    setEditError("");
+  };
+
+  const closeEditSheet = () => {
+    setEditingItem(null);
+    setEditError("");
+    setCustomPercent("");
+    setNewCategory("");
+    setShowNewCategory(false);
   };
 
   const applyPricePercentage = (percentage: number) => {
-    if (!editingItem) return;
+    const currentPrice = Number(editPrice);
 
-    const adjustedPrice =
-      editingItem.price * (1 + percentage / 100);
+    if (!Number.isFinite(currentPrice) || currentPrice < 0) {
+      setEditError("Enter a valid price before applying an adjustment.");
+      return;
+    }
 
-    setEditPrice(
-      Math.max(0, adjustedPrice).toFixed(2)
-    );
+    const adjustedPrice = currentPrice * (1 + percentage / 100);
+
+    setEditPrice(Math.max(0, adjustedPrice).toFixed(2));
+    setCustomPercent("");
+    setEditError("");
+  };
+
+  const applyCustomPercentage = () => {
+    const percentage = Number(customPercent);
+
+    if (
+      customPercent.trim() === "" ||
+      !Number.isFinite(percentage) ||
+      percentage < -100
+    ) {
+      setEditError("Enter a valid percentage of -100 or higher.");
+      return;
+    }
+
+    applyPricePercentage(percentage);
   };
 
   const saveProduct = () => {
     if (!editingItem) return;
 
     const name = editName.trim();
+    const category = editCategory.trim();
     const price = Number(editPrice);
     const stock = Number(editStock);
 
     if (!name) {
+      setEditError("Product name is required.");
+      return;
+    }
+
+    if (!category) {
+      setEditError("Choose or enter a category.");
       return;
     }
 
@@ -230,6 +273,7 @@ export default function Stock() {
       !Number.isFinite(price) ||
       price < 0
     ) {
+      setEditError("Enter a valid price of 0 or higher.");
       return;
     }
 
@@ -238,36 +282,39 @@ export default function Stock() {
       !Number.isInteger(stock) ||
       stock < 0
     ) {
+      setEditError("Stock must be a whole number of 0 or higher.");
       return;
     }
 
     const updatedProduct: Product = {
       ...editingItem,
       name,
-      category: editCategory,
+      category,
       price: Number(price.toFixed(2)),
       stock,
     };
 
     setInventory((previous) =>
       previous.map((product) =>
-        product.id === editingItem.id
-          ? updatedProduct
-          : product
-      )
+        product.id === editingItem.id ? updatedProduct : product,
+      ),
     );
 
-    setEditingItem(null);
+    closeEditSheet();
   };
 
   const addCategory = () => {
     const category = newCategory.trim();
 
-    if (!category) return;
+    if (!category) {
+      setEditError("Enter a category name first.");
+      return;
+    }
 
     setEditCategory(category);
     setNewCategory("");
     setShowNewCategory(false);
+    setEditError("");
   };
 
   const scrollHandler = useAnimatedScrollHandler({
@@ -281,21 +328,21 @@ export default function Stock() {
       scrollY.value,
       [0, 100],
       [50, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
     marginBottom: interpolate(
       scrollY.value,
       [0, 100],
       [8, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
     opacity: interpolate(
       scrollY.value,
       [0, 60],
       [1, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
-    overflow: "hidden",
+    overflow: "hidden" as const,
   }));
 
   const activeFilterCount = Object.entries(activeFilters).reduce(
@@ -308,22 +355,25 @@ export default function Stock() {
     },
     0,
   );
+
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F5F5]">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
-            className="h-5 w-5 items-center justify-center"
+            className="h-8 w-8 items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            <ChevronLeft size={22} color="#000000" />
+            <StyledChevronLeft size={22} className="text-ctp-text" />
           </Pressable>
 
-          <Text className="font-inter-semibold text-lg">
+          <Text className="font-inter-semibold text-lg text-ctp-text">
             Inventory
           </Text>
 
-          <View className="h-5 w-5 items-center justify-center" />
+          <View className="h-8 w-8" />
         </View>
 
         <Animated.View style={searchBarStyle}>
@@ -333,16 +383,16 @@ export default function Stock() {
                 pointerEvents="none"
                 className="absolute left-3 z-10"
               >
-                <Search size={18} color="#666666" />
+                <StyledSearch size={18} className="text-ctp-subtext0" />
               </View>
 
               <TextInput
                 placeholder="Search parts..."
-                placeholderTextColor="#666666"
-                selectionColor="#000000"
+                placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-12 font-inter-regular"
+                className="h-[42px] w-full rounded-md border-[1.5px] border-ctp-surface2 bg-ctp-mantle pl-10 pr-12 font-inter-regular text-ctp-text"
               />
 
               <Pressable
@@ -351,14 +401,18 @@ export default function Stock() {
                 accessibilityLabel="Filter products"
                 className="absolute right-2 z-10 h-9 min-w-9 flex-row items-center justify-center rounded-md px-1"
               >
-                <Funnel
+                <StyledFunnel
                   size={18}
-                  color={activeFilterCount > 0 ? "#000000" : "#666666"}
+                  className={
+                    activeFilterCount > 0
+                      ? "text-ctp-text"
+                      : "text-ctp-subtext0"
+                  }
                 />
 
                 {activeFilterCount > 0 && (
-                  <View className="ml-1 h-5 min-w-5 items-center justify-center rounded-full bg-black px-1">
-                    <Text className="font-inter-semibold text-xs text-white">
+                  <View className="ml-1 h-5 min-w-5 items-center justify-center rounded-full bg-ctp-blue px-1">
+                    <Text className="font-inter-semibold text-xs text-ctp-crust">
                       {activeFilterCount}
                     </Text>
                   </View>
@@ -377,13 +431,13 @@ export default function Stock() {
           ].map((stat) => (
             <View
               key={stat.label}
-              className="rounded-lg border-[1px] border-black/5 bg-white p-2"
+              className="rounded-lg border border-ctp-surface0 bg-ctp-mantle p-2"
               style={{ width: "48%" }}
             >
-              <Text className="text-center font-inter-medium text-sm text-black/70">
+              <Text className="text-center font-inter-medium text-sm text-ctp-subtext0">
                 {stat.label}
               </Text>
-              <Text className="text-center font-inter-bold text-base">
+              <Text className="text-center font-inter-bold text-base text-ctp-text">
                 {stat.value}
               </Text>
             </View>
@@ -391,7 +445,7 @@ export default function Stock() {
         </View>
 
         <View className="flex-1">
-          <Text className="pb-2 font-inter-semibold text-lg text-black/80">
+          <Text className="pb-2 font-inter-semibold text-lg text-ctp-text">
             Categories
           </Text>
 
@@ -406,14 +460,14 @@ export default function Stock() {
                 key={category}
                 onPress={() => setSelectedCategory(category)}
                 className={`self-start rounded-full px-3 py-[8px] ${selectedCategory === category
-                  ? "bg-black/5"
-                  : "bg-transparent"
+                    ? "bg-ctp-surface1"
+                    : "bg-transparent"
                   }`}
               >
                 <Text
                   className={`font-inter-semibold text-base ${selectedCategory === category
-                    ? "text-black"
-                    : "text-black/70"
+                      ? "text-ctp-text"
+                      : "text-ctp-subtext0"
                     }`}
                 >
                   {category}
@@ -438,7 +492,7 @@ export default function Stock() {
             )}
             ListEmptyComponent={
               <View className="items-center justify-center py-6">
-                <Text className="text-center font-inter-semibold text-base">
+                <Text className="text-center font-inter-semibold text-base text-ctp-subtext0">
                   {searchQuery.trim()
                     ? `No results matching "${searchQuery}"`
                     : "No products found"}
@@ -458,23 +512,32 @@ export default function Stock() {
           onReset={handleResetFilters}
         />
 
+        {/* Edit Product Bottom Sheet */}
         <Host style={{ position: "absolute", width }}>
           <BottomSheet
             isPresented={editingItem !== null}
-            onDismiss={() => setEditingItem(null)}
-            containerColor="#F5F5F5"
+            onDismiss={closeEditSheet}
+            containerColor={isDark ? "#1E1E2E" : "#EFF1F5"}
           >
             <RNHostView matchContents>
-              <View style={{ width }} className="px-5 pb-8 pt-5">
+              <View
+                style={{ width }}
+                className="bg-ctp-base px-5 pb-8 pt-5"
+              >
                 <View className="mb-6 flex-row items-center justify-between">
                   <Pressable
-                    onPress={() => setEditingItem(null)}
-                    className="h-9 w-9 items-center justify-center rounded-full bg-black/5"
+                    onPress={closeEditSheet}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close edit product"
+                    className="h-9 w-9 items-center justify-center rounded-full bg-ctp-surface0"
                   >
-                    <ChevronLeft size={20} color="#000000" />
+                    <StyledChevronLeft
+                      size={20}
+                      className="text-ctp-text"
+                    />
                   </Pressable>
 
-                  <Text className="font-inter-semibold text-lg">
+                  <Text className="font-inter-semibold text-lg text-ctp-text">
                     Edit Product
                   </Text>
 
@@ -486,339 +549,273 @@ export default function Stock() {
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <View className="mb-4 rounded-2xl border border-black/5 bg-white p-4">
-                    <View className="mb-3">
-                      <Text className="font-inter-semibold text-lg">
+                  <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">
+                    <View className="mb-4">
+                      <Text className="font-inter-semibold text-lg text-ctp-text">
                         Product details
                       </Text>
-                      <Text className="mt-1 font-inter-regular text-xs text-black/50">
-                        Update the information for this item.
+                      <Text className="mt-1 font-inter-regular text-xs text-ctp-subtext0">
+                        Update the product name and inventory category.
                       </Text>
                     </View>
 
-                    <Pressable
-                      className="mb-3 aspect-square w-full items-center justify-center rounded-xl bg-black/5"
-                      style={{
-                        borderWidth: 1,
-                        borderColor: "rgb(0,0,0,0.3)",
-                        borderStyle: "dashed",
-                      }}
-                    >
-                      <Text className="font-inter-medium text-sm py-8 text-black/50">
-                        Add Image
-                      </Text>
-                    </Pressable>
-
-                    <Text className="mb-2 font-inter-semibold text-sm">
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
                       Product Name
                     </Text>
                     <TextInput
                       value={editName}
-                      onChangeText={setEditName}
+                      onChangeText={(value) => {
+                        setEditName(value);
+                        setEditError("");
+                      }}
                       placeholder="Enter product name"
-                      placeholderTextColor="rgba(0,0,0,0.35)"
-                      selectionColor="#000000"
-                      className="rounded-lg border border-black/10 bg-[#F8F8F8] px-3 py-3 font-inter-medium text-black"
+                      placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                      selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                      maxLength={120}
+                      className="mb-4 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
                     />
-                  </View>
 
-                  <View className="mb-4 rounded-2xl border border-black/5 bg-white p-4">
-                    <Text className="mb-1 font-inter-semibold text-lg">
-                      Stock quantity
-                    </Text>
-                    <Text className="mb-4 font-inter-regular text-xs text-black/50">
-                      Set the available quantity for this product.
-                    </Text>
-
-                    <View className="flex-row items-center justify-between rounded-xl bg-[#F5F5F5] p-3">
-                      <Pressable
-                        onPress={() =>
-                          setEditStock((current) =>
-                            String(Math.max(0, (Number(current) || 0) - 1))
-                          )
-                        }
-                        className="h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-white"
-                      >
-                        <Text className="font-inter-semibold text-xl">−</Text>
-                      </Pressable>
-
-                      <View className="w-40 px-1">
-                        <TextInput
-                          value={editStock}
-                          onChangeText={(value) =>
-                            setEditStock(value.replace(/[^0-9]/g, ""))
-                          }
-                          keyboardType="number-pad"
-                          inputMode="numeric"
-                          selectTextOnFocus
-                          className="text-center justify-center font-inter-semibold text-2xl text-black bg-white h-13 rounded-lg border border-black/20"
-                        />
-                        <Text className="text-center font-inter-regular text-xs text-black/50">
-                          units in stock
-                        </Text>
-                      </View>
-
-                      <Pressable
-                        onPress={() =>
-                          setEditStock((current) =>
-                            String((Number(current) || 0) + 1)
-                          )
-                        }
-                        className="h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-white"
-                      >
-                        <Text className="font-inter-semibold text-xl text-black">
-                          +
-                        </Text>
-                      </Pressable>
-                    </View>
-
-                    <View className="mt-3 flex-row gap-2">
-                      <View
-                        className={`flex-1 rounded-lg p-3 ${Number(editStock) === 0
-                          ? "bg-red-50"
-                          : Number(editStock) < 10
-                            ? "bg-yellow-50"
-                            : "bg-green-50"
-                          }`}
-                      >
-                        <Text
-                          className={`text-center font-inter-semibold text-sm ${Number(editStock) === 0
-                            ? "text-red-700"
-                            : Number(editStock) < 10
-                              ? "text-yellow-800"
-                              : "text-green-800"
-                            }`}
-                        >
-                          {Number(editStock) === 0
-                            ? "Out of stock"
-                            : Number(editStock) < 10
-                              ? "Low stock"
-                              : "In stock"}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View className="mb-4 rounded-2xl border border-black/5 bg-white p-4">
-                    <Text className="mb-1 font-inter-semibold text-lg">
-                      Category
-                    </Text>
-                    <Text className="mb-3 font-inter-regular text-xs text-black/50">
-                      Choose an existing category.
-                    </Text>
-
-                    <View className="flex-row flex-wrap gap-2">
-                      {categories
-                        .filter((category) => category !== "All")
-                        .map((category) => (
-                          <Pressable
-                            key={category}
-                            onPress={() => setEditCategory(category)}
-                            className={`rounded-full border px-3 py-2 ${editCategory === category
-                              ? "border-blue-900"
-                              : "border-black/10"
-                              }`}
-                          >
-                            <Text
-                              className={`font-inter-medium text-sm ${editCategory === category
-                                ? "text-black"
-                                : "text-black"
-                                }`}
-                            >
-                              {category}
-                            </Text>
-                          </Pressable>
-                        ))}
-                    </View>
-
-                    <Pressable
-                      onPress={() => setShowNewCategory((value) => !value)}
-                      className="mt-3 self-start rounded-lg border border-dashed border-black/20 px-3 py-2"
-                    >
-                      <Text className="font-inter-semibold text-sm text-black/70">
-                        + Add category
+                    <View className="mb-2 flex-row items-center justify-between">
+                      <Text className="font-inter-semibold text-sm text-ctp-text">
+                        Category
                       </Text>
-                    </Pressable>
 
-                    {showNewCategory && (
-                      <View className="mt-3 flex-row gap-2">
+                      <Pressable
+                        onPress={() => {
+                          setShowNewCategory((previous) => !previous);
+                          setNewCategory("");
+                          setEditError("");
+                        }}
+                        className="flex-row items-center gap-1 rounded-lg px-2 py-1"
+                      >
+                        {showNewCategory ? (
+                          <StyledX size={15} className="text-ctp-subtext0" />
+                        ) : (
+                          <StyledPlus size={15} className="text-ctp-blue" />
+                        )}
+                        <Text className="font-inter-semibold text-xs text-ctp-blue">
+                          {showNewCategory ? "Cancel" : "New category"}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    {showNewCategory ? (
+                      <View className="mb-3 flex-row items-center gap-2">
                         <TextInput
                           value={newCategory}
-                          onChangeText={setNewCategory}
+                          onChangeText={(value) => {
+                            setNewCategory(value);
+                            setEditError("");
+                          }}
                           placeholder="New category name"
-                          placeholderTextColor="rgba(0,0,0,0.35)"
-                          className="flex-1 rounded-lg border border-black/10 bg-[#F8F8F8] px-3 py-2 font-inter-regular text-black"
+                          placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                          selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                          maxLength={60}
+                          className="flex-1 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-regular text-ctp-text"
                         />
                         <Pressable
                           onPress={addCategory}
-                          className="justify-center rounded-lg bg-blue-900 px-4"
+                          className="items-center justify-center rounded-lg bg-ctp-blue px-4 py-3"
                         >
-                          <Text className="font-inter-semibold text-white">
+                          <Text
+                            className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
+                              }`}
+                          >
                             Add
                           </Text>
                         </Pressable>
                       </View>
+                    ) : (
+                      <View className="mb-3 flex-row flex-wrap gap-2">
+                        {categories
+                          .filter((category) => category !== "All")
+                          .map((category) => (
+                            <Pressable
+                              key={category}
+                              onPress={() => {
+                                setEditCategory(category);
+                                setEditError("");
+                              }}
+                              className={`rounded-full border px-3 py-2 ${editCategory === category
+                                  ? "border-ctp-blue bg-ctp-blue/15"
+                                  : "border-ctp-surface2 bg-ctp-base"
+                                }`}
+                            >
+                              <Text
+                                className={`font-inter-medium text-xs ${editCategory === category
+                                    ? "text-ctp-blue"
+                                    : "text-ctp-subtext0"
+                                  }`}
+                              >
+                                {category}
+                              </Text>
+                            </Pressable>
+                          ))}
+                      </View>
                     )}
+
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                      Selected category
+                    </Text>
+                    <Text className="font-inter-medium text-sm text-ctp-subtext0">
+                      {editCategory || "No category selected"}
+                    </Text>
                   </View>
 
-                  <View className="mb-4 rounded-2xl border border-black/5 bg-white p-4">
-                    <Text className="mb-1 font-inter-semibold text-base">
-                      Price management
+                  <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">
+                    <Text className="font-inter-semibold text-lg text-ctp-text">
+                      Inventory
                     </Text>
-                    <Text className="mb-4 font-inter-regular text-xs text-black/50">
-                      Percentage changes are calculated from the original
-                      product price, not compounded.
+                    <Text className="mb-4 mt-1 font-inter-regular text-xs text-ctp-subtext0">
+                      Set the current quantity available in stock.
                     </Text>
 
-                    <View className="mb-4 rounded-xl bg-[#F5F5F5] p-3">
-                      <Text className="font-inter-regular text-xs text-black/50">
-                        Original price
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                      Stock Quantity
+                    </Text>
+                    <TextInput
+                      value={editStock}
+                      onChangeText={(value) => {
+                        setEditStock(value);
+                        setEditError("");
+                      }}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                      selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                      className="rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
+                    />
+
+                    <Text className="mt-2 font-inter-regular text-xs text-ctp-subtext0">
+                      Set to 0 when the product is out of stock.
+                    </Text>
+                  </View>
+
+                  <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">
+                    <Text className="font-inter-semibold text-lg text-ctp-text">
+                      Product pricing
+                    </Text>
+                    <Text className="mb-4 mt-1 font-inter-regular text-xs text-ctp-subtext0">
+                      Update the selling price or apply a percentage adjustment.
+                    </Text>
+
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                      Selling Price
+                    </Text>
+
+                    <View className="flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-base px-3">
+                      <Text className="mr-2 font-inter-semibold text-ctp-subtext0">
+                        ₱
                       </Text>
-                      <Text className="mt-1 font-inter-semibold text-lg">
-                        ₱{formatPrice(editingItem?.price ?? 0)}
-                      </Text>
+                      <TextInput
+                        value={editPrice}
+                        onChangeText={(value) => {
+                          setEditPrice(value);
+                          setEditError("");
+                        }}
+                        keyboardType="decimal-pad"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                        selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                        className="flex-1 py-3 font-inter-medium text-ctp-text"
+                      />
                     </View>
 
-                    <Text className="mb-2 font-inter-semibold text-sm">
-                      Quick price adjustments
+                    <Text className="mb-2 mt-5 font-inter-semibold text-sm text-ctp-text">
+                      Quick price adjustment
                     </Text>
-
-                    <View className="mb-2 flex-row gap-2">
-                      {[-10, -5, 5, 10].map((percentage) => (
+                    <View className="flex-row gap-2">
+                      {[
+                        { label: "-10%", value: -10 },
+                        { label: "-5%", value: -5 },
+                        { label: "+5%", value: 5 },
+                        { label: "+10%", value: 10 },
+                      ].map((adjustment) => (
                         <Pressable
-                          key={percentage}
-                          onPress={() => applyPricePercentage(percentage)}
-                          className={`flex-1 items-center rounded-lg border p-3 ${percentage < 0
-                            ? "border-red-100 bg-red-50"
-                            : "border-green-100 bg-green-50"
-                            }`}
+                          key={adjustment.label}
+                          onPress={() =>
+                            applyPricePercentage(adjustment.value)
+                          }
+                          className="flex-1 items-center rounded-lg border border-ctp-surface2 bg-ctp-base py-3"
                         >
                           <Text
-                            className={`font-inter-semibold text-sm ${percentage < 0
-                              ? "text-red-700"
-                              : "text-green-800"
+                            className={`font-inter-semibold text-xs ${adjustment.value < 0
+                                ? "text-ctp-red"
+                                : "text-ctp-green"
                               }`}
                           >
-                            {percentage > 0 ? "+" : ""}
-                            {percentage}%
+                            {adjustment.label}
                           </Text>
                         </Pressable>
                       ))}
                     </View>
 
-                    <View className="mb-4 flex-row gap-2">
-                      {[15, 20].map((percentage) => (
-                        <Pressable
-                          key={percentage}
-                          onPress={() => applyPricePercentage(percentage)}
-                          className="flex-1 items-center rounded-lg border border-green-100 bg-green-50 p-3"
-                        >
-                          <Text className="font-inter-semibold text-sm text-green-800">
-                            +{percentage}%
-                          </Text>
-                        </Pressable>
-                      ))}
-
-                      <Pressable
-                        onPress={() => {
-                          if (editingItem) {
-                            setEditPrice(editingItem.price.toFixed(2));
-                          }
-                        }}
-                        className="flex-1 items-center rounded-lg border border-black/10 bg-[#F8F8F8] p-3"
-                      >
-                        <Text className="font-inter-semibold text-sm">
-                          Reset
-                        </Text>
-                      </Pressable>
-                    </View>
-
-                    <Text className="mb-2 mt-2 font-inter-semibold text-sm">
-                      Custom percentage
+                    <Text className="mb-2 mt-4 font-inter-semibold text-sm text-ctp-text">
+                      Custom adjustment (%)
                     </Text>
-
-                    <View className="flex-row gap-2">
-                      <View className="flex-1 flex-row items-center rounded-lg border border-black/10 bg-[#F8F8F8] px-3">
-                        <TextInput
-                          value={customPercent}
-                          onChangeText={setCustomPercent}
-                          keyboardType="numbers-and-punctuation"
-                          inputMode="decimal"
-                          placeholder="e.g. 12 or -8"
-                          placeholderTextColor="rgba(0,0,0,0.35)"
-                          className="flex-1 py-3 font-inter-medium text-black"
-                        />
-                        <Text className="font-inter-semibold text-black/50">
-                          %
-                        </Text>
-                      </View>
-
-                      <Pressable
-                        onPress={() => {
-                          const percentage = Number(customPercent);
-
-                          if (
-                            customPercent.trim() !== "" &&
-                            Number.isFinite(percentage) &&
-                            percentage >= -100 &&
-                            editingItem
-                          ) {
-                            applyPricePercentage(percentage);
-                          }
+                    <View className="flex-row items-center gap-2">
+                      <TextInput
+                        value={customPercent}
+                        onChangeText={(value) => {
+                          setCustomPercent(value);
+                          setEditError("");
                         }}
-                        className="justify-center rounded-lg bg-blue-900 px-4"
+                        keyboardType="numbers-and-punctuation"
+                        placeholder="e.g. 12 or -5"
+                        placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                        selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                        className="flex-1 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
+                      />
+                      <Pressable
+                        onPress={applyCustomPercentage}
+                        className="rounded-lg bg-ctp-blue px-4 py-3"
                       >
-                        <Text className="font-inter-semibold text-white">
+                        <Text
+                          className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
+                            }`}
+                        >
                           Apply
                         </Text>
                       </Pressable>
                     </View>
 
-                    <Text className="mb-2 mt-5 font-inter-semibold text-sm">
-                      Final selling price
-                    </Text>
-
-                    <View className="flex-row items-center rounded-lg border border-black/10 bg-[#F8F8F8] px-3">
-                      <Text className="mr-2 font-inter-semibold text-black/60">
-                        ₱
-                      </Text>
-                      <TextInput
-                        value={editPrice}
-                        onChangeText={setEditPrice}
-                        keyboardType="decimal-pad"
-                        inputMode="decimal"
-                        placeholder="Enter price"
-                        placeholderTextColor="rgba(0,0,0,0.35)"
-                        className="flex-1 py-3 font-inter-semibold text-lg text-black"
-                      />
-                    </View>
-
                     {editPrice.trim() !== "" &&
                       Number.isFinite(Number(editPrice)) &&
                       Number(editPrice) >= 0 && (
-                        <Text className="mt-2 font-inter-regular text-xs text-black/50">
-                          Current selling price: ₱
-                          {formatPrice(Number(editPrice))}
+                        <Text className="mt-3 font-inter-regular text-xs text-ctp-subtext0">
+                          New selling price: ₱{formatPrice(Number(editPrice))}
                         </Text>
                       )}
                   </View>
+
+                  {editError ? (
+                    <View className="mb-4 rounded-xl bg-ctp-red/15 p-3">
+                      <Text className="font-inter-medium text-sm text-ctp-red">
+                        {editError}
+                      </Text>
+                    </View>
+                  ) : null}
                 </ScrollView>
 
                 <View className="mt-4 flex-row gap-3">
                   <Pressable
-                    onPress={() => setEditingItem(null)}
-                    className="flex-1 rounded-xl border border-black/20 bg-white p-4"
+                    onPress={closeEditSheet}
+                    className="flex-1 rounded-xl border border-ctp-surface2 bg-ctp-mantle p-4"
                   >
-                    <Text className="text-center font-inter-semibold">
+                    <Text className="text-center font-inter-semibold text-ctp-text">
                       Cancel
                     </Text>
                   </Pressable>
 
                   <Pressable
                     onPress={saveProduct}
-                    className="flex-1 rounded-xl bg-black p-4"
+                    className="flex-1 flex-row items-center justify-center rounded-xl bg-ctp-blue p-4"
                   >
-                    <Text className="text-center font-inter-semibold text-white">
+                    <Text
+                      className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
+                        }`}
+                    >
                       Save Changes
                     </Text>
                   </Pressable>
@@ -838,11 +835,7 @@ type StockItemProps = {
   onEdit: (item: Product) => void;
 };
 
-function StockItem({
-  item,
-  openItemId,
-  onEdit,
-}: StockItemProps) {
+function StockItem({ item, openItemId, onEdit }: StockItemProps) {
   const ACTION_WIDTH = 120;
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
@@ -854,7 +847,7 @@ function StockItem({
       if (currentId !== item.id) {
         translateX.value = withSpring(0);
       }
-    }
+    },
   );
 
   const swipeStyle = useAnimatedStyle(() => ({
@@ -884,7 +877,7 @@ function StockItem({
 
       translateX.value = Math.max(
         -ACTION_WIDTH,
-        Math.min(0, startX.value + event.translationX)
+        Math.min(0, startX.value + event.translationX),
       );
     })
     .onEnd(() => {
@@ -896,23 +889,23 @@ function StockItem({
     });
 
   return (
-    <View className="my-2 overflow-hidden rounded-xl bg-black/5">
+    <View className="my-2 overflow-hidden rounded-xl bg-ctp-surface0">
       <View className="absolute right-3 h-full flex-row items-center justify-center gap-6">
         <Pressable
           onPress={() => onEdit(item)}
           accessibilityRole="button"
           accessibilityLabel={`Edit ${item.name}`}
-          className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-white/80"
+          className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-ctp-mantle"
         >
-          <Pencil size={20} color="#1e40af" />
+          <StyledPencil size={20} className="text-ctp-blue" />
         </Pressable>
 
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Delete ${item.name}`}
-          className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-white/80"
+          className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-ctp-mantle"
         >
-          <Trash size={20} color="#dc2626" />
+          <StyledTrash size={20} className="text-ctp-red" />
         </Pressable>
       </View>
 
@@ -923,38 +916,38 @@ function StockItem({
             item.stock === 0
               ? {
                 borderWidth: 1,
-                borderColor: "#ef4444",
+                borderColor: "#F38BA8",
               }
               : item.stock < 10
                 ? {
                   borderWidth: 1,
-                  borderColor: "#e8b900",
+                  borderColor: "#F9E2AF",
                 }
                 : {
                   borderWidth: 1,
-                  borderColor: "rgba(0,0,0,0.1)",
+                  borderColor: "rgba(128, 128, 128, 0.15)",
                 },
           ]}
-          className="flex-row rounded-xl bg-white"
+          className="flex-row rounded-xl bg-ctp-mantle"
         >
           <View className="flex-1 flex-row px-3 py-[10px]">
-            <View className="h-20 w-20 rounded-lg bg-black/10" />
+            <View className="h-20 w-20 rounded-lg bg-ctp-surface0" />
 
             <View className="ml-3 flex-1">
-              <Text className="font-inter-medium text-base">
+              <Text className="font-inter-medium text-base text-ctp-text">
                 {item.name}
               </Text>
 
-              <Text className="font-inter-semibold text-sm text-black/60">
+              <Text className="font-inter-semibold text-sm text-ctp-subtext0">
                 ₱{formatPrice(item.price)}
               </Text>
 
               <Text
                 className={`mt-auto font-inter-semibold text-sm ${item.stock === 0
-                  ? "text-red-800"
-                  : item.stock < 10
-                    ? "text-yellow-600"
-                    : "text-black"
+                    ? "text-ctp-red"
+                    : item.stock < 10
+                      ? "text-ctp-yellow"
+                      : "text-ctp-text"
                   }`}
               >
                 Stock: {item.stock}
@@ -966,3 +959,4 @@ function StockItem({
     </View>
   );
 }
+

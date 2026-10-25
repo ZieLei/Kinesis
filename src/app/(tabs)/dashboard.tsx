@@ -4,14 +4,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import dashboardData from '../../data/dashboard-data.json';
 import products from '../../data/products.json';
+import { styledIcon } from '@/components/StyledIcon'
 
-import Package from 'lucide-react-native/icons/package';
-import LayoutGrid from 'lucide-react-native/icons/layout-grid';
-import ShoppingCart from 'lucide-react-native/icons/shopping-cart';
-import DollarSign from 'lucide-react-native/icons/dollar-sign';
-import User from 'lucide-react-native/icons/user';
+import { useColorScheme } from "nativewind";
+import SunIcon from "lucide-react-native/icons/sun";
+import MoonIcon from "lucide-react-native/icons/moon";
+
+import PackageIcon from "lucide-react-native/icons/package";
+import LayoutGridIcon from "lucide-react-native/icons/layout-grid";
+import ShoppingCartIcon from "lucide-react-native/icons/shopping-cart";
+import DollarSignIcon from "lucide-react-native/icons/dollar-sign";
+import UserIcon from "lucide-react-native/icons/user";
 
 import { useRouter } from 'expo-router';
+
+const Package = styledIcon(PackageIcon);
+const LayoutGrid = styledIcon(LayoutGridIcon);
+const ShoppingCart = styledIcon(ShoppingCartIcon);
+const DollarSign = styledIcon(DollarSignIcon);
+const User = styledIcon(UserIcon);
+const Sun = styledIcon(SunIcon);
+const Moon = styledIcon(MoonIcon);
 
 type Transaction = {
   id: number;
@@ -129,13 +142,20 @@ const percentageChange = (
 };
 
 const statusStyles = {
-  Confirmed: 'bg-green-100 text-green-600',
-  Pending: 'bg-yellow-100 text-yellow-600',
-  Cancelled: 'bg-red-100 text-red-600',
+  Confirmed: 'bg-ctp-green/15 text-ctp-green',
+  Pending: 'bg-ctp-peach/15 text-ctp-peach',
+  Cancelled: 'bg-ctp-red/15 text-ctp-red',
 };
 
 export default function Dashboard() {
   const router = useRouter();
+  const { colorScheme, setColorScheme } = useColorScheme();
+
+  const isDark = colorScheme === "dark";
+
+  const toggleTheme = () => {
+    setColorScheme(isDark ? "light" : "dark");
+  };
   const stats = useMemo(() => {
     const now = new Date();
     const today = startOfDay(now);
@@ -255,6 +275,7 @@ export default function Dashboard() {
     };
   }, []);
 
+  // TODO: Change Products and Categories cards to Low stock and no stock indicator cards
   const statCards = [
     {
       title: 'Products',
@@ -287,68 +308,115 @@ export default function Dashboard() {
   ];
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F5F5]">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
         className="flex-1"
         contentContainerClassName="px-5 py-7"
       >
         <View className="flex-row items-center justify-between">
           <Text
-            className="text-2xl text-black"
-            style={{ fontFamily: 'FredokaOne' }}
+            className="text-2xl text-ctp-text"
+            style={{ fontFamily: "FredokaOne" }}
           >
             Kinesis
           </Text>
 
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-black/10">
-            <User size={20} color="#000000" />
+          <View className="flex-row items-center gap-3">
+            <Pressable
+              onPress={toggleTheme}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isDark ? "Switch to light mode" : "Switch to dark mode"
+              }
+              className="h-10 flex-row items-center justify-center gap-2 rounded-full border border-ctp-surface1 bg-ctp-mantle px-3"
+            >
+              {isDark ? (
+                <Sun size={18} className="text-ctp-yellow" />
+              ) : (
+                <Moon size={18} className="text-ctp-text" />
+              )}
+
+              <Text className="text-sm font-inter-semibold text-ctp-text">
+                {isDark ? "Light" : "Dark"}
+              </Text>
+            </Pressable>
+
+            <View className="h-10 w-10 items-center justify-center rounded-full border border-ctp-surface1 bg-ctp-mantle">
+              <User size={20} className="text-ctp-text" />
+            </View>
           </View>
         </View>
-
-        <Text className="py-6 text-lg font-inter-medium">
+        <Text className="py-6 text-lg font-inter-medium text-ctp-text">
           Welcome, User!
         </Text>
+        {/* TODO: Change colors here because the catpuccin colors cant be used in style sheets and the text cant be changed becaue color changes depending on the mode*/}
+        <View className="relative min-h-[200px] overflow-hidden rounded-[10px]">
+          {!isDark ? (
+            <LinearGradient
+              colors={["#45475A", "#181825"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+              }}
+            />
+          ) : (
+            <View
+              className="absolute inset-0"
+              style={{ backgroundColor: "#dce0e8" }}
+            />
+          )}
 
-        <LinearGradient
-          colors={['#575757', '#000000']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{
-            borderRadius: 10,
-            minHeight: 200,
-            paddingHorizontal: 20,
-            paddingVertical: 15,
-          }}
-        >
-          <Text className="text-md font-inter text-white/90">
-            Today's Sales
-          </Text>
+          <View className="px-5 py-[15px]">
+            <Text
+              className={`text-md font-inter ${isDark ? "text-[#4C4F69]" : "text-white/90"
+                }`}
+            >
+              Today's Sales
+            </Text>
 
-          <Text className="my-3 text-2xl tracking-[1px] text-white font-inter-semibold">
-            {money(stats.todaySales)}
-          </Text>
+            <Text
+              className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark ? "text-[#4C4F69]" : "text-white"
+                }`}
+            >
+              {money(stats.todaySales)}
+            </Text>
 
-          <View className="flex-row items-center">
-            {stats.todayChange !== null ? (
+            <View className="flex-row items-center">
+              {stats.todayChange !== null ? (
+                <Text
+                  className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark ? "bg-ctp-surface2/30" : "bg-white"
+                    } ${stats.todayChange.startsWith("-")
+                      ? "text-[#D20F39]"
+                      : "text-[#40A02B]"
+                    }`}
+                >
+                  {stats.todayChange}
+                </Text>
+              ) : (
+                <Text
+                  className={`rounded-full px-2 py-1 text-xs font-inter-semibold ${isDark
+                    ? "bg-[#DCE0E8] text-[#4C4F69]"
+                    : "bg-white/15 text-white"
+                    }`}
+                >
+                  N/A
+                </Text>
+              )}
+
               <Text
-                className={`rounded-full bg-white px-2 py-1 text-xs font-inter-extrabold ${stats.todayChange.startsWith('-')
-                  ? 'text-red-600'
-                  : 'text-green-600'
+                className={`ml-2 font-inter ${isDark ? "text-[#6C6F85]" : "text-white/80"
                   }`}
               >
-                {stats.todayChange}
+                From the same day last week.
               </Text>
-            ) : (
-              <Text className="rounded-full bg-white/15 px-2 py-1 text-xs text-white font-inter-semibold">
-                N/A
-              </Text>
-            )}
-
-            <Text className="ml-2 font-inter text-white/80">
-              From the same day last week.
-            </Text>
+            </View>
           </View>
-        </LinearGradient>
+        </View>
 
         <View className="flex-row justify-between py-[20px]">
           {statCards.slice(0, 2).map((card) => {
@@ -357,27 +425,27 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className="h-[149px] w-[48%] flex-col rounded-[10px] bg-white px-[15px] py-[15px]"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"} `}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon size={20} color="#000000" />
+                    <Icon size={20} className="text-ctp-text" />
                   </View>
 
-                  <Text className="text-md font-inter-semibold">
+                  <Text className="text-md font-inter-semibold text-ctp-text">
                     {card.title}
                   </Text>
                 </View>
 
                 <View className="flex-row items-center justify-between py-5">
-                  <Text className="text-xl font-inter-bold">
+                  <Text className="text-xl font-inter-bold text-ctp-text">
                     {card.value}
                   </Text>
                 </View>
 
-                <View className="-mx-[15px] h-[1px] bg-black/5" />
+                <View className="-mx-[15px] h-[1px] bg-ctp-surface2/15" />
 
-                <Text className="mt-auto text-xs text-black/30 font-inter-medium">
+                <Text className="mt-auto text-xs text-ctp-text/50 font-inter-medium">
                   {card.subtitle}
                 </Text>
               </View>
@@ -392,21 +460,21 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className="h-[149px] w-[48%] flex-col rounded-[10px] bg-white px-[15px] py-[15px]"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"} `}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon size={20} color="#000000" />
+                    <Icon size={20} className="text-ctp-text" />
                   </View>
 
-                  <Text className="text-md font-inter-semibold">
+                  <Text className="text-md font-inter-semibold text-ctp-text">
                     {card.title}
                   </Text>
                 </View>
 
                 <View className="flex-row items-center justify-between py-5">
                   <Text
-                    className="text-xl font-inter-bold"
+                    className="text-xl font-inter-bold text-ctp-text"
                     numberOfLines={1}
                   >
                     {card.value}
@@ -415,8 +483,8 @@ export default function Dashboard() {
                   {card.change !== null && (
                     <Text
                       className={`rounded-full px-2 py-1 text-xs font-inter-bold ${card.change.startsWith('-')
-                        ? 'bg-red-100 text-red-600'
-                        : 'bg-green-200/50 text-green-600'
+                        ? 'bg-ctp-red/15 text-ctp-red'
+                        : 'bg-ctp-green/15 text-ctp-green'
                         }`}
                     >
                       {card.change}
@@ -424,9 +492,9 @@ export default function Dashboard() {
                   )}
                 </View>
 
-                <View className="-mx-[15px] h-[1px] bg-black/5" />
+                <View className="-mx-[15px] h-[1px] bg-ctp-surface2/15" />
 
-                <Text className="mt-auto text-xs text-black/30 font-inter-medium">
+                <Text className="mt-auto text-xs text-ctp-text/50 font-inter-medium">
                   {card.subtitle}
                 </Text>
               </View>
@@ -434,20 +502,20 @@ export default function Dashboard() {
           })}
         </View>
 
-        <View className="mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] bg-white px-5 py-4">
+        <View className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark ? "bg-ctp-surface0" : "bg-white"}`}>
           <View className="mb-3 flex-row items-center">
-            <Text className="text-lg text-black font-inter-medium">
+            <Text className="text-lg text-ctp-text font-inter-medium">
               Recent Transactions
             </Text>
 
             <Pressable
-              className="ml-auto rounded-md bg-black/10 px-2 py-2"
+              className="ml-auto rounded-md bg-ctp-surface1 px-2 py-2"
               onPress={() => {
                 router.push('/transactions')
               }}
             >
               <Text
-                className="text-xs font-inter-bold"
+                className="text-xs font-inter-bold text-ctp-subtext1"
                 selectable={false}
               >
                 View All
@@ -457,7 +525,7 @@ export default function Dashboard() {
 
           {stats.recentTransactions.length === 0 ? (
             <View className="flex-1 items-center justify-center py-10">
-              <Text className="text-sm text-black/40 font-inter-medium">
+              <Text className="text-sm text-ctp-text font-inter-medium">
                 No transactions available.
               </Text>
             </View>
@@ -470,19 +538,19 @@ export default function Dashboard() {
                   key={transaction.id}
                   className="my-2 h-[70px] w-full flex-row items-center"
                 >
-                  <View className="aspect-square rounded-lg bg-black/5 p-3">
-                    <ShoppingCart size={24} color="#000000" />
+                  <View className="aspect-square rounded-lg bg-ctp-base p-3">
+                    <ShoppingCart size={24} className="text-ctp-text" />
                   </View>
 
                   <View className="ml-2 flex-1 flex-col gap-2">
                     <Text
-                      className="text-base text-black font-inter-bold"
+                      className="text-base text-ctp-text font-inter-bold"
                       numberOfLines={1}
                     >
                       Order #{transaction.id}
                     </Text>
 
-                    <Text className="text-xs text-black/40 font-inter-semibold">
+                    <Text className="text-xs text-ctp-text/40 font-inter-semibold">
                       {formatTime(date)}
                       {'\n'}
                       {formatDate(date)}
@@ -491,7 +559,7 @@ export default function Dashboard() {
 
                   <View className="ml-2 items-end">
                     <Text
-                      className="mb-2 text-base font-inter-bold"
+                      className="mb-2 text-base font-inter-bold text-ctp-text"
                       numberOfLines={1}
                     >
                       {money(transaction.total)}

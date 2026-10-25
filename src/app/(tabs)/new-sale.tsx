@@ -4,7 +4,6 @@ import {
   Pressable,
   ScrollView,
   TextInput,
-  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import products from '@/data/products.json';
@@ -17,29 +16,39 @@ import Animated, {
   Extrapolation,
 } from 'react-native-reanimated';
 import { useCart } from '../context/CartContext';
-import { router } from 'expo-router'
-import ChevronLeft from "lucide-react-native/icons/chevron-left";
-import Funnel from "lucide-react-native/icons/funnel";
-import Search from "lucide-react-native/icons/search";
-import Camera from "lucide-react-native/icons/focus";
+import { router } from 'expo-router';
+
+import ChevronLeft from 'lucide-react-native/icons/chevron-left';
+import Search from 'lucide-react-native/icons/search';
+import Camera from 'lucide-react-native/icons/focus';
+
+import { styledIcon } from '@/components/StyledIcon';
+
+const ChevronLeftIcon = styledIcon(ChevronLeft);
+const SearchIcon = styledIcon(Search);
+const CameraIcon = styledIcon(Camera);
 
 export default function NewSale() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
   const { addToCart, items, decreaseQuantity, total } = useCart();
 
   const cartItemsById = useMemo(() => {
-    return new Map(items.map(item => [item.id, item]));
+    return new Map(items.map((item) => [item.id, item]));
   }, [items]);
 
-  const categories = useMemo(() => [
-    'All',
-    ...new Set(
-      products
-        .filter((product) => product.stock > 0)
-        .map((product) => product.category)
-    ),
-  ], []);
+  const categories = useMemo(
+    () => [
+      'All',
+      ...new Set(
+        products
+          .filter((product) => product.stock > 0)
+          .map((product) => product.category),
+      ),
+    ],
+    [],
+  );
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
@@ -68,43 +77,54 @@ export default function NewSale() {
       scrollY.value,
       [0, 100],
       [50, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
     marginBottom: interpolate(
       scrollY.value,
       [0, 100],
       [20, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
     opacity: interpolate(
       scrollY.value,
       [0, 60],
       [1, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
   }));
 
   return (
-    <SafeAreaView className="bg-[#F5F5F5] flex-1">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
-
+        {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
-            className="h-5 w-5 items-center justify-center"
+            className="h-8 w-8 items-center justify-center"
+            hitSlop={8}
           >
-            <ChevronLeft size={22} color="#000000" />
+            <ChevronLeftIcon
+              size={22}
+              className="text-ctp-text"
+            />
           </Pressable>
 
-          <Text className="font-inter-semibold text-lg">
+          <Text className="font-inter-semibold text-lg text-ctp-text">
             New Sale
           </Text>
 
-          <View className="h-5 w-5 items-center justify-center">
-            <Camera size={22} color="#000000" />
-          </View>
+          <Pressable
+            className="h-8 w-8 items-center justify-center"
+            accessibilityLabel="Scan product"
+          >
+            <CameraIcon
+              size={22}
+              className="text-ctp-text"
+            />
+          </Pressable>
         </View>
 
+        {/* Search */}
         <Animated.View
           style={[searchBarStyle, { overflow: 'hidden' }]}
         >
@@ -113,26 +133,30 @@ export default function NewSale() {
               pointerEvents="none"
               className="absolute left-3 z-10"
             >
-              <Search size={18} color="#666666" />
+              <SearchIcon
+                size={18}
+                className="text-ctp-subtext0"
+              />
             </View>
+
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search parts..."
-              placeholderTextColor="#666666"
-              selectionColor="#000000"
+              placeholderTextColor="#A6ADC8"
+              selectionColor="#89B4FA"
               style={{
                 fontFamily: 'Inter',
                 fontWeight: '400',
               }}
-              className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-3 font-inter-regular"
+              className="h-[42px] w-full rounded-md border border-ctp-surface2 bg-ctp-mantle pl-10 pr-3 text-ctp-text"
             />
           </View>
         </Animated.View>
 
         <View className="flex-1">
-
-          <Text className="font-inter-semibold text-base text-black/80">
+          {/* Categories */}
+          <Text className="font-inter-semibold text-base text-ctp-text">
             Categories
           </Text>
 
@@ -140,29 +164,34 @@ export default function NewSale() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerClassName="gap-2"
-            className="mt-2 mb-3 h-[40px] shrink-0"
+            className="mb-3 mt-2 h-[40px] shrink-0"
           >
-            {categories.map((category) => (
-              <Pressable
-                key={category}
-                onPress={() => setSelectedCategory(category)}
-                className={`self-start rounded-full px-3 py-[8px] ${selectedCategory === category
-                  ? 'bg-black/5'
-                  : 'bg-transparent'
-                  }`}
-              >
-                <Text
-                  className={`font-inter-semibold text-base ${selectedCategory === category
-                    ? 'text-black'
-                    : 'text-black/70'
+            {categories.map((category) => {
+              const isSelected = selectedCategory === category;
+
+              return (
+                <Pressable
+                  key={category}
+                  onPress={() => setSelectedCategory(category)}
+                  className={`self-start rounded-full px-3 py-[8px] ${isSelected
+                      ? 'bg-ctp-surface1'
+                      : 'bg-transparent'
                     }`}
                 >
-                  {category}
-                </Text>
-              </Pressable>
-            ))}
+                  <Text
+                    className={`font-inter-semibold text-base ${isSelected
+                        ? 'text-ctp-text'
+                        : 'text-ctp-subtext0'
+                      }`}
+                  >
+                    {category}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
 
+          {/* Products */}
           <Animated.FlatList
             data={filteredProducts}
             keyExtractor={(item) => item.id.toString()}
@@ -172,58 +201,61 @@ export default function NewSale() {
             contentContainerStyle={{
               paddingBottom: 24,
             }}
-
             renderItem={({ item }) => {
               const cartItem = cartItemsById.get(item.id);
 
               return (
-                <View className="my-2 flex-row rounded-xl bg-white">
+                <View className="my-2 flex-row rounded-xl border border-ctp-surface0 bg-ctp-mantle">
                   <Pressable
                     onPress={() => {
-
                       addToCart({
                         id: item.id,
                         name: item.name,
                         price: item.price,
                       });
-
                     }}
                     className="flex-1 flex-row px-3 py-[10px]"
-                    android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
+                    android_ripple={{
+                      color: 'rgba(128, 128, 128, 0.12)',
+                    }}
                   >
-                    <View className="h-20 w-20 rounded-lg bg-black/10" />
+                    {/* Product image placeholder */}
+                    <View className="h-20 w-20 rounded-lg bg-ctp-surface0" />
 
                     <View className="ml-3 flex-1">
-                      <Text className="font-inter-medium text-base">
+                      <Text className="font-inter-medium text-base text-ctp-text">
                         {item.name}
                       </Text>
 
-                      <Text className="font-inter-semibold text-sm text-black/60">
-                        ₱{item.price.toLocaleString('en-PH', {
+                      <Text className="font-inter-semibold text-sm text-ctp-subtext0">
+                        ₱
+                        {item.price.toLocaleString('en-PH', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
                       </Text>
 
-                      <Text className="mt-auto font-inter-medium text-sm">
+                      <Text className="mt-auto font-inter-medium text-sm text-ctp-subtext1">
                         Stock: {item.stock}
                       </Text>
                     </View>
                   </Pressable>
 
+                  {/* Decrease quantity */}
                   {cartItem && (
                     <Pressable
                       onPress={() => decreaseQuantity(item.id)}
-                      className="w-[60px] mt-2 mr-2 bg-white border-[1px] flex-row h-8 items-center justify-center rounded-lg border-black/20"
+                      className="mr-2 mt-2 h-8 w-[60px] flex-row items-center justify-center rounded-lg border border-ctp-surface2 bg-ctp-base"
                     >
-                      <View className="flex-row items-center gap-1 justify-evenly">
+                      <View className="flex-row items-center justify-evenly gap-1">
                         <View className="w-5">
-                          <Text className="font-inter-medium text-center">
-                            {cartItem?.quantity}
+                          <Text className="text-center font-inter-medium text-ctp-text">
+                            {cartItem.quantity}
                           </Text>
                         </View>
-                        <View className="h-8 w-8 items-center justify-center">
-                          <Text className="font-inter-medium text-center text-xl">
+
+                        <View className="h-8 w-6 items-center justify-center">
+                          <Text className="text-center font-inter-medium text-xl text-ctp-text">
                             −
                           </Text>
                         </View>
@@ -234,52 +266,56 @@ export default function NewSale() {
               );
             }}
             ListEmptyComponent={
-              <View className="items-center justify-center py-3">
-                <Text className="font-inter-semibold text-base text-center">
+              <View className="items-center justify-center py-6">
+                <Text className="text-center font-inter-semibold text-base text-ctp-subtext0">
                   {searchQuery.trim()
                     ? `No results matching "${searchQuery}"`
-                    : "No products found"
-                  }
+                    : 'No products found'}
                 </Text>
               </View>
             }
           />
 
-          <View className="flex-row bg-white items-center -mx-5 py-5 px-5 rounded-tl-lg rounded-tr-lg"
+          {/* Bottom checkout bar */}
+          <View
+            className="-mx-5 flex-row items-center rounded-tl-lg rounded-tr-lg border-t border-ctp-surface0 bg-ctp-mantle px-5 py-5"
             style={{
               boxShadow: '0px -4px 10px 1px rgba(0, 0, 0, 0.05)',
               zIndex: 0,
               elevation: 0,
             }}
           >
-            <Text className="mr-1 text-lg text-black/90 font-inter-bold">
-              Total:
-            </Text>
+            <View>
+              <Text className="mr-1 font-inter-bold text-lg text-ctp-text">
+                Total:
+              </Text>
 
-            <Text className="text-base font-inter-semibold"
-            >
-              ₱ {total.toLocaleString('en-PH', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </Text>
+              <Text className="font-inter-semibold text-base text-ctp-subtext1">
+                ₱
+                {total.toLocaleString('en-PH', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </Text>
+            </View>
 
             <View className="ml-auto flex-row gap-3">
               <Pressable
                 onPress={() => router.push('/cart')}
-                className="ml-auto bg-black rounded-lg py-2 px-2
-              ">
-                <Text className="text-white text-sm font-inter-semibold"
-                >
-                  Cart</Text>
+                className="rounded-lg bg-ctp-surface1 px-3 py-2"
+              >
+                <Text className="font-inter-semibold text-sm text-ctp-text">
+                  Cart
+                </Text>
               </Pressable>
 
               <Pressable
                 onPress={() => router.push('/checkout')}
-                className="ml-auto bg-black rounded-lg py-2 px-2">
-                <Text className="text-white text-sm font-inter-semibold"
-                >
-                  Checkout</Text>
+                className="rounded-lg bg-ctp-blue px-3 py-2"
+              >
+                <Text className="font-inter-semibold text-sm text-ctp-crust">
+                  Checkout
+                </Text>
               </Pressable>
             </View>
           </View>

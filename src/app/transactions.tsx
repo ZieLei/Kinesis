@@ -15,7 +15,15 @@ import RightArrow from 'lucide-react-native/icons/chevron-right';
 import DoubleLeftArrow from 'lucide-react-native/icons/chevrons-left';
 import DoubleRightArrow from 'lucide-react-native/icons/chevrons-right';
 
+import { styledIcon } from '@/components/StyledIcon';
 import dashboardData from '../data/dashboard-data.json';
+
+const StyledChevronLeft = styledIcon(ChevronLeft);
+const StyledShoppingCart = styledIcon(ShoppingCart);
+const StyledLeftArrow = styledIcon(LeftArrow);
+const StyledRightArrow = styledIcon(RightArrow);
+const StyledDoubleLeftArrow = styledIcon(DoubleLeftArrow);
+const StyledDoubleRightArrow = styledIcon(DoubleRightArrow);
 
 type Transaction = {
   id: number;
@@ -33,9 +41,9 @@ type Transaction = {
 const PAGE_SIZE = 10;
 
 const statusStyles: Record<Transaction['status'], string> = {
-  Confirmed: 'bg-green-100 text-green-700',
-  Pending: 'bg-yellow-100 text-yellow-700',
-  Cancelled: 'bg-red-100 text-red-700',
+  Confirmed: 'bg-ctp-green/15 text-ctp-green',
+  Pending: 'bg-ctp-yellow/15 text-ctp-yellow',
+  Cancelled: 'bg-ctp-red/15 text-ctp-red',
 };
 
 const money = (amount: number) =>
@@ -102,6 +110,7 @@ export default function Transactions() {
       return startPage + i;
     },
   );
+
   const startIndex = (currentPage - 1) * PAGE_SIZE;
 
   const paginatedTransactions = stats.recentTransactions.slice(
@@ -125,31 +134,34 @@ export default function Transactions() {
     const date = new Date(transaction.date);
 
     return (
-      <View className="my-2 h-[90px] w-full flex-row items-center rounded-xl bg-white px-3">
-        <View className="aspect-square rounded-lg bg-black/5 p-3">
-          <ShoppingCart size={24} color="#000000" />
+      <View className="my-2 h-[90px] w-full flex-row items-center rounded-xl bg-ctp-mantle px-3">
+        <View className="aspect-square rounded-lg bg-ctp-surface0 p-3">
+          <StyledShoppingCart
+            size={24}
+            className="text-ctp-subtext0"
+          />
         </View>
 
         <View className="ml-3 flex-1 justify-center gap-1">
           <Text
-            className="text-base font-inter-bold text-black"
+            className="text-base font-inter-bold text-ctp-text"
             numberOfLines={1}
           >
             Order #{transaction.id}
           </Text>
 
-          <Text className="text-xs font-inter-semibold text-black/60">
+          <Text className="text-xs font-inter-semibold text-ctp-subtext0">
             {formatDate(date)}
           </Text>
 
-          <Text className="text-xs font-inter-semibold text-black/60">
+          <Text className="text-xs font-inter-semibold text-ctp-subtext0">
             {formatTime(date)}
           </Text>
         </View>
 
         <View className="ml-2 items-end">
           <Text
-            className="mb-2 text-sm font-inter-bold text-black"
+            className="mb-2 text-sm font-inter-bold text-ctp-text"
             numberOfLines={1}
           >
             {money(transaction.total)}
@@ -167,17 +179,20 @@ export default function Transactions() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F5F5]">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
             className="h-5 w-5 items-center justify-center"
           >
-            <ChevronLeft size={20} color="#000000" />
+            <StyledChevronLeft
+              size={20}
+              className="text-ctp-text"
+            />
           </Pressable>
 
-          <Text className="text-lg font-inter-semibold">
+          <Text className="text-lg font-inter-semibold text-ctp-text">
             Transactions
           </Text>
 
@@ -185,29 +200,29 @@ export default function Transactions() {
         </View>
 
         <View className="mb-4 flex-row gap-4">
-          <View className="flex-1 rounded-xl bg-white p-2 items-center">
-            <Text className="text-xs font-inter-medium text-black/40">
+          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
+            <Text className="text-xs font-inter-medium text-ctp-subtext0">
               Total
             </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-black">
+            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
               {stats.totalTransactions}
             </Text>
           </View>
 
-          <View className="flex-1 rounded-xl bg-white p-2 items-center">
-            <Text className="text-xs font-inter-medium text-black/40">
+          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
+            <Text className="text-xs font-inter-medium text-ctp-subtext0">
               Confirmed
             </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-black">
+            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
               {stats.confirmedTransactions}
             </Text>
           </View>
 
-          <View className="flex-1 rounded-xl bg-white p-2 items-center">
-            <Text className="text-xs font-inter-medium text-black/40">
+          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
+            <Text className="text-xs font-inter-medium text-ctp-subtext0">
               Pending
             </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-black">
+            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
               {stats.pendingTransactions}
             </Text>
           </View>
@@ -223,51 +238,72 @@ export default function Transactions() {
           contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center py-10">
-              <ShoppingCart size={36} color="#A3A3A3" />
+              <StyledShoppingCart
+                size={36}
+                className="text-ctp-overlay1"
+              />
 
-              <Text className="mt-3 text-sm font-inter-medium text-black/40">
+              <Text className="mt-3 text-sm font-inter-medium text-ctp-subtext0">
                 No transactions available.
               </Text>
             </View>
           }
         />
 
-
-
         {stats.totalTransactions > 0 && (
-          <View className="flex-row items-center justify-center border-t border-black/5 py-4 pb-7">
+          <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-4 pb-7">
             <View className="w-full flex-row items-center justify-center gap-2.5">
-
               <Pressable
-                onPress={() =>
-                  setCurrentPage(1)
-                }
+                onPress={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === 1 ? 'bg-black/5' : 'bg-white'
+                className={`rounded-lg px-3 py-2.5 ${currentPage === 1
+                    ? 'bg-ctp-surface0/50'
+                    : 'bg-ctp-mantle'
                   }`}
               >
-                <DoubleLeftArrow size={20} color="#000000" />
+                <StyledDoubleLeftArrow
+                  size={20}
+                  className={
+                    currentPage === 1
+                      ? 'text-ctp-overlay1'
+                      : 'text-ctp-text'
+                  }
+                />
               </Pressable>
+
               <Pressable
                 onPress={() =>
                   setCurrentPage((page) => Math.max(1, page - 1))
                 }
                 disabled={currentPage === 1}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === 1 ? 'bg-black/5' : 'bg-white'
+                className={`rounded-lg px-3 py-2.5 ${currentPage === 1
+                    ? 'bg-ctp-surface0/50'
+                    : 'bg-ctp-mantle'
                   }`}
               >
-                <LeftArrow size={20} color="#000000" />
+                <StyledLeftArrow
+                  size={20}
+                  className={
+                    currentPage === 1
+                      ? 'text-ctp-overlay1'
+                      : 'text-ctp-text'
+                  }
+                />
               </Pressable>
 
               {pageNumbers.map((page) => (
                 <Pressable
                   key={page}
                   onPress={() => setCurrentPage(page)}
-                  className={`h-10 min-w-10 items-center justify-center rounded-lg px-2 ${currentPage === page ? 'bg-black' : 'bg-white'
+                  className={`h-10 min-w-10 items-center justify-center rounded-lg px-2 ${currentPage === page
+                      ? 'bg-ctp-blue'
+                      : 'bg-ctp-mantle'
                     }`}
                 >
                   <Text
-                    className={`text-base font-inter-bold ${currentPage === page ? 'text-white' : 'text-black/60'
+                    className={`text-base font-inter-bold ${currentPage === page
+                        ? 'text-ctp-crust'
+                        : 'text-ctp-subtext0'
                       }`}
                   >
                     {page}
@@ -282,19 +318,37 @@ export default function Transactions() {
                   )
                 }
                 disabled={currentPage >= totalPages}
-                className={`rounded-lg px-3 py-2.5 ${currentPage >= totalPages ? 'bg-black/5' : 'bg-white'
+                className={`rounded-lg px-3 py-2.5 ${currentPage >= totalPages
+                    ? 'bg-ctp-surface0/50'
+                    : 'bg-ctp-mantle'
                   }`}
               >
-                <RightArrow size={20} color="#000000" />
+                <StyledRightArrow
+                  size={20}
+                  className={
+                    currentPage >= totalPages
+                      ? 'text-ctp-overlay1'
+                      : 'text-ctp-text'
+                  }
+                />
               </Pressable>
 
               <Pressable
                 onPress={() => setCurrentPage(totalPages)}
                 disabled={currentPage === totalPages}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === totalPages ? 'bg-black/5' : 'bg-white'
+                className={`rounded-lg px-3 py-2.5 ${currentPage === totalPages
+                    ? 'bg-ctp-surface0/50'
+                    : 'bg-ctp-mantle'
                   }`}
               >
-                <DoubleRightArrow size={20} color="#000000" />
+                <StyledDoubleRightArrow
+                  size={20}
+                  className={
+                    currentPage === totalPages
+                      ? 'text-ctp-overlay1'
+                      : 'text-ctp-text'
+                  }
+                />
               </Pressable>
             </View>
           </View>

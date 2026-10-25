@@ -14,10 +14,23 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { useEffect } from 'react';
-import House from "lucide-react-native/icons/house";
-import DollarSign from "lucide-react-native/icons/dollar-sign";
-import Layers from "lucide-react-native/icons/layers";
-import ChartColumn from "lucide-react-native/icons/chart-column";
+import { useColorScheme } from 'nativewind';
+
+import { styledIcon } from '@/components/StyledIcon';
+
+import HouseIcon from 'lucide-react-native/icons/house';
+import DollarSignIcon from 'lucide-react-native/icons/dollar-sign';
+import LayersIcon from 'lucide-react-native/icons/layers';
+import ChartColumnIcon from 'lucide-react-native/icons/chart-column';
+import WrenchIcon from 'lucide-react-native/icons/wrench';
+
+const House = styledIcon(HouseIcon);
+const DollarSign = styledIcon(DollarSignIcon);
+const Layers = styledIcon(LayersIcon);
+const ChartColumn = styledIcon(ChartColumnIcon);
+const Wrench = styledIcon(WrenchIcon);
+
+// TODO: Add back-system handling for the app.
 
 const tabs = [
   {
@@ -31,6 +44,12 @@ const tabs = [
     href: '/new-sale',
     label: 'SALE',
     Icon: DollarSign,
+  },
+  {
+    name: 'services',
+    href: '/services',
+    label: 'SERVICES',
+    Icon: Wrench,
   },
   {
     name: 'stock',
@@ -51,12 +70,14 @@ type Tab = (typeof tabs)[number];
 type TabButtonProps = TabTriggerSlotProps & {
   tab: Tab;
   screenWidth: number;
+  isDark: boolean;
 };
 
 function AnimatedTabContent({
   tab,
   isFocused,
   screenWidth,
+  isDark,
   ...props
 }: TabButtonProps) {
   const progress = useSharedValue(isFocused ? 1 : 0);
@@ -76,7 +97,10 @@ function AnimatedTabContent({
     color: interpolateColor(
       progress.value,
       [0, 1],
-      ['#999999', '#000000']
+      [
+        isDark ? '#A6ADC8' : '#6C6F85', // Catppuccin subtext0
+        isDark ? '#CDD6F4' : '#4C4F69', // Catppuccin text
+      ],
     ),
   }));
 
@@ -95,7 +119,7 @@ function AnimatedTabContent({
       <Animated.View style={iconStyle}>
         <Icon
           size={22}
-          color={isFocused ? '#000000' : '#999999'}
+          className={isFocused ? 'text-ctp-text' : 'text-ctp-subtext0'}
         />
       </Animated.View>
 
@@ -117,6 +141,8 @@ function AnimatedTabContent({
 
 export default function TabLayout() {
   const { width: screenWidth } = Dimensions.get('window');
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -129,7 +155,7 @@ export default function TabLayout() {
             alignItems: 'center',
             paddingVertical: 13,
             paddingBottom: 28,
-            backgroundColor: '#F5F5F5',
+            backgroundColor: isDark ? '#1E1E2E' : '#EFF1F5',
             borderTopWidth: 0,
             borderTopColor: 'transparent',
             elevation: 0,
@@ -147,6 +173,7 @@ export default function TabLayout() {
               <AnimatedTabContent
                 tab={tab}
                 screenWidth={screenWidth}
+                isDark={isDark}
               />
             </TabTrigger>
           ))}

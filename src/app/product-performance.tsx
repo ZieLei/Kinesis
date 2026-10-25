@@ -1,4 +1,3 @@
-
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   View,
@@ -21,8 +20,17 @@ import ChevronsLeft from "lucide-react-native/icons/chevrons-left";
 import ChevronsRight from "lucide-react-native/icons/chevrons-right";
 import Search from "lucide-react-native/icons/search";
 import Funnel from "lucide-react-native/icons/funnel";
+import { styledIcon } from "@/components/StyledIcon";
+import { useColorScheme } from "nativewind";
 
 import products from "../data/products.json";
+
+const StyledChevronLeft = styledIcon(ChevronLeft);
+const StyledChevronRight = styledIcon(ChevronRight);
+const StyledChevronsLeft = styledIcon(ChevronsLeft);
+const StyledChevronsRight = styledIcon(ChevronsRight);
+const StyledSearch = styledIcon(Search);
+const StyledFunnel = styledIcon(Funnel);
 
 const ITEMS_PER_PAGE = 10;
 
@@ -36,6 +44,8 @@ const number = (value: number) => value.toLocaleString("en-PH");
 
 export default function ProductPerformance() {
   const router = useRouter();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -184,7 +194,7 @@ export default function ProductPerformance() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F5F5F5]">
+    <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
@@ -192,10 +202,13 @@ export default function ProductPerformance() {
             onPress={() => router.back()}
             className="h-8 w-8 items-center justify-center"
           >
-            <ChevronLeft size={22} color="#000000" />
+            <StyledChevronLeft
+              size={22}
+              className="text-ctp-text"
+            />
           </Pressable>
 
-          <Text className="font-inter-semibold text-lg">
+          <Text className="font-inter-semibold text-lg text-ctp-text">
             Product Performance
           </Text>
 
@@ -208,17 +221,20 @@ export default function ProductPerformance() {
             pointerEvents="none"
             className="absolute left-3 z-10"
           >
-            <Search size={18} color="#666666" />
+            <StyledSearch
+              size={18}
+              className="text-ctp-subtext0"
+            />
           </View>
 
           <TextInput
             placeholder="Search parts..."
-            placeholderTextColor="#666666"
-            selectionColor="#000000"
+            placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+            selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
             value={searchQuery}
             onChangeText={handleSearch}
             autoCapitalize="none"
-            className="h-[42px] w-full rounded-md border-[1.5px] border-black/10 bg-white pl-10 pr-12 font-inter-regular"
+            className="h-[42px] w-full rounded-md border-[1.5px] border-ctp-surface1 bg-ctp-mantle pl-10 pr-12 font-inter-regular text-ctp-text"
           />
 
           <Pressable
@@ -227,14 +243,18 @@ export default function ProductPerformance() {
             accessibilityLabel="Filter products"
             className="absolute right-2 z-10 h-9 min-w-9 flex-row items-center justify-center rounded-md px-1"
           >
-            <Funnel
+            <StyledFunnel
               size={18}
-              color={activeFilterCount > 0 ? "#000000" : "#666666"}
+              className={
+                activeFilterCount > 0
+                  ? "text-ctp-blue"
+                  : "text-ctp-subtext0"
+              }
             />
 
             {activeFilterCount > 0 && (
-              <View className="ml-1 h-5 min-w-5 items-center justify-center rounded-full bg-black px-1">
-                <Text className="font-inter-semibold text-xs text-white">
+              <View className="ml-1 h-5 min-w-5 items-center justify-center rounded-full bg-ctp-blue px-1">
+                <Text className="font-inter-semibold text-xs text-ctp-crust">
                   {activeFilterCount}
                 </Text>
               </View>
@@ -244,11 +264,11 @@ export default function ProductPerformance() {
 
         {/* Result count */}
         <View className="mb-2 flex-row items-center justify-between">
-          <Text className="font-inter-medium text-sm text-black/50">
+          <Text className="font-inter-medium text-sm text-ctp-subtext0">
             {filteredProducts.length} products found
           </Text>
 
-          <Text className="font-inter-medium text-sm text-black/50">
+          <Text className="font-inter-medium text-sm text-ctp-subtext0">
             Sorted by units sold
           </Text>
         </View>
@@ -268,33 +288,33 @@ export default function ProductPerformance() {
 
               const rankBorder =
                 rank === 1
-                  ? "border-yellow-400"
+                  ? "border-ctp-yellow"
                   : rank === 2
-                    ? "border-gray-400"
+                    ? "border-ctp-overlay1"
                     : rank === 3
-                      ? "border-amber-700"
-                      : "border-black/20";
+                      ? "border-ctp-peach"
+                      : "border-ctp-surface1";
 
               const rankText =
                 rank === 1
-                  ? "text-yellow-400"
+                  ? "text-ctp-yellow"
                   : rank === 2
-                    ? "text-gray-400"
+                    ? "text-ctp-overlay1"
                     : rank === 3
-                      ? "text-amber-700"
-                      : "text-black/30";
+                      ? "text-ctp-peach"
+                      : "text-ctp-subtext0";
 
               return (
                 <View
                   key={product.id}
-                  className={`m-1 mb-3 flex-row rounded-lg border-[1px] bg-white ${rankBorder}`}
+                  className={`m-1 mb-3 flex-row rounded-lg border-[1px] bg-ctp-mantle ${rankBorder}`}
                   style={{
                     boxShadow:
                       "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                   }}
                 >
-                  <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-black/10">
-                    <Text className="font-inter-medium text-xs text-black/30">
+                  <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-ctp-surface0">
+                    <Text className="font-inter-medium text-xs text-ctp-subtext0">
                       No image
                     </Text>
                   </View>
@@ -302,18 +322,18 @@ export default function ProductPerformance() {
                   <View className="my-3 mx-1 flex-1 justify-between">
                     <Text
                       numberOfLines={2}
-                      className="font-inter-semibold text-base"
+                      className="font-inter-semibold text-base text-ctp-text"
                     >
                       {product.name}
                     </Text>
 
-                    <Text className="font-inter-semibold text-sm text-black/50">
+                    <Text className="font-inter-semibold text-sm text-ctp-subtext0">
                       {money(product.price)}
                     </Text>
                   </View>
 
                   <View className="my-3 mr-3 items-end justify-between">
-                    <Text className="font-inter-semibold text-sm">
+                    <Text className="font-inter-semibold text-sm text-ctp-text">
                       {number(product.sold)} pcs
                     </Text>
 
@@ -328,13 +348,16 @@ export default function ProductPerformance() {
             })
           ) : (
             <View className="items-center py-12">
-              <Search size={28} color="#999999" />
+              <StyledSearch
+                size={28}
+                className="text-ctp-overlay1"
+              />
 
-              <Text className="mt-3 font-inter-semibold text-base">
+              <Text className="mt-3 font-inter-semibold text-base text-ctp-text">
                 No products found
               </Text>
 
-              <Text className="mt-1 text-sm text-black/50">
+              <Text className="mt-1 text-sm text-ctp-subtext0">
                 Try changing your search or filters.
               </Text>
             </View>
@@ -343,17 +366,23 @@ export default function ProductPerformance() {
 
         {/* Pagination */}
         {filteredProducts.length > 0 && (
-          <View className="flex-row items-center justify-center border-t border-black/5 py-4">
+          <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-4">
             <View className="w-full flex-row items-center justify-center gap-1.5">
               <Pressable
                 onPress={() => setCurrentPage(1)}
                 disabled={safePage === 1}
-                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === 1 ? "bg-black/5" : "bg-white"
+                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === 1
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
-                <ChevronsLeft
+                <StyledChevronsLeft
                   size={18}
-                  color={safePage === 1 ? "#AAAAAA" : "#000000"}
+                  className={
+                    safePage === 1
+                      ? "text-ctp-overlay1"
+                      : "text-ctp-text"
+                  }
                 />
               </Pressable>
 
@@ -362,12 +391,18 @@ export default function ProductPerformance() {
                   setCurrentPage((page) => Math.max(1, page - 1))
                 }
                 disabled={safePage === 1}
-                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === 1 ? "bg-black/5" : "bg-white"
+                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === 1
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
-                <ChevronLeft
+                <StyledChevronLeft
                   size={18}
-                  color={safePage === 1 ? "#AAAAAA" : "#000000"}
+                  className={
+                    safePage === 1
+                      ? "text-ctp-overlay1"
+                      : "text-ctp-text"
+                  }
                 />
               </Pressable>
 
@@ -375,13 +410,15 @@ export default function ProductPerformance() {
                 <Pressable
                   key={page}
                   onPress={() => setCurrentPage(page)}
-                  className={`h-10 min-w-9 items-center justify-center rounded-lg px-2 ${safePage === page ? "bg-black" : "bg-white"
+                  className={`h-10 min-w-9 items-center justify-center rounded-lg px-2 ${safePage === page
+                      ? "bg-ctp-blue"
+                      : "bg-ctp-mantle"
                     }`}
                 >
                   <Text
                     className={`font-inter-bold text-sm ${safePage === page
-                      ? "text-white"
-                      : "text-black/60"
+                        ? "text-ctp-crust"
+                        : "text-ctp-subtext0"
                       }`}
                   >
                     {page}
@@ -396,13 +433,17 @@ export default function ProductPerformance() {
                   )
                 }
                 disabled={safePage === totalPages}
-                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === totalPages ? "bg-black/5" : "bg-white"
+                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === totalPages
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
-                <ChevronRight
+                <StyledChevronRight
                   size={18}
-                  color={
-                    safePage === totalPages ? "#AAAAAA" : "#000000"
+                  className={
+                    safePage === totalPages
+                      ? "text-ctp-overlay1"
+                      : "text-ctp-text"
                   }
                 />
               </Pressable>
@@ -410,13 +451,17 @@ export default function ProductPerformance() {
               <Pressable
                 onPress={() => setCurrentPage(totalPages)}
                 disabled={safePage === totalPages}
-                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === totalPages ? "bg-black/5" : "bg-white"
+                className={`h-10 items-center justify-center rounded-lg px-2 ${safePage === totalPages
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
-                <ChevronsRight
+                <StyledChevronsRight
                   size={18}
-                  color={
-                    safePage === totalPages ? "#AAAAAA" : "#000000"
+                  className={
+                    safePage === totalPages
+                      ? "text-ctp-overlay1"
+                      : "text-ctp-text"
                   }
                 />
               </Pressable>
@@ -425,7 +470,7 @@ export default function ProductPerformance() {
         )}
 
         {filteredProducts.length > 0 && (
-          <Text className="pb-2 text-center font-inter-medium text-sm text-black/40">
+          <Text className="pb-2 text-center font-inter-medium text-sm text-ctp-subtext0">
             Page {safePage} of {totalPages}
           </Text>
         )}
