@@ -552,7 +552,8 @@ function SelectField({
   return (
     <div className="relative">
       <select
-        className={`${selectClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+        className={`${selectClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"
+          }`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -717,7 +718,9 @@ export default function Settings() {
   const resetSettings = () => {
     setSettings({ ...defaultSettings });
     setShowSaveNotice(false);
-    setNoticeMessage("Default values restored in this page. Save to update the preview state.");
+    setNoticeMessage(
+      "Default values restored in this page. Save to update the preview state.",
+    );
   };
 
   const restoreSavedSettings = () => {
@@ -737,17 +740,22 @@ export default function Settings() {
         ? field.transform(nextValue)
         : nextValue;
 
-      if (field.key === "allowNegativeInventory" ||
+      if (
+        field.key === "allowNegativeInventory" ||
         field.key === "digitalReceipts" ||
         field.key === "supervisorPinForDiscounts" ||
         field.key === "allowCustomLineItems" ||
-        field.key === "skuIncludeYear") {
+        field.key === "skuIncludeYear"
+      ) {
         update(field.key, (finalValue === "true") as never);
         return;
       }
 
       if (field.key === "currencyPlacement") {
-        update(field.key, finalValue as SettingsState["currencyPlacement"]);
+        update(
+          field.key,
+          finalValue as SettingsState["currencyPlacement"],
+        );
         return;
       }
 
@@ -778,8 +786,11 @@ export default function Settings() {
             value={value}
             rows={field.rows ?? 2}
             maxLength={
-              field.key === "receiptNotes" ? 1000 :
-                field.key === "corsOrigins" ? undefined : 500
+              field.key === "receiptNotes"
+                ? 1000
+                : field.key === "corsOrigins"
+                  ? undefined
+                  : 500
             }
             onChange={(event) => handleChange(event.target.value)}
             disabled={disabled}
@@ -812,7 +823,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] pb-28 font-inter">
+    <div className="mx-auto w-full max-w-[1500px] pb-28 font-line-seed">
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium text-ctp-subtext0">

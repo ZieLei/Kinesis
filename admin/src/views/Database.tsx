@@ -1,4 +1,3 @@
-
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -91,10 +90,10 @@ function SectionHeading({
         <Icon size={18} />
       </div>
       <div className="min-w-0">
-        <h2 className="font-inter text-sm font-bold text-ctp-text">
+        <h2 className="font-line-seed text-sm font-bold text-ctp-text">
           {title}
         </h2>
-        <p className="mt-0.5 font-inter text-xs text-ctp-subtext0">
+        <p className="mt-0.5 font-line-seed text-xs text-ctp-subtext0">
           {description}
         </p>
       </div>
@@ -127,7 +126,7 @@ function StatusBadge({
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 font-inter text-[10px] font-bold ${styles[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 font-line-seed text-[10px] font-bold ${styles[tone]}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[tone]}`} />
       {label}
@@ -139,7 +138,7 @@ function UnavailableNotice({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
       <Info size={15} className="mt-0.5 shrink-0 text-ctp-yellow" />
-      <p className="font-inter text-xs leading-5 text-ctp-subtext1">
+      <p className="font-line-seed text-xs leading-5 text-ctp-subtext1">
         {children}
       </p>
     </div>
@@ -167,11 +166,11 @@ function StatCard({
         <Icon size={18} />
       </div>
       <div className="min-w-0">
-        <p className="font-inter text-xs text-ctp-subtext0">{label}</p>
-        <p className="mt-0.5 truncate font-inter text-base font-bold text-ctp-text">
+        <p className="font-line-seed text-xs text-ctp-subtext0">{label}</p>
+        <p className="mt-0.5 truncate font-line-seed text-base font-bold text-ctp-text">
           {value}
         </p>
-        <p className="mt-0.5 truncate font-inter text-[10px] text-ctp-subtext0">
+        <p className="mt-0.5 truncate font-line-seed text-[10px] text-ctp-subtext0">
           {detail}
         </p>
       </div>
@@ -307,10 +306,10 @@ export default function Database() {
   }
 
   const inputClass =
-    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-inter text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-line-seed text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
 
   const actionClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-inter text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+    "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <div className="flex flex-col gap-4">
@@ -319,11 +318,11 @@ export default function Database() {
         <div>
           <div className="flex items-center gap-2">
             <DatabaseIcon size={21} className="text-ctp-mauve" />
-            <h1 className="font-inter text-xl font-bold text-ctp-text">
+            <h1 className="font-line-seed text-xl font-bold text-ctp-text">
               Database Management
             </h1>
           </div>
-          <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+          <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
             Inspect the database, manage backups, and prepare SQL queries.
           </p>
         </div>
@@ -342,12 +341,12 @@ export default function Database() {
             className="mt-0.5 shrink-0 text-ctp-yellow"
           />
           <div className="min-w-0 flex-1">
-            <h2 className="font-inter text-sm font-bold text-ctp-text">
+            <h2 className="font-line-seed text-sm font-bold text-ctp-text">
               {databaseConfigured
                 ? "Database configuration detected"
                 : "Database connection is not configured"}
             </h2>
-            <p className="mt-1 font-inter text-xs leading-5 text-ctp-subtext1">
+            <p className="mt-1 font-line-seed text-xs leading-5 text-ctp-subtext1">
               {databaseConfigured
                 ? "Configuration is available. Connect a real health check to verify database connectivity."
                 : "The database API is not connected. Table inspection, SQL execution, and backup operations are unavailable."}
@@ -405,52 +404,52 @@ export default function Database() {
 
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-md border border-ctp-surface0 p-3">
-            <p className="font-inter text-[11px] text-ctp-subtext0">
+            <p className="font-line-seed text-[11px] text-ctp-subtext0">
               Database engine
             </p>
-            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-text">
+            <p className="mt-1.5 flex items-center gap-2 font-line-seed text-sm font-semibold text-ctp-text">
               <DatabaseIcon size={15} className="text-ctp-blue" />
               {engine}
             </p>
-            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
               Local database
             </p>
           </div>
 
           <div className="rounded-md border border-ctp-surface0 p-3">
-            <p className="font-inter text-[11px] text-ctp-subtext0">
+            <p className="font-line-seed text-[11px] text-ctp-subtext0">
               Host / port
             </p>
             <p className="mt-1.5 font-mono text-sm font-semibold text-ctp-text">
               Not applicable
             </p>
-            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
               SQLite uses a file
             </p>
           </div>
 
           <div className="rounded-md border border-ctp-surface0 p-3">
-            <p className="font-inter text-[11px] text-ctp-subtext0">
+            <p className="font-line-seed text-[11px] text-ctp-subtext0">
               Database file
             </p>
-            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-text">
+            <p className="mt-1.5 flex items-center gap-2 font-line-seed text-sm font-semibold text-ctp-text">
               <HardDrive size={15} className="text-ctp-blue" />
               Not configured
             </p>
-            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
               File path unavailable
             </p>
           </div>
 
           <div className="rounded-md border border-ctp-surface0 p-3">
-            <p className="font-inter text-[11px] text-ctp-subtext0">
+            <p className="font-line-seed text-[11px] text-ctp-subtext0">
               Connection test
             </p>
-            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-yellow">
+            <p className="mt-1.5 flex items-center gap-2 font-line-seed text-sm font-semibold text-ctp-yellow">
               <CircleAlert size={15} />
               Not performed
             </p>
-            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
               Health endpoint required
             </p>
           </div>
@@ -458,10 +457,10 @@ export default function Database() {
 
         <div className="mt-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <label className="font-inter text-xs font-semibold text-ctp-text">
+            <label className="font-line-seed text-xs font-semibold text-ctp-text">
               Connection URI
             </label>
-            <span className="flex items-center gap-1 font-inter text-[10px] text-ctp-subtext0">
+            <span className="flex items-center gap-1 font-line-seed text-[10px] text-ctp-subtext0">
               <LockKeyhole size={12} />
               Sensitive information
             </span>
@@ -497,7 +496,7 @@ export default function Database() {
             </button>
           </div>
 
-          <p className="mt-2 font-inter text-[11px] leading-5 text-ctp-subtext0">
+          <p className="mt-2 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
             Retrieve credentials through a protected backend. Do not embed
             database secrets in frontend code.
           </p>
@@ -529,7 +528,7 @@ export default function Database() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-y border-ctp-surface0 bg-ctp-mantle px-3 py-2">
-          <p className="font-inter text-[11px] text-ctp-subtext0">
+          <p className="font-line-seed text-[11px] text-ctp-subtext0">
             {filteredTables.length} of {schemaTables.length} anticipated tables
           </p>
           <StatusBadge label="NOT VERIFIED" tone="gray" />
@@ -549,7 +548,7 @@ export default function Database() {
                   <p className="font-mono text-xs font-semibold text-ctp-text">
                     {table.name}
                   </p>
-                  <p className="mt-0.5 font-inter text-[11px] text-ctp-subtext0">
+                  <p className="mt-0.5 font-line-seed text-[11px] text-ctp-subtext0">
                     {table.description}
                   </p>
                 </div>
@@ -557,7 +556,7 @@ export default function Database() {
 
               <div className="grid grid-cols-3 gap-3 sm:w-[260px] sm:shrink-0">
                 <div>
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Columns
                   </p>
                   <p className="mt-1 font-mono text-xs text-ctp-subtext1">
@@ -565,7 +564,7 @@ export default function Database() {
                   </p>
                 </div>
                 <div>
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Rows
                   </p>
                   <p className="mt-1 font-mono text-xs text-ctp-subtext1">
@@ -573,7 +572,7 @@ export default function Database() {
                   </p>
                 </div>
                 <div>
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Size
                   </p>
                   <p className="mt-1 font-mono text-xs text-ctp-subtext1">
@@ -586,10 +585,10 @@ export default function Database() {
 
           {filteredTables.length === 0 && (
             <div className="px-4 py-8 text-center">
-              <p className="font-inter text-sm font-semibold text-ctp-text">
+              <p className="font-line-seed text-sm font-semibold text-ctp-text">
                 No matching tables
               </p>
-              <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+              <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
                 Try another table name or description.
               </p>
             </div>
@@ -616,18 +615,18 @@ export default function Database() {
           <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
             <div className="flex items-center gap-2">
               <FileArchive size={17} className="text-ctp-blue" />
-              <h3 className="font-inter text-xs font-bold text-ctp-text">
+              <h3 className="font-line-seed text-xs font-bold text-ctp-text">
                 Database snapshot
               </h3>
             </div>
-            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+            <p className="mt-2 flex-1 font-line-seed text-xs leading-5 text-ctp-subtext0">
               Create a point-in-time copy before making major changes.
             </p>
             <button
               type="button"
               onClick={requestBackup}
               disabled={!backupServiceAvailable || !databaseConfigured}
-              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ctp-blue/10 px-3 py-2 font-inter text-xs font-semibold text-ctp-blue hover:bg-ctp-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
+              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ctp-blue/10 px-3 py-2 font-line-seed text-xs font-semibold text-ctp-blue hover:bg-ctp-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <HardDrive size={14} />
               Create snapshot
@@ -637,18 +636,18 @@ export default function Database() {
           <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
             <div className="flex items-center gap-2">
               <Download size={17} className="text-ctp-green" />
-              <h3 className="font-inter text-xs font-bold text-ctp-text">
+              <h3 className="font-line-seed text-xs font-bold text-ctp-text">
                 SQL export
               </h3>
             </div>
-            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+            <p className="mt-2 flex-1 font-line-seed text-xs leading-5 text-ctp-subtext0">
               Export the database for migration or archival.
             </p>
             <button
               type="button"
               onClick={requestBackup}
               disabled={!backupServiceAvailable || !databaseConfigured}
-              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md border border-ctp-surface1 px-3 py-2 font-inter text-xs font-semibold text-ctp-text hover:border-ctp-green/50 hover:text-ctp-green disabled:cursor-not-allowed disabled:opacity-40"
+              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md border border-ctp-surface1 px-3 py-2 font-line-seed text-xs font-semibold text-ctp-text hover:border-ctp-green/50 hover:text-ctp-green disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Download size={14} />
               Download SQL
@@ -658,11 +657,11 @@ export default function Database() {
           <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
             <div className="flex items-center gap-2">
               <Cloud size={17} className="text-ctp-peach" />
-              <h3 className="font-inter text-xs font-bold text-ctp-text">
+              <h3 className="font-line-seed text-xs font-bold text-ctp-text">
                 Remote backup
               </h3>
             </div>
-            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+            <p className="mt-2 flex-1 font-line-seed text-xs leading-5 text-ctp-subtext0">
               Store encrypted copies in S3-compatible storage.
             </p>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -673,7 +672,7 @@ export default function Database() {
               <button
                 type="button"
                 onClick={requestS3Backup}
-                className="inline-flex items-center gap-1 font-inter text-xs font-semibold text-ctp-mauve hover:text-ctp-lavender"
+                className="inline-flex items-center gap-1 font-line-seed text-xs font-semibold text-ctp-mauve hover:text-ctp-lavender"
               >
                 Configure
                 <ChevronRight size={13} />
@@ -686,10 +685,10 @@ export default function Database() {
           <div className="flex items-center gap-2">
             <RefreshCw size={17} className="text-ctp-red" />
             <div>
-              <h3 className="font-inter text-xs font-bold text-ctp-text">
+              <h3 className="font-line-seed text-xs font-bold text-ctp-text">
                 Restore from backup
               </h3>
-              <p className="mt-0.5 font-inter text-[11px] text-ctp-subtext0">
+              <p className="mt-0.5 font-line-seed text-[11px] text-ctp-subtext0">
                 Choose a .sql, .dump, .db, .sqlite, or .backup file.
               </p>
             </div>
@@ -727,12 +726,12 @@ export default function Database() {
               <div className="flex min-w-0 items-center gap-2.5">
                 <Upload size={18} className="shrink-0 text-ctp-mauve" />
                 <div className="min-w-0">
-                  <p className="font-inter text-xs font-semibold text-ctp-text">
+                  <p className="font-line-seed text-xs font-semibold text-ctp-text">
                     {selectedFile
                       ? selectedFile.name
                       : "Drop a backup file here"}
                   </p>
-                  <p className="mt-1 font-inter text-[11px] text-ctp-subtext0">
+                  <p className="mt-1 font-line-seed text-[11px] text-ctp-subtext0">
                     {selectedFile
                       ? `${formatFileSize(selectedFile.size)} · Selected locally`
                       : "Or browse files on your device"}
@@ -787,10 +786,10 @@ export default function Database() {
                   className="mt-0.5 shrink-0 text-ctp-yellow"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="font-inter text-xs font-semibold text-ctp-text">
+                  <p className="font-line-seed text-xs font-semibold text-ctp-text">
                     Confirm restore preparation
                   </p>
-                  <p className="mt-1 break-words font-inter text-xs leading-5 text-ctp-subtext1">
+                  <p className="mt-1 break-words font-line-seed text-xs leading-5 text-ctp-subtext1">
                     {selectedFile.name} has not been uploaded. The backend
                     restore service must validate the file and protect existing
                     data before any restore can proceed.
@@ -816,7 +815,7 @@ export default function Database() {
             </div>
           )}
 
-          <p className="mt-3 font-inter text-[11px] leading-5 text-ctp-subtext0">
+          <p className="mt-3 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
             Restoring can overwrite existing data. A production service must
             validate the file, verify compatibility, and create a pre-restore
             backup before applying changes.
@@ -861,14 +860,14 @@ export default function Database() {
             />
 
             <div className="flex flex-col justify-between gap-2 border-t border-ctp-surface0 bg-ctp-mantle p-3 sm:flex-row sm:items-center">
-              <p className="font-inter text-[11px] text-ctp-subtext0">
+              <p className="font-line-seed text-[11px] text-ctp-subtext0">
                 No SQL will execute until the backend is connected.
               </p>
               <button
                 type="button"
                 onClick={runQuery}
                 disabled={!databaseConfigured}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-inter text-xs font-bold text-ctp-base hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-line-seed text-xs font-bold text-ctp-base hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Play size={13} />
                 Run query
@@ -885,7 +884,7 @@ export default function Database() {
                 size={15}
                 className="mt-0.5 shrink-0 text-ctp-yellow"
               />
-              <p className="font-inter text-xs leading-5 text-ctp-subtext1">
+              <p className="font-line-seed text-xs leading-5 text-ctp-subtext1">
                 {queryMessage}
               </p>
             </div>
@@ -895,11 +894,11 @@ export default function Database() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2.5">
               <div className="flex items-center gap-2">
                 <Table2 size={15} className="text-ctp-blue" />
-                <h3 className="font-inter text-xs font-bold text-ctp-text">
+                <h3 className="font-line-seed text-xs font-bold text-ctp-text">
                   Results
                 </h3>
               </div>
-              <span className="font-inter text-[11px] text-ctp-subtext0">
+              <span className="font-line-seed text-[11px] text-ctp-subtext0">
                 {queryResult
                   ? `${queryResult.rows.length} rows`
                   : "No results"}
@@ -942,10 +941,10 @@ export default function Database() {
             ) : (
               <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
                 <Table2 size={22} className="text-ctp-overlay1" />
-                <p className="mt-2 font-inter text-xs font-semibold text-ctp-text">
+                <p className="mt-2 font-line-seed text-xs font-semibold text-ctp-text">
                   No results to display
                 </p>
-                <p className="mt-1 max-w-sm font-inter text-[11px] leading-5 text-ctp-subtext0">
+                <p className="mt-1 max-w-sm font-line-seed text-[11px] leading-5 text-ctp-subtext0">
                   Connect the database and query API to display returned rows.
                 </p>
               </div>
@@ -961,7 +960,7 @@ export default function Database() {
           className="flex items-start gap-2 rounded-md border border-ctp-blue/20 bg-ctp-blue/5 p-3"
         >
           <Info size={15} className="mt-0.5 shrink-0 text-ctp-blue" />
-          <p className="flex-1 font-inter text-xs leading-5 text-ctp-subtext1">
+          <p className="flex-1 font-line-seed text-xs leading-5 text-ctp-subtext1">
             {notice}
           </p>
           <button
@@ -979,10 +978,10 @@ export default function Database() {
       <footer className="flex items-start gap-2.5 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
         <LockKeyhole size={16} className="mt-0.5 shrink-0 text-ctp-overlay1" />
         <div>
-          <h3 className="font-inter text-xs font-bold text-ctp-text">
+          <h3 className="font-line-seed text-xs font-bold text-ctp-text">
             Database security
           </h3>
-          <p className="mt-1 font-inter text-[11px] leading-5 text-ctp-subtext0">
+          <p className="mt-1 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
             Require administrator authentication for database operations.
             Restrict SQL permissions, use parameterized queries where
             applicable, enforce timeouts, and audit destructive actions. Never

@@ -95,7 +95,7 @@ const statusStyles = {
 function StatusBadge({ status }: { status: Terminal["status"] }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-inter text-[10px] font-bold ${statusStyles[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${statusStyles[status]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${status === "Connected" ? "bg-ctp-green" : "bg-ctp-red"
@@ -128,13 +128,13 @@ function StatCard({
       </div>
 
       <div className="min-w-0">
-        <p className="font-inter text-xs font-medium text-ctp-subtext0">
+        <p className="font-line-seed text-xs font-medium text-ctp-subtext0">
           {label}
         </p>
-        <p className="mt-0.5 font-inter text-xl font-bold leading-tight text-ctp-text">
+        <p className="mt-0.5 font-line-seed text-xl font-bold leading-tight text-ctp-text">
           {value}
         </p>
-        <p className="mt-1 truncate font-inter text-[11px] text-ctp-subtext0">
+        <p className="mt-1 truncate font-line-seed text-[11px] text-ctp-subtext0">
           {description}
         </p>
       </div>
@@ -158,8 +158,7 @@ export default function Terminals() {
   ).length;
 
   const maintenanceCount = terminals.filter(
-    (terminal) =>
-      terminal.maintenance && terminal.status === "Connected",
+    (terminal) => terminal.maintenance && terminal.status === "Connected",
   ).length;
 
   const disconnectedCount = terminals.length - connectedCount;
@@ -217,9 +216,7 @@ export default function Terminals() {
     updateTerminal(terminal.id, { maintenance: next });
     showNotice(
       terminal.id,
-      next
-        ? "Maintenance mode enabled."
-        : "Maintenance mode disabled.",
+      next ? "Maintenance mode enabled." : "Maintenance mode disabled.",
     );
   }
 
@@ -269,27 +266,27 @@ export default function Terminals() {
         : "text-ctp-green";
 
   const inputClass =
-    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-inter text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-line-seed text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
 
   const actionClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-inter text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+    "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <div className="flex flex-col gap-4">
       {/* Header */}
       <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="font-inter text-xl font-bold text-ctp-text">
+          <h1 className="font-line-seed text-xl font-bold text-ctp-text">
             Terminal Management
           </h1>
-          <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+          <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
             Monitor device connections and manage terminal access.
           </p>
         </div>
 
         <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
           <span className="h-2 w-2 rounded-full bg-ctp-green" />
-          <span className="font-inter text-xs font-semibold text-ctp-green">
+          <span className="font-line-seed text-xs font-semibold text-ctp-green">
             Network monitoring
           </span>
         </div>
@@ -346,10 +343,10 @@ export default function Terminals() {
             </div>
 
             <div>
-              <h2 className="font-inter text-sm font-bold text-ctp-text">
+              <h2 className="font-line-seed text-sm font-bold text-ctp-text">
                 Network overview
               </h2>
-              <p className="font-inter text-xs text-ctp-subtext0">
+              <p className="font-line-seed text-xs text-ctp-subtext0">
                 Local server and device health
               </p>
             </div>
@@ -357,25 +354,25 @@ export default function Terminals() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-6 sm:text-right">
             <div>
-              <p className="font-inter text-[11px] text-ctp-subtext0">
+              <p className="font-line-seed text-[11px] text-ctp-subtext0">
                 Server address
               </p>
               <p className="mt-1 font-mono text-xs font-semibold text-ctp-text">
                 192.168.1.100:8000
               </p>
-              <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+              <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
                 FastAPI endpoint
               </p>
             </div>
 
             <div>
-              <p className="font-inter text-[11px] text-ctp-subtext0">
+              <p className="font-line-seed text-[11px] text-ctp-subtext0">
                 Connection health
               </p>
-              <p className={`mt-1 font-inter text-sm font-bold ${healthColor}`}>
+              <p className={`mt-1 font-line-seed text-sm font-bold ${healthColor}`}>
                 {healthLabel}
               </p>
-              <p className="mt-1 flex items-center justify-start gap-1 font-inter text-[10px] text-ctp-subtext0 sm:justify-end">
+              <p className="mt-1 flex items-center justify-start gap-1 font-line-seed text-[10px] text-ctp-subtext0 sm:justify-end">
                 <Clock size={11} />
                 Demo data · not live monitoring
               </p>
@@ -391,10 +388,10 @@ export default function Terminals() {
             <Radio size={17} />
           </div>
           <div>
-            <h2 className="font-inter text-sm font-bold text-ctp-text">
+            <h2 className="font-line-seed text-sm font-bold text-ctp-text">
               Broadcast message
             </h2>
-            <p className="font-inter text-xs text-ctp-subtext0">
+            <p className="font-line-seed text-xs text-ctp-subtext0">
               Prepare an announcement for connected terminals.
             </p>
           </div>
@@ -423,7 +420,7 @@ export default function Terminals() {
           <button
             type="submit"
             disabled={connectedCount === 0}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 font-inter text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 font-line-seed text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Send size={14} />
             Prepare message
@@ -431,11 +428,11 @@ export default function Terminals() {
         </form>
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 font-inter text-[11px] text-ctp-subtext0">
+          <p className="flex items-center gap-1.5 font-line-seed text-[11px] text-ctp-subtext0">
             <Users size={12} />
             {connectedCount} recipient{connectedCount === 1 ? "" : "s"}
           </p>
-          <p className="font-inter text-[11px] text-ctp-subtext0">
+          <p className="font-line-seed text-[11px] text-ctp-subtext0">
             {broadcast.length}/250
           </p>
         </div>
@@ -444,8 +441,8 @@ export default function Terminals() {
           <div
             role="status"
             className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${broadcastError
-              ? "border-ctp-red/20 bg-ctp-red/5"
-              : "border-ctp-green/20 bg-ctp-green/5"
+                ? "border-ctp-red/20 bg-ctp-red/5"
+                : "border-ctp-green/20 bg-ctp-green/5"
               }`}
           >
             {broadcastError ? (
@@ -459,7 +456,7 @@ export default function Terminals() {
                 className="mt-0.5 shrink-0 text-ctp-green"
               />
             )}
-            <p className="font-inter text-xs text-ctp-text">
+            <p className="font-line-seed text-xs text-ctp-text">
               {broadcastNotice}
             </p>
           </div>
@@ -470,10 +467,10 @@ export default function Terminals() {
       <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
         <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-inter text-sm font-bold text-ctp-text">
+            <h2 className="font-line-seed text-sm font-bold text-ctp-text">
               Terminals
             </h2>
-            <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+            <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
               Search devices and manage their sessions.
             </p>
           </div>
@@ -504,10 +501,10 @@ export default function Terminals() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2">
-          <p className="font-inter text-[11px] text-ctp-subtext0">
+          <p className="font-line-seed text-[11px] text-ctp-subtext0">
             Showing {filteredTerminals.length} of {terminals.length}
           </p>
-          <span className="inline-flex items-center gap-1.5 font-inter text-[11px] font-semibold text-ctp-green">
+          <span className="inline-flex items-center gap-1.5 font-line-seed text-[11px] font-semibold text-ctp-green">
             <span className="h-1.5 w-1.5 rounded-full bg-ctp-green" />
             {connectedCount} online
           </span>
@@ -524,8 +521,8 @@ export default function Terminals() {
                 <div className="flex min-w-0 items-start gap-2.5">
                   <div
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${terminal.status === "Connected"
-                      ? "bg-ctp-blue/10 text-ctp-blue"
-                      : "bg-ctp-surface0 text-ctp-overlay1"
+                        ? "bg-ctp-blue/10 text-ctp-blue"
+                        : "bg-ctp-surface0 text-ctp-overlay1"
                       }`}
                   >
                     {terminal.device.includes("Tablet") ? (
@@ -537,21 +534,21 @@ export default function Terminals() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <h3 className="font-inter text-sm font-bold text-ctp-text">
+                      <h3 className="font-line-seed text-sm font-bold text-ctp-text">
                         {terminal.name}
                       </h3>
                       <StatusBadge status={terminal.status} />
 
                       {terminal.maintenance &&
                         terminal.status === "Connected" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-inter text-[10px] font-bold text-ctp-yellow">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-line-seed text-[10px] font-bold text-ctp-yellow">
                             <Wrench size={10} />
                             MAINTENANCE
                           </span>
                         )}
                     </div>
 
-                    <p className="mt-1 font-inter text-[11px] text-ctp-subtext0">
+                    <p className="mt-1 font-line-seed text-[11px] text-ctp-subtext0">
                       {terminal.id} <span className="px-1">·</span>
                       {terminal.device}
                       {terminal.status === "Connected" && (
@@ -587,8 +584,8 @@ export default function Terminals() {
                     onClick={() => toggleMaintenance(terminal)}
                     disabled={terminal.status !== "Connected"}
                     className={`${actionClass} ${terminal.maintenance
-                      ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
-                      : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
+                        ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+                        : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
                       }`}
                   >
                     {terminal.maintenance ? (
@@ -605,7 +602,7 @@ export default function Terminals() {
                       role="group"
                       aria-label={`Confirm disconnect for ${terminal.name}`}
                     >
-                      <span className="px-1 font-inter text-[11px] text-ctp-red">
+                      <span className="px-1 font-line-seed text-[11px] text-ctp-red">
                         Disconnect?
                       </span>
                       <button
@@ -642,7 +639,7 @@ export default function Terminals() {
               {/* Session details */}
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-2.5 sm:grid-cols-4">
                 <div className="min-w-0">
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     IP address
                   </p>
                   <p className="mt-1 break-all font-mono text-xs text-ctp-text">
@@ -651,7 +648,7 @@ export default function Terminals() {
                 </div>
 
                 <div className="min-w-0">
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Session ID
                   </p>
                   <p className="mt-1 break-all font-mono text-xs text-ctp-text">
@@ -660,19 +657,19 @@ export default function Terminals() {
                 </div>
 
                 <div className="min-w-0">
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Connected since
                   </p>
-                  <p className="mt-1 font-inter text-xs text-ctp-text">
+                  <p className="mt-1 font-line-seed text-xs text-ctp-text">
                     {terminal.connectedAt}
                   </p>
                 </div>
 
                 <div className="min-w-0">
-                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                  <p className="font-line-seed text-[10px] text-ctp-subtext0">
                     Last sync
                   </p>
-                  <p className="mt-1 flex items-center gap-1.5 font-inter text-xs text-ctp-text">
+                  <p className="mt-1 flex items-center gap-1.5 font-line-seed text-xs text-ctp-text">
                     <RefreshCw
                       size={11}
                       className="shrink-0 text-ctp-overlay1"
@@ -686,9 +683,9 @@ export default function Terminals() {
               {notice[terminal.id] && (
                 <p
                   role="status"
-                  className={`mt-2 flex items-start gap-1.5 font-inter text-xs ${notice[terminal.id].error
-                    ? "text-ctp-red"
-                    : "text-ctp-subtext0"
+                  className={`mt-2 flex items-start gap-1.5 font-line-seed text-xs ${notice[terminal.id].error
+                      ? "text-ctp-red"
+                      : "text-ctp-subtext0"
                     }`}
                 >
                   {notice[terminal.id].error ? (
@@ -705,17 +702,17 @@ export default function Terminals() {
           {filteredTerminals.length === 0 && (
             <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
               <Search size={24} className="mb-2 text-ctp-overlay1" />
-              <p className="font-inter text-sm font-semibold text-ctp-text">
+              <p className="font-line-seed text-sm font-semibold text-ctp-text">
                 No terminals found
               </p>
-              <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+              <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
                 Try another name, ID, IP address, or device type.
               </p>
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch("")}
-                  className="mt-3 rounded-md border border-ctp-surface1 px-3 py-1.5 font-inter text-xs font-semibold text-ctp-text hover:bg-ctp-surface0"
+                  className="mt-3 rounded-md border border-ctp-surface1 px-3 py-1.5 font-line-seed text-xs font-semibold text-ctp-text hover:bg-ctp-surface0"
                 >
                   Clear search
                 </button>
