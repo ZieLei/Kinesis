@@ -1,6 +1,8 @@
 
-
 import {
+  ActivityIndicator,
+  Alert,
+  Image,
   Text,
   TextInput,
   View,
@@ -9,9 +11,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useMemo, useState } from "react";
-import { router } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
+import * as ImagePicker from "expo-image-picker";
 import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -32,8 +35,10 @@ import Funnel from "lucide-react-native/icons/funnel";
 import Search from "lucide-react-native/icons/search";
 import Plus from "lucide-react-native/icons/plus";
 import X from "lucide-react-native/icons/x";
+import RefreshCw from "lucide-react-native/icons/refresh-cw";
+import ImagePlus from "lucide-react-native/icons/image-plus";
+import ImageOff from "lucide-react-native/icons/image-off";
 
-import products from "@/data/products.json";
 import FilterModal, {
   FilterSection,
   FilterValues,
@@ -47,14 +52,121 @@ const StyledFunnel = styledIcon(Funnel);
 const StyledSearch = styledIcon(Search);
 const StyledPlus = styledIcon(Plus);
 const StyledX = styledIcon(X);
+const StyledRefreshCw = styledIcon(RefreshCw);
+const StyledImagePlus = styledIcon(ImagePlus);
+const StyledImageOff = styledIcon(ImageOff);
 
-type Product = (typeof products)[number];
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
+const PAGE_SIZE = 100;
+const REQUEST_TIMEOUT_MS = 15000;
+
+type Product = {
+  id: number;
+  sku: string | null;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  howMuchSold: number;
+  image_path: string | null;
+  image_url: string | null;
+};
+
+type ProductsResponse = {
+  items: Product[];
+  limit: number;
+  offset: number;
+  count: number;
+};
 
 const formatPrice = (price: number) =>
   price.toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+function getImageUri(product: Product | null | undefined) {
+  if (!product?.image_url) return null;
+
+  const url = product.image_url.startsWith("http")
+    ? product.image_url
+    : `${API_BASE_URL}${product.image_url.startsWith("/") ? "" : "/"}${product.image_url}`;
+
+  // The image path changes when a new image is uploaded. Use it as a cache key.
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(product.image_path ?? String(product.id))}`;
+}
+
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+
+  try {
+    const isFormData =
+      typeof FormData !== "undefined" && options.body instanceof FormData;
+
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      signal: options.signal ?? controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(options.body && !isFormData
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    console.error("[API] Request failed:", {
+      path,
+      method: options.method ?? "GET",
+      error,
+    });
+
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("The request timed out. Check your connection and try again.");
+    }
+
+    throw new Error(
+      `Request to ${path} failed: ${error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status}).`;
+
+    try {
+      const body = await response.json();
+
+      if (typeof body.detail === "string") {
+        message = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        message = body.detail
+          .map((item: { msg?: string }) => item.msg || "Invalid input")
+          .join("\n");
+      }
+    } catch {
+      // Keep the HTTP status message if the response isn't JSON.
+    }
+
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
+}
 
 export default function Stock() {
   const openItemId = useSharedValue<number | null>(null);
@@ -64,7 +176,13 @@ export default function Stock() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  const [inventory, setInventory] = useState<Product[]>(products);
+  const [inventory, setInventory] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterVisible, setFilterVisible] = useState(false);
@@ -83,8 +201,75 @@ export default function Stock() {
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [editError, setEditError] = useState("");
 
+  const [selectedImage, setSelectedImage] =
+    useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+
+  const fetchInventory = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+
+    setLoadError("");
+
+    try {
+      const allProducts: Product[] = [];
+      let offset = 0;
+      let expectedCount: number | null = null;
+
+      // Read every page so the inventory statistics cover all database rows.
+      while (true) {
+        const response = await apiRequest<ProductsResponse>(
+          `/api/products?limit=${PAGE_SIZE}&offset=${offset}`,
+        );
+
+        if (!Array.isArray(response.items)) {
+          throw new Error("The server returned an unexpected inventory response.");
+        }
+
+        if (expectedCount === null) {
+          expectedCount = response.count;
+        }
+
+        allProducts.push(...response.items);
+
+        if (
+          response.items.length === 0 ||
+          allProducts.length >= expectedCount ||
+          response.items.length < PAGE_SIZE
+        ) {
+          break;
+        }
+
+        offset += response.items.length;
+      }
+
+      setInventory(allProducts);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Failed to load inventory.",
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchInventory();
+    }, [fetchInventory]),
+  );
+
+  const refreshInventory = useCallback(() => {
+    if (loading || refreshing) return;
+    setRefreshing(true);
+    void fetchInventory(false);
+  }, [fetchInventory, loading, refreshing]);
+
   const categories = useMemo(
-    () => ["All", ...new Set(inventory.map((product) => product.category))],
+    () => [
+      "All",
+      ...new Set(inventory.map((product) => product.category)),
+    ],
     [inventory],
   );
 
@@ -123,14 +308,16 @@ export default function Stock() {
 
     const minPrice = minText.trim() === "" ? null : Number(minText);
     const maxPrice = maxText.trim() === "" ? null : Number(maxText);
+    const normalizedSearch = searchQuery.trim().toLowerCase();
 
     const result = inventory.filter((product) => {
       const matchesCategory =
-        selectedCategory === "All" || product.category === selectedCategory;
+        selectedCategory === "All" ||
+        product.category === selectedCategory;
 
-      const matchesSearch = product.name
-        .toLowerCase()
-        .includes(searchQuery.trim().toLowerCase());
+      const matchesSearch =
+        product.name.toLowerCase().includes(normalizedSearch) ||
+        (product.sku ?? "").toLowerCase().includes(normalizedSearch);
 
       const matchesStatus =
         selectedStatus === "status:low"
@@ -173,24 +360,15 @@ export default function Stock() {
   }, [inventory, selectedCategory, searchQuery, activeFilters]);
 
   const handleResetFilters = () => {
-    setActiveFilters({
-      inventoryOptions: ["status:all"],
-    });
+    setActiveFilters({ inventoryOptions: ["status:all"] });
   };
 
   const stockStats = useMemo(() => {
-    const outOfStock = inventory.filter(
-      (product) => product.stock === 0,
-    ).length;
-
+    const outOfStock = inventory.filter((product) => product.stock === 0).length;
     const lowStock = inventory.filter(
       (product) => product.stock > 0 && product.stock < 10,
     ).length;
-
-    const totalItems = inventory.reduce(
-      (sum, product) => sum + product.stock,
-      0,
-    );
+    const totalItems = inventory.reduce((sum, product) => sum + product.stock, 0);
 
     return {
       outOfStock,
@@ -210,27 +388,89 @@ export default function Stock() {
     setNewCategory("");
     setShowNewCategory(false);
     setEditError("");
+    setSelectedImage(null);
+    setRemoveExistingImage(false);
   };
 
   const closeEditSheet = () => {
+    if (saving) return;
+
     setEditingItem(null);
     setEditError("");
     setCustomPercent("");
     setNewCategory("");
     setShowNewCategory(false);
+    setSelectedImage(null);
+    setRemoveExistingImage(false);
+  };
+
+  const chooseProductImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        setEditError("Allow photo-library access to choose a product image.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        setEditError("Choose an image smaller than 5 MB.");
+        return;
+      }
+
+      setSelectedImage(asset);
+      setRemoveExistingImage(false);
+      setEditError("");
+    } catch (error) {
+      setEditError(
+        error instanceof Error ? error.message : "Could not select the image.",
+      );
+    }
+  };
+
+  const removeProductImage = () => {
+    setSelectedImage(null);
+
+    if (editingItem?.image_path || editingItem?.image_url) {
+      setRemoveExistingImage(true);
+    } else {
+      setRemoveExistingImage(false);
+    }
+
+    setEditError("");
   };
 
   const applyPricePercentage = (percentage: number) => {
     const currentPrice = Number(editPrice);
 
-    if (!Number.isFinite(currentPrice) || currentPrice < 0) {
-      setEditError("Enter a valid price before applying an adjustment.");
+    if (
+      editPrice.trim() === "" ||
+      !Number.isFinite(currentPrice) ||
+      currentPrice <= 0
+    ) {
+      setEditError("Enter a valid price greater than 0 first.");
       return;
     }
 
     const adjustedPrice = currentPrice * (1 + percentage / 100);
 
-    setEditPrice(Math.max(0, adjustedPrice).toFixed(2));
+    if (!Number.isFinite(adjustedPrice) || adjustedPrice <= 0) {
+      setEditError("The adjusted price must be greater than 0.");
+      return;
+    }
+
+    setEditPrice(adjustedPrice.toFixed(2));
     setCustomPercent("");
     setEditError("");
   };
@@ -241,18 +481,20 @@ export default function Stock() {
     if (
       customPercent.trim() === "" ||
       !Number.isFinite(percentage) ||
-      percentage < -100
+      percentage <= -100
     ) {
-      setEditError("Enter a valid percentage of -100 or higher.");
+      setEditError("Enter a valid percentage greater than -100.");
       return;
     }
 
     applyPricePercentage(percentage);
   };
 
-  const saveProduct = () => {
-    if (!editingItem) return;
 
+  const saveProduct = async () => {
+    if (!editingItem || saving) return;
+
+    const productBeingEdited = editingItem;
     const name = editName.trim();
     const category = editCategory.trim();
     const price = Number(editPrice);
@@ -271,9 +513,9 @@ export default function Stock() {
     if (
       editPrice.trim() === "" ||
       !Number.isFinite(price) ||
-      price < 0
+      price <= 0
     ) {
-      setEditError("Enter a valid price of 0 or higher.");
+      setEditError("Price must be a valid number greater than 0.");
       return;
     }
 
@@ -286,21 +528,111 @@ export default function Stock() {
       return;
     }
 
-    const updatedProduct: Product = {
-      ...editingItem,
-      name,
-      category,
-      price: Number(price.toFixed(2)),
-      stock,
-    };
+    setSaving(true);
+    setEditError("");
 
-    setInventory((previous) =>
-      previous.map((product) =>
-        product.id === editingItem.id ? updatedProduct : product,
-      ),
-    );
+    try {
+      // Save product fields first. PostgreSQL remains the source of truth.
+      const updatedProduct = await apiRequest<Product>(
+        `/api/products/${productBeingEdited.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name,
+            category,
+            price: Number(price.toFixed(2)),
+            stock,
+          }),
+        },
+      );
 
-    closeEditSheet();
+      setInventory((previous) =>
+        previous.map((product) =>
+          product.id === updatedProduct.id ? updatedProduct : product,
+        ),
+      );
+
+      let finalProduct = updatedProduct;
+
+      // Upload a new image using a real Blob in multipart/form-data.
+      if (selectedImage) {
+        console.log("[Stock] Starting image upload...");
+
+        const imageResponse = await fetch(selectedImage.uri);
+
+        if (!imageResponse.ok) {
+          throw new Error(
+            "Could not read the selected image from your device.",
+          );
+        }
+
+        const imageBlob = await imageResponse.blob();
+
+        const formData = new FormData();
+
+        const filename =
+          selectedImage.fileName ||
+          `product-${productBeingEdited.id}.${selectedImage.mimeType?.split("/")[1] || "jpg"
+          }`;
+
+        formData.append("file", imageBlob, filename);
+
+        console.log("[Stock] Sending image upload request...");
+
+        finalProduct = await apiRequest<Product>(
+          `/api/products/${productBeingEdited.id}/image`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+        console.log(
+          "[Stock] Image upload succeeded:",
+          finalProduct.image_url,
+        );
+      } else if (removeExistingImage) {
+        // Remove the saved image when requested.
+        finalProduct = await apiRequest<Product>(
+          `/api/products/${productBeingEdited.id}/image`,
+          {
+            method: "DELETE",
+          },
+        );
+      }
+
+      // Update the local inventory with the final server response.
+      setInventory((previous) =>
+        previous.map((product) =>
+          product.id === finalProduct.id ? finalProduct : product,
+        ),
+      );
+
+      setEditingItem(null);
+      setCustomPercent("");
+      setNewCategory("");
+      setShowNewCategory(false);
+      setSelectedImage(null);
+      setRemoveExistingImage(false);
+
+      Alert.alert(
+        "Product updated",
+        `${finalProduct.name} was saved successfully.`,
+      );
+    } catch (error) {
+      // The text fields may have saved before an image operation failed.
+      void fetchInventory(false);
+
+      console.error("[Stock] Save failed:", error);
+
+      setEditError(
+        error instanceof Error
+          ? error.message
+          : "Could not save the product. Check your connection and try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addCategory = () => {
@@ -317,6 +649,49 @@ export default function Stock() {
     setEditError("");
   };
 
+  const deleteProduct = (product: Product) => {
+    Alert.alert(
+      "Delete product?",
+      `This will permanently delete "${product.name}" from the inventory.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingId(product.id);
+
+            try {
+              await apiRequest<{ message: string; id: number }>(
+                `/api/products/${product.id}`,
+                { method: "DELETE" },
+              );
+
+              setInventory((previous) =>
+                previous.filter((item) => item.id !== product.id),
+              );
+
+              if (editingItem?.id === product.id) {
+                setEditingItem(null);
+              }
+
+              Alert.alert("Product deleted", `${product.name} was deleted.`);
+            } catch (error) {
+              Alert.alert(
+                "Delete failed",
+                error instanceof Error
+                  ? error.message
+                  : "Could not delete this product.",
+              );
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
@@ -324,37 +699,33 @@ export default function Stock() {
   });
 
   const searchBarStyle = useAnimatedStyle(() => ({
-    height: interpolate(
-      scrollY.value,
-      [0, 100],
-      [50, 0],
-      Extrapolation.CLAMP,
-    ),
+    height: interpolate(scrollY.value, [0, 100], [50, 0], Extrapolation.CLAMP),
     marginBottom: interpolate(
       scrollY.value,
       [0, 100],
       [8, 0],
       Extrapolation.CLAMP,
     ),
-    opacity: interpolate(
-      scrollY.value,
-      [0, 60],
-      [1, 0],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(scrollY.value, [0, 60], [1, 0], Extrapolation.CLAMP),
     overflow: "hidden" as const,
   }));
 
   const activeFilterCount = Object.entries(activeFilters).reduce(
     (total, [key, values]) => {
-      if (key === "soldRange" && values.includes("all")) {
-        return total;
+      if (key === "soldRange" && values.includes("all")) return total;
+
+      if (key === "inventoryOptions") {
+        return total + values.filter((value) => value !== "status:all").length;
       }
 
       return total + values.length;
     },
     0,
   );
+
+  const imagePreviewUri =
+    selectedImage?.uri ??
+    (removeExistingImage ? null : getImageUri(editingItem));
 
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
@@ -373,21 +744,33 @@ export default function Stock() {
             Inventory
           </Text>
 
-          <View className="h-8 w-8" />
+          <Pressable
+            onPress={refreshInventory}
+            disabled={loading || refreshing}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh inventory"
+            className="h-8 w-8 items-center justify-center"
+          >
+            {refreshing ? (
+              <ActivityIndicator
+                size="small"
+                color={isDark ? "#CDD6F4" : "#4C4F69"}
+              />
+            ) : (
+              <StyledRefreshCw size={18} className="text-ctp-subtext0" />
+            )}
+          </Pressable>
         </View>
 
         <Animated.View style={searchBarStyle}>
           <View className="flex-row items-center gap-2">
             <View className="flex-1 justify-center">
-              <View
-                pointerEvents="none"
-                className="absolute left-3 z-10"
-              >
+              <View pointerEvents="none" className="absolute left-3 z-10">
                 <StyledSearch size={18} className="text-ctp-subtext0" />
               </View>
 
               <TextInput
-                placeholder="Search parts..."
+                placeholder="Search parts or SKU..."
                 placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
                 selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
                 value={searchQuery}
@@ -460,14 +843,14 @@ export default function Stock() {
                 key={category}
                 onPress={() => setSelectedCategory(category)}
                 className={`self-start rounded-full px-3 py-[8px] ${selectedCategory === category
-                    ? "bg-ctp-surface1"
-                    : "bg-transparent"
+                  ? "bg-ctp-surface1"
+                  : "bg-transparent"
                   }`}
               >
                 <Text
                   className={`font-inter-semibold text-base ${selectedCategory === category
-                      ? "text-ctp-text"
-                      : "text-ctp-subtext0"
+                    ? "text-ctp-text"
+                    : "text-ctp-subtext0"
                     }`}
                 >
                   {category}
@@ -476,30 +859,82 @@ export default function Stock() {
             ))}
           </ScrollView>
 
-          <Animated.FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => item.id.toString()}
-            onScroll={scrollHandler}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 24 }}
-            renderItem={({ item }) => (
-              <StockItem
-                item={item}
-                openItemId={openItemId}
-                onEdit={beginEditing}
+          {loading && inventory.length === 0 ? (
+            <View className="flex-1 items-center justify-center gap-3">
+              <ActivityIndicator
+                size="large"
+                color={isDark ? "#89B4FA" : "#1E66F5"}
               />
-            )}
-            ListEmptyComponent={
-              <View className="items-center justify-center py-6">
-                <Text className="text-center font-inter-semibold text-base text-ctp-subtext0">
-                  {searchQuery.trim()
-                    ? `No results matching "${searchQuery}"`
-                    : "No products found"}
+              <Text className="font-inter-medium text-sm text-ctp-subtext0">
+                Loading inventory...
+              </Text>
+            </View>
+          ) : loadError && inventory.length === 0 ? (
+            <View className="flex-1 items-center justify-center px-3">
+              <Text className="mb-2 text-center font-inter-semibold text-base text-ctp-red">
+                Could not load inventory
+              </Text>
+              <Text className="mb-4 text-center font-inter-regular text-sm text-ctp-subtext0">
+                {loadError}
+              </Text>
+              <Pressable
+                onPress={() => void fetchInventory()}
+                className="rounded-lg bg-ctp-blue px-5 py-3"
+              >
+                <Text
+                  className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
+                    }`}
+                >
+                  Try again
                 </Text>
-              </View>
-            }
-          />
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              {loadError ? (
+                <Pressable
+                  onPress={() => void fetchInventory(false)}
+                  className="mb-2 rounded-lg bg-ctp-red/10 p-3"
+                >
+                  <Text className="font-inter-medium text-sm text-ctp-red">
+                    Refresh failed. Showing the last loaded inventory. Tap to retry.
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Animated.FlatList
+                data={filteredProducts}
+                keyExtractor={(item) => item.id.toString()}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                // Do not use flexGrow: 1 here: keep short lists pinned to the top.
+                contentContainerStyle={{ paddingBottom: 24, alignItems: "stretch" }}
+                refreshing={refreshing}
+                onRefresh={refreshInventory}
+                renderItem={({ item }) => (
+                  <StockItem
+                    item={item}
+                    openItemId={openItemId}
+                    onEdit={beginEditing}
+                    onDelete={deleteProduct}
+                    deleting={deletingId === item.id}
+                  />
+                )}
+                ListEmptyComponent={
+                  <View className="items-center justify-center py-8">
+                    <Text className="text-center font-inter-semibold text-base text-ctp-subtext0">
+                      {inventory.length === 0
+                        ? "Your inventory is empty."
+                        : searchQuery.trim()
+                          ? `No results matching "${searchQuery}"`
+                          : "No products match these filters."}
+                    </Text>
+                  </View>
+                }
+              />
+            </>
+          )}
         </View>
 
         <FilterModal
@@ -512,7 +947,6 @@ export default function Stock() {
           onReset={handleResetFilters}
         />
 
-        {/* Edit Product Bottom Sheet */}
         <Host style={{ position: "absolute", width }}>
           <BottomSheet
             isPresented={editingItem !== null}
@@ -527,14 +961,12 @@ export default function Stock() {
                 <View className="mb-6 flex-row items-center justify-between">
                   <Pressable
                     onPress={closeEditSheet}
+                    disabled={saving}
                     accessibilityRole="button"
                     accessibilityLabel="Close edit product"
                     className="h-9 w-9 items-center justify-center rounded-full bg-ctp-surface0"
                   >
-                    <StyledChevronLeft
-                      size={20}
-                      className="text-ctp-text"
-                    />
+                    <StyledChevronLeft size={20} className="text-ctp-text" />
                   </Pressable>
 
                   <Text className="font-inter-semibold text-lg text-ctp-text">
@@ -555,8 +987,73 @@ export default function Stock() {
                         Product details
                       </Text>
                       <Text className="mt-1 font-inter-regular text-xs text-ctp-subtext0">
-                        Update the product name and inventory category.
+                        Update product details and its image.
                       </Text>
+                    </View>
+
+                    <View className="mb-5 flex-row items-center gap-4">
+                      <View className="h-28 w-28 overflow-hidden rounded-xl border border-ctp-surface2 bg-ctp-base">
+                        {imagePreviewUri ? (
+                          <Image
+                            key={imagePreviewUri}
+                            source={{ uri: imagePreviewUri }}
+                            resizeMode="cover"
+                            className="h-full w-full"
+                            onError={() => {
+                              if (!selectedImage) {
+                                setEditError(
+                                  "The saved image could not be loaded. You can choose a replacement.",
+                                );
+                              }
+                            }}
+                          />
+                        ) : (
+                          <View className="flex-1 items-center justify-center px-2">
+                            <StyledImageOff
+                              size={24}
+                              className="text-ctp-subtext0"
+                            />
+                            <Text className="mt-2 text-center font-inter-medium text-[10px] text-ctp-subtext0">
+                              No image
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <View className="flex-1 gap-2">
+                        <Pressable
+                          onPress={() => void chooseProductImage()}
+                          disabled={saving}
+                          className="flex-row items-center justify-center gap-2 rounded-lg bg-ctp-blue px-3 py-3"
+                        >
+                          <StyledImagePlus
+                            size={17}
+                            className={isDark ? "text-ctp-crust" : "text-white"}
+                          />
+                          <Text
+                            className={`font-inter-semibold text-sm ${isDark ? "text-ctp-crust" : "text-white"
+                              }`}
+                          >
+                            {imagePreviewUri ? "Change image" : "Choose image"}
+                          </Text>
+                        </Pressable>
+
+                        {imagePreviewUri ? (
+                          <Pressable
+                            onPress={removeProductImage}
+                            disabled={saving}
+                            className="rounded-lg border border-ctp-surface2 px-3 py-2"
+                          >
+                            <Text className="text-center font-inter-medium text-xs text-ctp-red">
+                              Remove image
+                            </Text>
+                          </Pressable>
+                        ) : null}
+
+                        <Text className="font-inter-regular text-[10px] text-ctp-subtext0">
+                          JPEG, PNG, GIF or WebP · Maximum 5 MB
+                        </Text>
+                      </View>
                     </View>
 
                     <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
@@ -571,7 +1068,7 @@ export default function Stock() {
                       placeholder="Enter product name"
                       placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
                       selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                      maxLength={120}
+                      maxLength={150}
                       className="mb-4 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
                     />
 
@@ -610,7 +1107,7 @@ export default function Stock() {
                           placeholder="New category name"
                           placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
                           selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                          maxLength={60}
+                          maxLength={100}
                           className="flex-1 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-regular text-ctp-text"
                         />
                         <Pressable
@@ -637,14 +1134,14 @@ export default function Stock() {
                                 setEditError("");
                               }}
                               className={`rounded-full border px-3 py-2 ${editCategory === category
-                                  ? "border-ctp-blue bg-ctp-blue/15"
-                                  : "border-ctp-surface2 bg-ctp-base"
+                                ? "border-ctp-blue bg-ctp-blue/15"
+                                : "border-ctp-surface2 bg-ctp-base"
                                 }`}
                             >
                               <Text
                                 className={`font-inter-medium text-xs ${editCategory === category
-                                    ? "text-ctp-blue"
-                                    : "text-ctp-subtext0"
+                                  ? "text-ctp-blue"
+                                  : "text-ctp-subtext0"
                                   }`}
                               >
                                 {category}
@@ -654,7 +1151,7 @@ export default function Stock() {
                       </View>
                     )}
 
-                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                    <Text className="mb-1 font-inter-semibold text-sm text-ctp-text">
                       Selected category
                     </Text>
                     <Text className="font-inter-medium text-sm text-ctp-subtext0">
@@ -734,15 +1231,13 @@ export default function Stock() {
                       ].map((adjustment) => (
                         <Pressable
                           key={adjustment.label}
-                          onPress={() =>
-                            applyPricePercentage(adjustment.value)
-                          }
+                          onPress={() => applyPricePercentage(adjustment.value)}
                           className="flex-1 items-center rounded-lg border border-ctp-surface2 bg-ctp-base py-3"
                         >
                           <Text
                             className={`font-inter-semibold text-xs ${adjustment.value < 0
-                                ? "text-ctp-red"
-                                : "text-ctp-green"
+                              ? "text-ctp-red"
+                              : "text-ctp-green"
                               }`}
                           >
                             {adjustment.label}
@@ -782,7 +1277,7 @@ export default function Stock() {
 
                     {editPrice.trim() !== "" &&
                       Number.isFinite(Number(editPrice)) &&
-                      Number(editPrice) >= 0 && (
+                      Number(editPrice) > 0 && (
                         <Text className="mt-3 font-inter-regular text-xs text-ctp-subtext0">
                           New selling price: ₱{formatPrice(Number(editPrice))}
                         </Text>
@@ -801,6 +1296,7 @@ export default function Stock() {
                 <View className="mt-4 flex-row gap-3">
                   <Pressable
                     onPress={closeEditSheet}
+                    disabled={saving}
                     className="flex-1 rounded-xl border border-ctp-surface2 bg-ctp-mantle p-4"
                   >
                     <Text className="text-center font-inter-semibold text-ctp-text">
@@ -809,15 +1305,23 @@ export default function Stock() {
                   </Pressable>
 
                   <Pressable
-                    onPress={saveProduct}
+                    onPress={() => void saveProduct()}
+                    disabled={saving}
                     className="flex-1 flex-row items-center justify-center rounded-xl bg-ctp-blue p-4"
                   >
-                    <Text
-                      className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
-                        }`}
-                    >
-                      Save Changes
-                    </Text>
+                    {saving ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={isDark ? "#11111B" : "#FFFFFF"}
+                      />
+                    ) : (
+                      <Text
+                        className={`font-inter-semibold ${isDark ? "text-ctp-crust" : "text-white"
+                          }`}
+                      >
+                        Save Changes
+                      </Text>
+                    )}
                   </Pressable>
                 </View>
               </View>
@@ -833,13 +1337,21 @@ type StockItemProps = {
   item: Product;
   openItemId: SharedValue<number | null>;
   onEdit: (item: Product) => void;
+  onDelete: (item: Product) => void;
+  deleting: boolean;
 };
 
-function StockItem({ item, openItemId, onEdit }: StockItemProps) {
+function StockItem({
+  item,
+  openItemId,
+  onEdit,
+  onDelete,
+  deleting,
+}: StockItemProps) {
   const ACTION_WIDTH = 120;
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
-  const activeGestureId = useSharedValue<number | null>(null);
+  const imageUri = getImageUri(item);
 
   useAnimatedReaction(
     () => openItemId.value,
@@ -859,22 +1371,10 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
     .activeOffsetX([-20, 20])
     .failOffsetY([-10, 10])
     .onStart(() => {
-      if (
-        activeGestureId.value !== null &&
-        activeGestureId.value !== item.id
-      ) {
-        return;
-      }
-
-      activeGestureId.value = item.id;
       startX.value = translateX.value;
       openItemId.value = item.id;
     })
     .onUpdate((event) => {
-      if (activeGestureId.value !== item.id) {
-        return;
-      }
-
       translateX.value = Math.max(
         -ACTION_WIDTH,
         Math.min(0, startX.value + event.translationX),
@@ -885,6 +1385,9 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
         translateX.value = withSpring(-ACTION_WIDTH);
       } else {
         translateX.value = withSpring(0);
+        if (openItemId.value === item.id) {
+          openItemId.value = null;
+        }
       }
     });
 
@@ -901,11 +1404,17 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
         </Pressable>
 
         <Pressable
+          onPress={() => onDelete(item)}
+          disabled={deleting}
           accessibilityRole="button"
           accessibilityLabel={`Delete ${item.name}`}
           className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-ctp-mantle"
         >
-          <StyledTrash size={20} className="text-ctp-red" />
+          {deleting ? (
+            <ActivityIndicator size="small" color="#F38BA8" />
+          ) : (
+            <StyledTrash size={20} className="text-ctp-red" />
+          )}
         </Pressable>
       </View>
 
@@ -914,28 +1423,41 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
           style={[
             swipeStyle,
             item.stock === 0
-              ? {
-                borderWidth: 1,
-                borderColor: "#F38BA8",
-              }
+              ? { borderWidth: 1, borderColor: "#F38BA8" }
               : item.stock < 10
-                ? {
-                  borderWidth: 1,
-                  borderColor: "#F9E2AF",
-                }
-                : {
-                  borderWidth: 1,
-                  borderColor: "rgba(128, 128, 128, 0.15)",
-                },
+                ? { borderWidth: 1, borderColor: "#F9E2AF" }
+                : { borderWidth: 1, borderColor: "rgba(128, 128, 128, 0.15)" },
           ]}
           className="flex-row rounded-xl bg-ctp-mantle"
         >
           <View className="flex-1 flex-row px-3 py-[10px]">
-            <View className="h-20 w-20 rounded-lg bg-ctp-surface0" />
+            <View className="h-20 w-20 overflow-hidden rounded-lg bg-ctp-surface0">
+              {imageUri ? (
+                <Image
+                  key={imageUri}
+                  source={{ uri: imageUri }}
+                  resizeMode="cover"
+                  className="h-full w-full"
+                />
+              ) : (
+                <View className="flex-1 items-center justify-center px-1">
+                  <Text className="text-center font-inter-semibold text-[10px] text-ctp-subtext0">
+                    {item.sku || "NO IMAGE"}
+                  </Text>
+                </View>
+              )}
+            </View>
 
             <View className="ml-3 flex-1">
-              <Text className="font-inter-medium text-base text-ctp-text">
+              <Text
+                numberOfLines={2}
+                className="font-inter-medium text-base text-ctp-text"
+              >
                 {item.name}
+              </Text>
+
+              <Text className="font-inter-regular text-xs text-ctp-subtext0">
+                {item.category}
               </Text>
 
               <Text className="font-inter-semibold text-sm text-ctp-subtext0">
@@ -944,10 +1466,10 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
 
               <Text
                 className={`mt-auto font-inter-semibold text-sm ${item.stock === 0
-                    ? "text-ctp-red"
-                    : item.stock < 10
-                      ? "text-ctp-yellow"
-                      : "text-ctp-text"
+                  ? "text-ctp-red"
+                  : item.stock < 10
+                    ? "text-ctp-yellow"
+                    : "text-ctp-text"
                   }`}
               >
                 Stock: {item.stock}
@@ -959,4 +1481,3 @@ function StockItem({ item, openItemId, onEdit }: StockItemProps) {
     </View>
   );
 }
-

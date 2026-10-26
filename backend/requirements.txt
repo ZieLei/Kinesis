@@ -1,3 +1,6 @@
 fastapi
-uvicorn
-jinja2
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+pydantic-settings
+python-multipart
