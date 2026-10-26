@@ -1,6 +1,5 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# Dependencies
 node_modules/
 
 # Expo
@@ -9,7 +8,11 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Generated native folders
+/ios/
+/android/
+
+# Native build and signing files
 .kotlin/
 *.orig.*
 *.jks
@@ -21,28 +24,61 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # macOS
 .DS_Store
+
+# Certificates and private keys
 *.pem
 
-# local env files
-.env*.local
-
-# Environment secrets
+# Environment variables and secrets
 .env
 .env.*
 !.env.example
+!.env.*.example
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 
-example
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+venv/
+.venv/
+ENV/
 
-# generated native folders
-/ios
-/android
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases and runtime files
+*.sqlite
+*.sqlite3
+*.db
+
+# Uploaded product images (runtime data)
+backend/uploads/products/*
+!backend/uploads/products/.gitkeep
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.old
