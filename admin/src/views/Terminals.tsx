@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import {
   Activity,
@@ -16,7 +17,6 @@ import {
   CircleAlert,
   Clock,
   Signal,
-  MoreHorizontal,
   X,
   Check,
   Wrench,
@@ -88,14 +88,14 @@ const initialTerminals: Terminal[] = [
 ];
 
 const statusStyles = {
-  Connected: "bg-ctp-green/15 text-ctp-green",
-  Disconnected: "bg-ctp-red/15 text-ctp-red",
+  Connected: "bg-ctp-green/10 text-ctp-green",
+  Disconnected: "bg-ctp-red/10 text-ctp-red",
 };
 
 function StatusBadge({ status }: { status: Terminal["status"] }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-inter text-xs font-bold ${statusStyles[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-inter text-[10px] font-bold ${statusStyles[status]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${status === "Connected" ? "bg-ctp-green" : "bg-ctp-red"
@@ -120,23 +120,24 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="rounded-xl border border-ctp-surface0 bg-ctp-base p-4 transition-colors hover:border-ctp-surface1">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-inter text-sm font-medium text-ctp-subtext0">
-            {label}
-          </p>
-          <p className="mt-2 font-inter text-2xl font-bold text-ctp-text">
-            {value}
-          </p>
-        </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>
-          <Icon size={20} />
-        </div>
+    <div className="flex min-w-0 items-center gap-3 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${color}`}
+      >
+        <Icon size={18} />
       </div>
-      <p className="mt-3 font-inter text-xs text-ctp-subtext0">
-        {description}
-      </p>
+
+      <div className="min-w-0">
+        <p className="font-inter text-xs font-medium text-ctp-subtext0">
+          {label}
+        </p>
+        <p className="mt-0.5 font-inter text-xl font-bold leading-tight text-ctp-text">
+          {value}
+        </p>
+        <p className="mt-1 truncate font-inter text-[11px] text-ctp-subtext0">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
@@ -146,21 +147,32 @@ export default function Terminals() {
   const [search, setSearch] = useState("");
   const [broadcast, setBroadcast] = useState("");
   const [broadcastNotice, setBroadcastNotice] = useState("");
+  const [broadcastError, setBroadcastError] = useState(false);
   const [confirmKick, setConfirmKick] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<
+    Record<string, { message: string; error: boolean }>
+  >({});
 
   const connectedCount = terminals.filter(
     (terminal) => terminal.status === "Connected",
   ).length;
 
   const maintenanceCount = terminals.filter(
-    (terminal) => terminal.maintenance && terminal.status === "Connected",
+    (terminal) =>
+      terminal.maintenance && terminal.status === "Connected",
   ).length;
+
+  const disconnectedCount = terminals.length - connectedCount;
+
+  const hasWeakSignal = terminals.some(
+    (terminal) =>
+      terminal.status === "Connected" && terminal.signal === "Weak",
+  );
 
   const filteredTerminals = terminals.filter((terminal) =>
     `${terminal.name} ${terminal.id} ${terminal.ip} ${terminal.device}`
       .toLowerCase()
-      .includes(search.toLowerCase()),
+      .includes(search.trim().toLowerCase()),
   );
 
   function updateTerminal(id: string, updates: Partial<Terminal>) {
@@ -171,22 +183,32 @@ export default function Terminals() {
     );
   }
 
-  function showNotice(id: string, message: string) {
-    setNotice((current) => ({ ...current, [id]: message }));
+  function showNotice(id: string, message: string, error = false) {
+    setNotice((current) => ({
+      ...current,
+      [id]: { message, error },
+    }));
   }
 
   function forceSync(terminal: Terminal) {
     if (terminal.status !== "Connected") {
-      showNotice(terminal.id, "Terminal is offline.");
+      showNotice(terminal.id, "Cannot sync: terminal is offline.", true);
       return;
     }
 
-    showNotice(terminal.id, "Sync requested (UI demo).");
+    showNotice(
+      terminal.id,
+      "Sync requested. Backend integration is required to complete it.",
+    );
   }
 
   function toggleMaintenance(terminal: Terminal) {
     if (terminal.status !== "Connected") {
-      showNotice(terminal.id, "Terminal is offline.");
+      showNotice(
+        terminal.id,
+        "Cannot change maintenance mode while offline.",
+        true,
+      );
       return;
     }
 
@@ -195,7 +217,9 @@ export default function Terminals() {
     updateTerminal(terminal.id, { maintenance: next });
     showNotice(
       terminal.id,
-      next ? "Maintenance mode enabled (UI demo)." : "Maintenance mode disabled (UI demo).",
+      next
+        ? "Maintenance mode enabled."
+        : "Maintenance mode disabled.",
     );
   }
 
@@ -204,6 +228,7 @@ export default function Terminals() {
       status: "Disconnected",
       maintenance: false,
     });
+
     showNotice(id, "Terminal disconnected in this UI demo.");
     setConfirmKick(null);
   }
@@ -211,214 +236,230 @@ export default function Terminals() {
   function sendBroadcast() {
     if (!broadcast.trim()) {
       setBroadcastNotice("Enter a message before broadcasting.");
+      setBroadcastError(true);
       return;
     }
 
     if (connectedCount === 0) {
-      setBroadcastNotice("No connected terminals to receive this message.");
+      setBroadcastNotice("No connected terminals can receive this message.");
+      setBroadcastError(true);
       return;
     }
 
     setBroadcastNotice(
-      `Broadcast prepared for ${connectedCount} connected terminal${connectedCount === 1 ? "" : "s"} (UI demo).`,
+      `Message prepared for ${connectedCount} connected terminal${connectedCount === 1 ? "" : "s"
+      }. Backend integration is required to deliver it.`,
     );
+    setBroadcastError(false);
     setBroadcast("");
   }
 
+  const healthLabel =
+    connectedCount === 0
+      ? "Unavailable"
+      : hasWeakSignal
+        ? "Needs attention"
+        : "Stable";
+
+  const healthColor =
+    connectedCount === 0
+      ? "text-ctp-subtext0"
+      : hasWeakSignal
+        ? "text-ctp-yellow"
+        : "text-ctp-green";
+
+  const inputClass =
+    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-inter text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+
+  const actionClass =
+    "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-inter text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Page header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-4">
+      {/* Header */}
+      <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="font-inter text-2xl font-bold text-ctp-text">
+          <h1 className="font-inter text-xl font-bold text-ctp-text">
             Terminal Management
           </h1>
-          <p className="mt-1 font-inter text-sm text-ctp-subtext0">
-            Monitor connected POS devices and manage their sessions.
+          <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+            Monitor device connections and manage terminal access.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start rounded-lg border border-ctp-green/20 bg-ctp-green/10 px-3 py-2">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ctp-green opacity-40" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ctp-green" />
-          </span>
-          <span className="font-inter text-sm font-semibold text-ctp-green">
+        <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
+          <span className="h-2 w-2 rounded-full bg-ctp-green" />
+          <span className="font-inter text-xs font-semibold text-ctp-green">
             Network monitoring
           </span>
         </div>
-      </div>
+      </header>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Summary */}
+      <section
+        aria-label="Terminal summary"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4"
+      >
         <StatCard
-          label="Active Terminals"
+          label="Active terminals"
           value={`${connectedCount} / ${terminals.length}`}
-          description="Currently connected devices"
+          description="Connected devices"
           icon={Smartphone}
-          color="bg-ctp-green/15 text-ctp-green"
+          color="bg-ctp-blue/10 text-ctp-blue"
         />
+
         <StatCard
-          label="Network Status"
+          label="Network status"
           value={connectedCount > 0 ? "Online" : "Offline"}
-          description="Based on current UI session states"
+          description="Based on UI session states"
           icon={connectedCount > 0 ? Wifi : WifiOff}
           color={
             connectedCount > 0
-              ? "bg-ctp-blue/15 text-ctp-blue"
-              : "bg-ctp-red/15 text-ctp-red"
+              ? "bg-ctp-green/10 text-ctp-green"
+              : "bg-ctp-red/10 text-ctp-red"
           }
         />
+
         <StatCard
-          label="Maintenance Mode"
+          label="Maintenance"
           value={maintenanceCount}
           description="Connected devices in maintenance"
           icon={Wrench}
-          color="bg-ctp-yellow/15 text-ctp-yellow"
+          color="bg-ctp-yellow/10 text-ctp-yellow"
         />
+
         <StatCard
           label="Disconnected"
-          value={terminals.length - connectedCount}
-          description="Devices not currently connected"
+          value={disconnectedCount}
+          description="Devices currently offline"
           icon={Activity}
-          color="bg-ctp-red/15 text-ctp-red"
+          color="bg-ctp-red/10 text-ctp-red"
         />
-      </div>
+      </section>
 
-      {/* Network status */}
-      <section className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-blue/15 text-ctp-blue">
-            <Signal size={21} />
-          </div>
-          <div>
-            <h2 className="font-inter text-lg font-bold text-ctp-text">
-              Network Overview
-            </h2>
-            <p className="font-inter text-sm text-ctp-subtext0">
-              Local network and terminal connectivity
-            </p>
-          </div>
-        </div>
+      {/* Network overview */}
+      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base">
+        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ctp-blue/10 text-ctp-blue">
+              <Signal size={18} />
+            </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Server Address
-            </p>
-            <p className="mt-2 break-all font-mono text-sm font-semibold text-ctp-text">
-              192.168.1.100:8000
-            </p>
-            <p className="mt-2 flex items-center gap-1.5 font-inter text-xs text-ctp-green">
-              <CircleCheck size={14} />
-              FastAPI endpoint
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Connected Devices
-            </p>
-            <p className="mt-2 font-inter text-2xl font-bold text-ctp-text">
-              {connectedCount}
-              <span className="text-base font-medium text-ctp-subtext0">
-                {" "}/ {terminals.length}
-              </span>
-            </p>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ctp-surface0">
-              <div
-                className="h-full rounded-full bg-ctp-green transition-all"
-                style={{
-                  width: `${terminals.length ? (connectedCount / terminals.length) * 100 : 0}%`,
-                }}
-              />
+            <div>
+              <h2 className="font-inter text-sm font-bold text-ctp-text">
+                Network overview
+              </h2>
+              <p className="font-inter text-xs text-ctp-subtext0">
+                Local server and device health
+              </p>
             </div>
           </div>
 
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Connection Health
-            </p>
-            <p className="mt-2 font-inter text-lg font-bold text-ctp-text">
-              {terminals.some(
-                (terminal) =>
-                  terminal.status === "Connected" &&
-                  terminal.signal === "Weak",
-              )
-                ? "Needs attention"
-                : connectedCount > 0
-                  ? "Stable"
-                  : "Unavailable"}
-            </p>
-            <p className="mt-2 flex items-center gap-1.5 font-inter text-xs text-ctp-subtext0">
-              <Clock size={14} />
-              Live data requires backend integration
-            </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-6 sm:text-right">
+            <div>
+              <p className="font-inter text-[11px] text-ctp-subtext0">
+                Server address
+              </p>
+              <p className="mt-1 font-mono text-xs font-semibold text-ctp-text">
+                192.168.1.100:8000
+              </p>
+              <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+                FastAPI endpoint
+              </p>
+            </div>
+
+            <div>
+              <p className="font-inter text-[11px] text-ctp-subtext0">
+                Connection health
+              </p>
+              <p className={`mt-1 font-inter text-sm font-bold ${healthColor}`}>
+                {healthLabel}
+              </p>
+              <p className="mt-1 flex items-center justify-start gap-1 font-inter text-[10px] text-ctp-subtext0 sm:justify-end">
+                <Clock size={11} />
+                Demo data · not live monitoring
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Broadcast */}
-      <section className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-mauve/15 text-ctp-mauve">
-            <Radio size={21} />
+      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
+            <Radio size={17} />
           </div>
           <div>
-            <h2 className="font-inter text-lg font-bold text-ctp-text">
-              Broadcast Message
+            <h2 className="font-inter text-sm font-bold text-ctp-text">
+              Broadcast message
             </h2>
-            <p className="font-inter text-sm text-ctp-subtext0">
-              Send an announcement to all connected terminals.
+            <p className="font-inter text-xs text-ctp-subtext0">
+              Prepare an announcement for connected terminals.
             </p>
           </div>
         </div>
 
         <form
-          className="flex flex-col gap-3 sm:flex-row"
+          className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(event) => {
             event.preventDefault();
             sendBroadcast();
           }}
         >
           <input
+            aria-label="Broadcast message"
             value={broadcast}
             onChange={(event) => {
               setBroadcast(event.target.value);
               setBroadcastNotice("");
+              setBroadcastError(false);
             }}
-            placeholder="e.g. System maintenance starts at 8:00 PM..."
+            placeholder="Enter an announcement..."
             maxLength={250}
-            className="min-w-0 flex-1 rounded-lg border border-ctp-surface0 bg-ctp-base px-4 py-3 font-inter text-sm text-ctp-text outline-none transition-colors placeholder:text-ctp-overlay1 focus:border-ctp-mauve"
+            className={`${inputClass} flex-1`}
           />
+
           <button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-mauve px-5 py-3 font-inter text-sm font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={connectedCount === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 font-inter text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Send size={16} />
-            Broadcast
+            <Send size={14} />
+            Prepare message
           </button>
         </form>
 
-        <div className="mt-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-          <p className="font-inter text-xs text-ctp-subtext0">
-            <Users size={13} className="mr-1 inline" />
-            Recipients: {connectedCount} connected terminal
-            {connectedCount === 1 ? "" : "s"}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 font-inter text-[11px] text-ctp-subtext0">
+            <Users size={12} />
+            {connectedCount} recipient{connectedCount === 1 ? "" : "s"}
           </p>
-          <p className="font-inter text-xs text-ctp-subtext0">
-            {broadcast.length}/250 characters
+          <p className="font-inter text-[11px] text-ctp-subtext0">
+            {broadcast.length}/250
           </p>
         </div>
 
         {broadcastNotice && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-            <CircleAlert
-              size={16}
-              className="mt-0.5 shrink-0 text-ctp-yellow"
-            />
-            <p className="font-inter text-sm text-ctp-subtext1">
+          <div
+            role="status"
+            className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${broadcastError
+              ? "border-ctp-red/20 bg-ctp-red/5"
+              : "border-ctp-green/20 bg-ctp-green/5"
+              }`}
+          >
+            {broadcastError ? (
+              <CircleAlert
+                size={15}
+                className="mt-0.5 shrink-0 text-ctp-red"
+              />
+            ) : (
+              <CircleCheck
+                size={15}
+                className="mt-0.5 shrink-0 text-ctp-green"
+              />
+            )}
+            <p className="font-inter text-xs text-ctp-text">
               {broadcastNotice}
             </p>
           </div>
@@ -426,131 +467,172 @@ export default function Terminals() {
       </section>
 
       {/* Terminal list */}
-      <section className="overflow-hidden rounded-xl border border-ctp-surface0 bg-ctp-surface2/20">
-        <div className="flex flex-col justify-between gap-4 border-b border-ctp-surface0 p-5 sm:flex-row sm:items-center">
+      <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
+        <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-inter text-lg font-bold text-ctp-text">
-              Connected Terminals
+            <h2 className="font-inter text-sm font-bold text-ctp-text">
+              Terminals
             </h2>
-            <p className="mt-1 font-inter text-sm text-ctp-subtext0">
-              View device sessions and manage terminal access.
+            <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+              Search devices and manage their sessions.
             </p>
           </div>
 
           <div className="relative w-full sm:max-w-xs">
             <Search
-              size={17}
+              size={15}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-ctp-overlay1"
             />
             <input
+              aria-label="Search terminals"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search terminals..."
-              className="w-full rounded-lg border border-ctp-surface0 bg-ctp-base py-2.5 pl-9 pr-3 font-inter text-sm text-ctp-text outline-none transition-colors placeholder:text-ctp-overlay1 focus:border-ctp-mauve"
+              placeholder="Search name, ID, IP..."
+              className={`${inputClass} w-full py-2 pl-9 pr-9`}
             />
+            {search && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ctp-subtext0 hover:text-ctp-text"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-ctp-surface0 px-5 py-3">
-          <p className="font-inter text-xs text-ctp-subtext0">
-            Showing {filteredTerminals.length} of {terminals.length} terminals
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2">
+          <p className="font-inter text-[11px] text-ctp-subtext0">
+            Showing {filteredTerminals.length} of {terminals.length}
           </p>
-          <span className="flex items-center gap-1.5 font-inter text-xs font-semibold text-ctp-green">
+          <span className="inline-flex items-center gap-1.5 font-inter text-[11px] font-semibold text-ctp-green">
             <span className="h-1.5 w-1.5 rounded-full bg-ctp-green" />
             {connectedCount} online
           </span>
         </div>
 
-        <div className="flex flex-col divide-y divide-ctp-surface0">
+        <div className="divide-y divide-ctp-surface0">
           {filteredTerminals.map((terminal) => (
-            <div
+            <article
               key={terminal.id}
-              className="p-5 transition-colors hover:bg-ctp-surface0/30"
+              className="p-3 transition-colors hover:bg-ctp-surface0/20"
             >
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                {/* Terminal identity */}
-                <div className="flex min-w-0 items-start gap-3">
+              {/* Identity and actions */}
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex min-w-0 items-start gap-2.5">
                   <div
-                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${terminal.status === "Connected"
-                        ? "bg-ctp-blue/15 text-ctp-blue"
-                        : "bg-ctp-surface0 text-ctp-overlay1"
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${terminal.status === "Connected"
+                      ? "bg-ctp-blue/10 text-ctp-blue"
+                      : "bg-ctp-surface0 text-ctp-overlay1"
                       }`}
                   >
                     {terminal.device.includes("Tablet") ? (
-                      <Monitor size={22} />
+                      <Monitor size={18} />
                     ) : (
-                      <Smartphone size={22} />
+                      <Smartphone size={18} />
                     )}
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-inter font-bold text-ctp-text">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <h3 className="font-inter text-sm font-bold text-ctp-text">
                         {terminal.name}
                       </h3>
                       <StatusBadge status={terminal.status} />
-                      {terminal.maintenance && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/15 px-2.5 py-1 font-inter text-xs font-bold text-ctp-yellow">
-                          <Wrench size={12} />
-                          MAINTENANCE
-                        </span>
-                      )}
+
+                      {terminal.maintenance &&
+                        terminal.status === "Connected" && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-inter text-[10px] font-bold text-ctp-yellow">
+                            <Wrench size={10} />
+                            MAINTENANCE
+                          </span>
+                        )}
                     </div>
-                    <p className="mt-1 font-inter text-xs text-ctp-subtext0">
-                      {terminal.id} · {terminal.device}
+
+                    <p className="mt-1 font-inter text-[11px] text-ctp-subtext0">
+                      {terminal.id} <span className="px-1">·</span>
+                      {terminal.device}
+                      {terminal.status === "Connected" && (
+                        <>
+                          <span className="px-1">·</span>
+                          <span
+                            className={
+                              terminal.signal === "Weak"
+                                ? "text-ctp-yellow"
+                                : "text-ctp-subtext0"
+                            }
+                          >
+                            Signal: {terminal.signal}
+                          </span>
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
 
-                {/* Admin actions */}
-                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
                   <button
+                    type="button"
                     onClick={() => forceSync(terminal)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 font-inter text-xs font-semibold text-ctp-text transition-colors hover:border-ctp-blue/50 hover:text-ctp-blue"
+                    className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-blue/50 hover:text-ctp-blue`}
                   >
-                    <RefreshCw size={14} />
-                    Force Sync
+                    <RefreshCw size={13} />
+                    Sync
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => toggleMaintenance(terminal)}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border bg-ctp-base px-3 py-2 font-inter text-xs font-semibold transition-colors ${terminal.maintenance
-                        ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/10"
-                        : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
+                    disabled={terminal.status !== "Connected"}
+                    className={`${actionClass} ${terminal.maintenance
+                      ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+                      : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
                       }`}
                   >
                     {terminal.maintenance ? (
-                      <Unlock size={14} />
+                      <Unlock size={13} />
                     ) : (
-                      <Lock size={14} />
+                      <Lock size={13} />
                     )}
-                    {terminal.maintenance ? "Unlock" : "Maintenance"}
+                    {terminal.maintenance ? "End maintenance" : "Maintenance"}
                   </button>
 
                   {confirmKick === terminal.id ? (
-                    <>
+                    <div
+                      className="flex flex-wrap items-center gap-1.5 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-1.5"
+                      role="group"
+                      aria-label={`Confirm disconnect for ${terminal.name}`}
+                    >
+                      <span className="px-1 font-inter text-[11px] text-ctp-red">
+                        Disconnect?
+                      </span>
                       <button
+                        type="button"
                         onClick={() => disconnectTerminal(terminal.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-ctp-red px-3 py-2 font-inter text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-red/80"
+                        className={`${actionClass} border-ctp-red bg-ctp-red text-ctp-base hover:bg-ctp-red/80`}
                       >
-                        <Check size={14} />
+                        <Check size={13} />
                         Confirm
                       </button>
                       <button
+                        type="button"
                         onClick={() => setConfirmKick(null)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-ctp-surface1 px-3 py-2 font-inter text-xs font-semibold text-ctp-subtext1 hover:bg-ctp-surface0"
+                        className={`${actionClass} border-ctp-surface1 text-ctp-text hover:bg-ctp-surface0`}
                       >
-                        <X size={14} />
+                        <X size={13} />
                         Cancel
                       </button>
-                    </>
+                    </div>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setConfirmKick(terminal.id)}
                       disabled={terminal.status !== "Connected"}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-ctp-red/20 bg-ctp-red/5 px-3 py-2 font-inter text-xs font-semibold text-ctp-red transition-colors hover:bg-ctp-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      className={`${actionClass} border-ctp-red/20 bg-ctp-red/5 text-ctp-red hover:bg-ctp-red/10`}
                     >
-                      <LogOut size={14} />
+                      <LogOut size={13} />
                       Disconnect
                     </button>
                   )}
@@ -558,64 +640,86 @@ export default function Terminals() {
               </div>
 
               {/* Session details */}
-              <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-ctp-surface0 bg-ctp-base p-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div>
-                  <p className="font-inter text-xs text-ctp-subtext0">
-                    IP Address
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-2.5 sm:grid-cols-4">
+                <div className="min-w-0">
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    IP address
                   </p>
-                  <p className="mt-1 break-all font-mono text-sm font-medium text-ctp-text">
+                  <p className="mt-1 break-all font-mono text-xs text-ctp-text">
                     {terminal.ip}
                   </p>
                 </div>
 
-                <div>
-                  <p className="font-inter text-xs text-ctp-subtext0">
+                <div className="min-w-0">
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
                     Session ID
                   </p>
-                  <p className="mt-1 break-all font-mono text-sm font-medium text-ctp-text">
+                  <p className="mt-1 break-all font-mono text-xs text-ctp-text">
                     {terminal.sessionId}
                   </p>
                 </div>
 
-                <div>
-                  <p className="font-inter text-xs text-ctp-subtext0">
-                    Connected Since
+                <div className="min-w-0">
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    Connected since
                   </p>
-                  <p className="mt-1 font-inter text-sm font-medium text-ctp-text">
+                  <p className="mt-1 font-inter text-xs text-ctp-text">
                     {terminal.connectedAt}
                   </p>
                 </div>
 
-                <div>
-                  <p className="font-inter text-xs text-ctp-subtext0">
-                    Last Sync
+                <div className="min-w-0">
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    Last sync
                   </p>
-                  <p className="mt-1 flex items-center gap-1.5 font-inter text-sm font-medium text-ctp-text">
-                    <RefreshCw size={13} className="text-ctp-overlay1" />
+                  <p className="mt-1 flex items-center gap-1.5 font-inter text-xs text-ctp-text">
+                    <RefreshCw
+                      size={11}
+                      className="shrink-0 text-ctp-overlay1"
+                    />
                     {terminal.lastSync}
                   </p>
                 </div>
               </div>
 
-              {/* Terminal feedback */}
+              {/* Action feedback */}
               {notice[terminal.id] && (
-                <p className="mt-3 font-inter text-xs text-ctp-subtext0">
-                  <MoreHorizontal size={14} className="mr-1 inline" />
-                  {notice[terminal.id]}
+                <p
+                  role="status"
+                  className={`mt-2 flex items-start gap-1.5 font-inter text-xs ${notice[terminal.id].error
+                    ? "text-ctp-red"
+                    : "text-ctp-subtext0"
+                    }`}
+                >
+                  {notice[terminal.id].error ? (
+                    <CircleAlert size={13} className="mt-0.5 shrink-0" />
+                  ) : (
+                    <CircleCheck size={13} className="mt-0.5 shrink-0" />
+                  )}
+                  {notice[terminal.id].message}
                 </p>
               )}
-            </div>
+            </article>
           ))}
 
           {filteredTerminals.length === 0 && (
-            <div className="flex flex-col items-center justify-center px-5 py-12 text-center">
-              <Search size={28} className="mb-3 text-ctp-overlay1" />
-              <p className="font-inter font-semibold text-ctp-text">
+            <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+              <Search size={24} className="mb-2 text-ctp-overlay1" />
+              <p className="font-inter text-sm font-semibold text-ctp-text">
                 No terminals found
               </p>
-              <p className="mt-1 font-inter text-sm text-ctp-subtext0">
-                Try searching by terminal name, ID, IP address, or device type.
+              <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+                Try another name, ID, IP address, or device type.
               </p>
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="mt-3 rounded-md border border-ctp-surface1 px-3 py-1.5 font-inter text-xs font-semibold text-ctp-text hover:bg-ctp-surface0"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           )}
         </div>

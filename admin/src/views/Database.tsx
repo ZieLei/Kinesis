@@ -1,4 +1,6 @@
+
 import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Database as DatabaseIcon,
   Server,
@@ -82,17 +84,17 @@ function SectionHeading({
   color?: string;
 }) {
   return (
-    <div className="mb-5 flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-2.5">
       <div
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ctp-surface0 ${color}`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ctp-surface0 ${color}`}
       >
-        <Icon size={20} />
+        <Icon size={18} />
       </div>
       <div className="min-w-0">
-        <h2 className="font-inter text-lg font-bold text-ctp-text">
+        <h2 className="font-inter text-sm font-bold text-ctp-text">
           {title}
         </h2>
-        <p className="font-inter text-sm text-ctp-subtext0">
+        <p className="mt-0.5 font-inter text-xs text-ctp-subtext0">
           {description}
         </p>
       </div>
@@ -108,41 +110,71 @@ function StatusBadge({
   tone?: "green" | "yellow" | "red" | "blue" | "gray";
 }) {
   const styles = {
-    green: "bg-ctp-green/15 text-ctp-green",
-    yellow: "bg-ctp-yellow/15 text-ctp-yellow",
-    red: "bg-ctp-red/15 text-ctp-red",
-    blue: "bg-ctp-blue/15 text-ctp-blue",
+    green: "bg-ctp-green/10 text-ctp-green",
+    yellow: "bg-ctp-yellow/10 text-ctp-yellow",
+    red: "bg-ctp-red/10 text-ctp-red",
+    blue: "bg-ctp-blue/10 text-ctp-blue",
     gray: "bg-ctp-surface1 text-ctp-subtext0",
+  };
+
+  const dotStyles = {
+    green: "bg-ctp-green",
+    yellow: "bg-ctp-yellow",
+    red: "bg-ctp-red",
+    blue: "bg-ctp-blue",
+    gray: "bg-ctp-overlay1",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-inter text-xs font-bold ${styles[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 font-inter text-[10px] font-bold ${styles[tone]}`}
     >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${tone === "green"
-          ? "bg-ctp-green"
-          : tone === "yellow"
-            ? "bg-ctp-yellow"
-            : tone === "red"
-              ? "bg-ctp-red"
-              : tone === "blue"
-                ? "bg-ctp-blue"
-                : "bg-ctp-overlay1"
-          }`}
-      />
+      <span className={`h-1.5 w-1.5 rounded-full ${dotStyles[tone]}`} />
       {label}
     </span>
   );
 }
 
-function UnavailableNotice({ children }: { children: React.ReactNode }) {
+function UnavailableNotice({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
-      <Info size={16} className="mt-0.5 shrink-0 text-ctp-yellow" />
+    <div className="flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
+      <Info size={15} className="mt-0.5 shrink-0 text-ctp-yellow" />
       <p className="font-inter text-xs leading-5 text-ctp-subtext1">
         {children}
       </p>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: typeof DatabaseIcon;
+  color: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${color}`}
+      >
+        <Icon size={18} />
+      </div>
+      <div className="min-w-0">
+        <p className="font-inter text-xs text-ctp-subtext0">{label}</p>
+        <p className="mt-0.5 truncate font-inter text-base font-bold text-ctp-text">
+          {value}
+        </p>
+        <p className="mt-0.5 truncate font-inter text-[10px] text-ctp-subtext0">
+          {detail}
+        </p>
+      </div>
     </div>
   );
 }
@@ -159,21 +191,22 @@ export default function Database() {
   const [dragging, setDragging] = useState(false);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState("");
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Backend integration flags.
-  // Switch these to real API-derived state once the backend exists.
+  // Replace these demo flags with backend-derived state.
   const databaseConfigured = false;
   const backupServiceAvailable = false;
   const s3Configured = false;
 
   const connectionUri = "";
   const engine = "SQLite";
+
   const filteredTables = schemaTables.filter((table) =>
     `${table.name} ${table.description}`
       .toLowerCase()
-      .includes(search.toLowerCase()),
+      .includes(search.trim().toLowerCase()),
   );
 
   async function copyConnectionUri() {
@@ -182,9 +215,9 @@ export default function Database() {
     try {
       await navigator.clipboard.writeText(connectionUri);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setNotice("Unable to copy the connection URI. Check browser permissions.");
+      setNotice("Could not copy the connection URI. Check browser permissions.");
     }
   }
 
@@ -198,61 +231,72 @@ export default function Database() {
 
     if (!databaseConfigured) {
       setQueryMessage(
-        "Query execution is unavailable because no database is configured.",
+        "SQL execution is disabled because the database is not configured.",
       );
       return;
     }
 
-    // TODO: Send the query to an authenticated backend endpoint.
     setQueryMessage(
-      "Database query API is not connected. Connect the backend before executing SQL.",
+      "The SQL endpoint is not connected. No query was executed.",
     );
   }
 
   function handleFile(file: File | undefined) {
     if (!file) return;
 
-    const validExtensions = [".sql", ".dump", ".db", ".sqlite", ".backup"];
+    const validExtensions = [
+      ".sql",
+      ".dump",
+      ".db",
+      ".sqlite",
+      ".backup",
+    ];
+
     const valid = validExtensions.some((extension) =>
       file.name.toLowerCase().endsWith(extension),
     );
 
     if (!valid) {
       setSelectedFile(null);
-      setNotice("Unsupported file type. Select a .sql, .dump, .db, .sqlite, or .backup file.");
+      setShowRestoreConfirm(false);
+      setNotice(
+        "Unsupported file. Select a .sql, .dump, .db, .sqlite, or .backup file.",
+      );
       return;
     }
 
     setNotice("");
+    setShowRestoreConfirm(false);
     setSelectedFile(file);
   }
 
   function requestRestore() {
     if (!selectedFile) {
-      setNotice("Select a backup file before requesting a restore.");
+      setNotice("Select a backup file first.");
       return;
     }
 
-    if (!backupServiceAvailable) {
+    if (!backupServiceAvailable || !databaseConfigured) {
       setNotice(
-        "Restore is unavailable until the backend backup and restore service is implemented. Your file has not been uploaded.",
+        "Restore is unavailable until the backend restore service is implemented. The file has not been uploaded.",
       );
+      setShowRestoreConfirm(false);
       return;
     }
 
-    // TODO: Upload to an authenticated restore endpoint.
-    setNotice("Restore endpoint integration is required.");
+    setNotice("Connect the authenticated restore endpoint before proceeding.");
+    setShowRestoreConfirm(false);
   }
 
   function requestBackup() {
     setNotice(
-      "Manual snapshots and SQL dumps require a backend backup endpoint. No backup has been created.",
+      "Backup service unavailable. No snapshot or SQL dump was created.",
     );
   }
 
   function requestS3Backup() {
     setNotice(
-      "S3 backup is not configured. Add server-side object storage credentials before enabling this feature.",
+      "S3 backup is not configured. Configure server-side storage credentials first.",
     );
   }
 
@@ -262,134 +306,173 @@ export default function Database() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
+  const inputClass =
+    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-inter text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+
+  const actionClass =
+    "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-inter text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {/* Header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <DatabaseIcon size={25} className="text-ctp-mauve" />
-            <h1 className="font-inter text-2xl font-bold text-ctp-text">
+            <DatabaseIcon size={21} className="text-ctp-mauve" />
+            <h1 className="font-inter text-xl font-bold text-ctp-text">
               Database Management
             </h1>
           </div>
-          <p className="mt-1 font-inter text-sm text-ctp-subtext0">
-            Inspect your data layer, manage backups, and execute database queries.
+          <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+            Inspect the database, manage backups, and prepare SQL queries.
           </p>
         </div>
 
-        <StatusBadge label="NOT CONFIGURED" tone="yellow" />
-      </div>
+        <StatusBadge
+          label={databaseConfigured ? "CONFIGURED" : "NOT CONFIGURED"}
+          tone={databaseConfigured ? "green" : "yellow"}
+        />
+      </header>
 
-      {/* Overall database status */}
-      <div className="rounded-xl border border-ctp-yellow/20 bg-ctp-yellow/5 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ctp-yellow/15 text-ctp-yellow">
-            <CircleAlert size={21} />
-          </div>
-
+      {/* Current state */}
+      <section className="rounded-lg border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
+        <div className="flex items-start gap-2.5">
+          <CircleAlert
+            size={18}
+            className="mt-0.5 shrink-0 text-ctp-yellow"
+          />
           <div className="min-w-0 flex-1">
-            <h2 className="font-inter font-bold text-ctp-text">
-              Database connection not configured
+            <h2 className="font-inter text-sm font-bold text-ctp-text">
+              {databaseConfigured
+                ? "Database configuration detected"
+                : "Database connection is not configured"}
             </h2>
-            <p className="mt-1 max-w-3xl font-inter text-sm leading-6 text-ctp-subtext1">
-              This page is ready for backend integration, but it cannot inspect
-              actual tables, credentials, row counts, or database health yet.
-              Connect your FastAPI backend to enable database operations.
+            <p className="mt-1 font-inter text-xs leading-5 text-ctp-subtext1">
+              {databaseConfigured
+                ? "Configuration is available. Connect a real health check to verify database connectivity."
+                : "The database API is not connected. Table inspection, SQL execution, and backup operations are unavailable."}
             </p>
           </div>
-
-          <StatusBadge label="OFFLINE" tone="red" />
+          <StatusBadge
+            label={databaseConfigured ? "UNVERIFIED" : "OFFLINE"}
+            tone={databaseConfigured ? "blue" : "red"}
+          />
         </div>
-      </div>
+      </section>
 
-      {/* Connection details */}
-      <section className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
+      {/* Summary */}
+      <section
+        aria-label="Database status"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        <StatCard
+          label="Engine"
+          value={engine}
+          detail="Intended database"
+          icon={DatabaseIcon}
+          color="bg-ctp-blue/10 text-ctp-blue"
+        />
+        <StatCard
+          label="Connection"
+          value={databaseConfigured ? "Unverified" : "Unavailable"}
+          detail="No live health check"
+          icon={Server}
+          color="bg-ctp-yellow/10 text-ctp-yellow"
+        />
+        <StatCard
+          label="Schema"
+          value="Pending"
+          detail="4 anticipated tables"
+          icon={Table2}
+          color="bg-ctp-mauve/10 text-ctp-mauve"
+        />
+        <StatCard
+          label="Backups"
+          value={backupServiceAvailable ? "Available" : "Unavailable"}
+          detail="Backend service required"
+          icon={HardDrive}
+          color="bg-ctp-red/10 text-ctp-red"
+        />
+      </section>
+
+      {/* Connection */}
+      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3 sm:p-4">
         <SectionHeading
           icon={ShieldCheck}
-          title="Connection & Credentials"
-          description="Database engine, endpoint, and connection details."
+          title="Connection details"
+          description="Review the intended engine and connection settings."
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Database Engine
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-md border border-ctp-surface0 p-3">
+            <p className="font-inter text-[11px] text-ctp-subtext0">
+              Database engine
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <DatabaseIcon size={18} className="text-ctp-blue" />
-              <span className="font-inter font-bold text-ctp-text">
-                {engine}
-              </span>
-            </div>
-            <p className="mt-2 font-inter text-xs text-ctp-subtext0">
-              Intended engine
+            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-text">
+              <DatabaseIcon size={15} className="text-ctp-blue" />
+              {engine}
+            </p>
+            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+              Local database
             </p>
           </div>
 
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Host / Port
+          <div className="rounded-md border border-ctp-surface0 p-3">
+            <p className="font-inter text-[11px] text-ctp-subtext0">
+              Host / port
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <Server size={18} className="text-ctp-blue" />
-              <span className="font-mono text-sm font-bold text-ctp-text">
-                Not configured
-              </span>
-            </div>
-            <p className="mt-2 font-inter text-xs text-ctp-subtext0">
-              SQLite does not require a network port
+            <p className="mt-1.5 font-mono text-sm font-semibold text-ctp-text">
+              Not applicable
+            </p>
+            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+              SQLite uses a file
             </p>
           </div>
 
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Database Name
+          <div className="rounded-md border border-ctp-surface0 p-3">
+            <p className="font-inter text-[11px] text-ctp-subtext0">
+              Database file
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <HardDrive size={18} className="text-ctp-blue" />
-              <span className="font-inter text-sm font-bold text-ctp-text">
-                Not configured
-              </span>
-            </div>
-            <p className="mt-2 font-inter text-xs text-ctp-subtext0">
-              Database file path pending
+            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-text">
+              <HardDrive size={15} className="text-ctp-blue" />
+              Not configured
+            </p>
+            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+              File path unavailable
             </p>
           </div>
 
-          <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <p className="font-inter text-xs font-medium text-ctp-subtext0">
-              Connection Status
+          <div className="rounded-md border border-ctp-surface0 p-3">
+            <p className="font-inter text-[11px] text-ctp-subtext0">
+              Connection test
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <CircleAlert size={18} className="text-ctp-yellow" />
-              <span className="font-inter text-sm font-bold text-ctp-yellow">
-                Unavailable
-              </span>
-            </div>
-            <p className="mt-2 font-inter text-xs text-ctp-subtext0">
-              No connection test performed
+            <p className="mt-1.5 flex items-center gap-2 font-inter text-sm font-semibold text-ctp-yellow">
+              <CircleAlert size={15} />
+              Not performed
+            </p>
+            <p className="mt-1 font-inter text-[10px] text-ctp-subtext0">
+              Health endpoint required
             </p>
           </div>
         </div>
 
         <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <label className="font-inter text-sm font-semibold text-ctp-text">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <label className="font-inter text-xs font-semibold text-ctp-text">
               Connection URI
             </label>
-            <span className="flex items-center gap-1 font-inter text-xs text-ctp-subtext0">
-              <LockKeyhole size={13} />
+            <span className="flex items-center gap-1 font-inter text-[10px] text-ctp-subtext0">
+              <LockKeyhole size={12} />
               Sensitive information
             </span>
           </div>
 
-          <div className="flex items-center gap-2 rounded-lg border border-ctp-surface0 bg-ctp-crust p-3">
-            <code className="min-w-0 flex-1 break-all font-mono text-sm text-ctp-subtext0">
+          <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-ctp-surface0 bg-ctp-crust p-2">
+            <code className="min-w-0 flex-1 break-all px-1 font-mono text-xs text-ctp-subtext0">
               {databaseConfigured && connectionUri
                 ? showUri
                   ? connectionUri
-                  : "••••••••••••••••••••••••••••"
+                  : "••••••••••••••••••••••"
                 : "Connection URI unavailable"}
             </code>
 
@@ -398,236 +481,191 @@ export default function Database() {
               onClick={() => setShowUri((current) => !current)}
               disabled={!databaseConfigured || !connectionUri}
               aria-label={showUri ? "Hide connection URI" : "Show connection URI"}
-              className="shrink-0 rounded-md p-2 text-ctp-subtext0 transition-colors hover:bg-ctp-surface0 hover:text-ctp-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 rounded-md p-2 text-ctp-subtext0 hover:bg-ctp-surface0 hover:text-ctp-text disabled:opacity-40"
             >
-              {showUri ? <EyeOff size={17} /> : <Eye size={17} />}
+              {showUri ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
 
             <button
               type="button"
               onClick={copyConnectionUri}
               disabled={!databaseConfigured || !connectionUri}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ctp-surface1 px-3 py-2 font-inter text-xs font-semibold text-ctp-subtext1 transition-colors hover:border-ctp-mauve/50 hover:text-ctp-mauve disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-mauve/50 hover:text-ctp-mauve`}
             >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? <Check size={13} /> : <Copy size={13} />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
 
-          <p className="mt-2 font-inter text-xs text-ctp-subtext0">
-            Credentials should be retrieved from a protected backend endpoint
-            and never embedded in frontend source code.
+          <p className="mt-2 font-inter text-[11px] leading-5 text-ctp-subtext0">
+            Retrieve credentials through a protected backend. Do not embed
+            database secrets in frontend code.
           </p>
         </div>
       </section>
 
-      {/* Schema overview */}
-      <section className="overflow-hidden rounded-xl border border-ctp-surface0 bg-ctp-surface2/20">
-        <div className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+      {/* Schema */}
+      <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
+        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
           <SectionHeading
             icon={Table2}
-            title="Core Tables"
-            description="Schema inventory, record counts, and estimated storage."
+            title="Core tables"
+            description="Expected schema and record counts."
           />
 
           <div className="relative w-full sm:max-w-xs">
             <Search
-              size={16}
+              size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-ctp-overlay1"
             />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              aria-label="Filter tables"
               placeholder="Filter tables..."
-              className="w-full rounded-lg border border-ctp-surface0 bg-ctp-base py-2.5 pl-9 pr-3 font-inter text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve"
+              className={`${inputClass} w-full pl-9`}
             />
           </div>
         </div>
 
-        <div className="border-y border-ctp-surface0 bg-ctp-base px-5 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-inter text-xs text-ctp-subtext0">
-              {filteredTables.length} anticipated tables
-            </p>
-            <StatusBadge label="AWAITING SCHEMA" tone="gray" />
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-y border-ctp-surface0 bg-ctp-mantle px-3 py-2">
+          <p className="font-inter text-[11px] text-ctp-subtext0">
+            {filteredTables.length} of {schemaTables.length} anticipated tables
+          </p>
+          <StatusBadge label="NOT VERIFIED" tone="gray" />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[650px] text-left">
-            <thead className="bg-ctp-base">
-              <tr className="border-b border-ctp-surface0">
-                <th className="px-5 py-3 font-inter text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
-                  Table
-                </th>
-                <th className="px-5 py-3 font-inter text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
-                  Columns
-                </th>
-                <th className="px-5 py-3 font-inter text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
-                  Row Count
-                </th>
-                <th className="px-5 py-3 font-inter text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
-                  Estimated Size
-                </th>
-                <th className="px-5 py-3 text-right font-inter text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
-                  Status
-                </th>
-              </tr>
-            </thead>
+        <div className="divide-y divide-ctp-surface0">
+          {filteredTables.map((table) => (
+            <div
+              key={table.name}
+              className="flex flex-col gap-2 px-3 py-3 transition-colors hover:bg-ctp-surface0/20 sm:flex-row sm:items-center"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
+                  <Table2 size={15} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-mono text-xs font-semibold text-ctp-text">
+                    {table.name}
+                  </p>
+                  <p className="mt-0.5 font-inter text-[11px] text-ctp-subtext0">
+                    {table.description}
+                  </p>
+                </div>
+              </div>
 
-            <tbody className="divide-y divide-ctp-surface0">
-              {filteredTables.map((table) => (
-                <tr
-                  key={table.name}
-                  className="transition-colors hover:bg-ctp-surface0/30"
-                >
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
-                        <Table2 size={16} />
-                      </div>
-                      <div>
-                        <p className="font-mono text-sm font-semibold text-ctp-text">
-                          {table.name}
-                        </p>
-                        <p className="mt-1 font-inter text-xs text-ctp-subtext0">
-                          {table.description}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 font-mono text-sm text-ctp-subtext1">
+              <div className="grid grid-cols-3 gap-3 sm:w-[260px] sm:shrink-0">
+                <div>
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    Columns
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-ctp-subtext1">
                     —
-                  </td>
-                  <td className="px-5 py-4 font-mono text-sm text-ctp-subtext1">
+                  </p>
+                </div>
+                <div>
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    Rows
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-ctp-subtext1">
                     —
-                  </td>
-                  <td className="px-5 py-4 font-mono text-sm text-ctp-subtext1">
+                  </p>
+                </div>
+                <div>
+                  <p className="font-inter text-[10px] text-ctp-subtext0">
+                    Size
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-ctp-subtext1">
                     —
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <StatusBadge label="UNAVAILABLE" tone="gray" />
-                  </td>
-                </tr>
-              ))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
 
-              {filteredTables.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-10 text-center">
-                    <p className="font-inter text-sm text-ctp-subtext0">
-                      No matching tables.
-                    </p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {filteredTables.length === 0 && (
+            <div className="px-4 py-8 text-center">
+              <p className="font-inter text-sm font-semibold text-ctp-text">
+                No matching tables
+              </p>
+              <p className="mt-1 font-inter text-xs text-ctp-subtext0">
+                Try another table name or description.
+              </p>
+            </div>
+          )}
         </div>
 
-        <div className="border-t border-ctp-surface0 p-4">
+        <div className="border-t border-ctp-surface0 p-3">
           <UnavailableNotice>
-            These are anticipated table names for planning only, not verified
-            database tables. Actual schemas, columns, row counts, and sizes will
-            be loaded from the backend once the database exists.
+            These table names are planned, not verified. Connect the database
+            API to load actual columns, row counts, and storage sizes.
           </UnavailableNotice>
         </div>
       </section>
 
       {/* Backup and restore */}
-      <section className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
+      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3 sm:p-4">
         <SectionHeading
           icon={HardDrive}
-          title="Backup & Data Management"
-          description="Create snapshots, export data, or restore a previous backup."
+          title="Backup & restore"
+          description="Create exports or select a backup to restore."
         />
 
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          {/* Manual snapshot */}
-          <div className="flex flex-col rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-blue/15 text-ctp-blue">
-                <FileArchive size={20} />
-              </div>
-              <div>
-                <h3 className="font-inter font-bold text-ctp-text">
-                  Manual Snapshot
-                </h3>
-                <p className="font-inter text-xs text-ctp-subtext0">
-                  Point-in-time database copy
-                </p>
-              </div>
+        <div className="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-3">
+          <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
+            <div className="flex items-center gap-2">
+              <FileArchive size={17} className="text-ctp-blue" />
+              <h3 className="font-inter text-xs font-bold text-ctp-text">
+                Database snapshot
+              </h3>
             </div>
-
-            <p className="mt-4 flex-1 font-inter text-sm leading-6 text-ctp-subtext1">
-              Create a recoverable snapshot before maintenance or major data
-              changes.
+            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+              Create a point-in-time copy before making major changes.
             </p>
-
             <button
               type="button"
               onClick={requestBackup}
               disabled={!backupServiceAvailable || !databaseConfigured}
-              className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-blue/15 px-4 py-2.5 font-inter text-sm font-semibold text-ctp-blue transition-colors hover:bg-ctp-blue/25 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md bg-ctp-blue/10 px-3 py-2 font-inter text-xs font-semibold text-ctp-blue hover:bg-ctp-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <HardDrive size={16} />
-              Create Snapshot
+              <HardDrive size={14} />
+              Create snapshot
             </button>
           </div>
 
-          {/* SQL dump */}
-          <div className="flex flex-col rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-green/15 text-ctp-green">
-                <Download size={20} />
-              </div>
-              <div>
-                <h3 className="font-inter font-bold text-ctp-text">
-                  SQL Dump
-                </h3>
-                <p className="font-inter text-xs text-ctp-subtext0">
-                  Export database contents
-                </p>
-              </div>
+          <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
+            <div className="flex items-center gap-2">
+              <Download size={17} className="text-ctp-green" />
+              <h3 className="font-inter text-xs font-bold text-ctp-text">
+                SQL export
+              </h3>
             </div>
-
-            <p className="mt-4 flex-1 font-inter text-sm leading-6 text-ctp-subtext1">
-              Generate a downloadable export for migration, archival, or
-              disaster recovery.
+            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+              Export the database for migration or archival.
             </p>
-
             <button
               type="button"
               onClick={requestBackup}
               disabled={!backupServiceAvailable || !databaseConfigured}
-              className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-4 py-2.5 font-inter text-sm font-semibold text-ctp-subtext1 transition-colors hover:border-ctp-green/40 hover:text-ctp-green disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 inline-flex items-center justify-center gap-2 rounded-md border border-ctp-surface1 px-3 py-2 font-inter text-xs font-semibold text-ctp-text hover:border-ctp-green/50 hover:text-ctp-green disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Download size={16} />
-              Download SQL Dump
+              <Download size={14} />
+              Download SQL
             </button>
           </div>
 
-          {/* S3 */}
-          <div className="flex flex-col rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-peach/15 text-ctp-peach">
-                <Cloud size={20} />
-              </div>
-              <div>
-                <h3 className="font-inter font-bold text-ctp-text">
-                  S3 Backup
-                </h3>
-                <p className="font-inter text-xs text-ctp-subtext0">
-                  Remote backup storage
-                </p>
-              </div>
+          <div className="flex flex-col rounded-md border border-ctp-surface0 p-3">
+            <div className="flex items-center gap-2">
+              <Cloud size={17} className="text-ctp-peach" />
+              <h3 className="font-inter text-xs font-bold text-ctp-text">
+                Remote backup
+              </h3>
             </div>
-
-            <p className="mt-4 flex-1 font-inter text-sm leading-6 text-ctp-subtext1">
-              Store encrypted backups in an S3-compatible object storage
-              service.
+            <p className="mt-2 flex-1 font-inter text-xs leading-5 text-ctp-subtext0">
+              Store encrypted copies in S3-compatible storage.
             </p>
-
-            <div className="mt-4 flex items-center justify-between gap-2">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <StatusBadge
                 label={s3Configured ? "CONFIGURED" : "NOT CONFIGURED"}
                 tone={s3Configured ? "green" : "yellow"}
@@ -638,24 +676,21 @@ export default function Database() {
                 className="inline-flex items-center gap-1 font-inter text-xs font-semibold text-ctp-mauve hover:text-ctp-lavender"
               >
                 Configure
-                <ChevronRight size={14} />
+                <ChevronRight size={13} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Restore drop zone */}
-        <div className="mt-5 rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-red/10 text-ctp-red">
-              <RefreshCw size={20} />
-            </div>
+        <div className="mt-3 rounded-md border border-ctp-surface0 p-3">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={17} className="text-ctp-red" />
             <div>
-              <h3 className="font-inter font-bold text-ctp-text">
-                Restore from Backup
+              <h3 className="font-inter text-xs font-bold text-ctp-text">
+                Restore from backup
               </h3>
-              <p className="font-inter text-sm text-ctp-subtext0">
-                Select a supported backup file to prepare for restoration.
+              <p className="mt-0.5 font-inter text-[11px] text-ctp-subtext0">
+                Choose a .sql, .dump, .db, .sqlite, or .backup file.
               </p>
             </div>
           </div>
@@ -673,122 +708,141 @@ export default function Database() {
               event.preventDefault();
               setDragging(true);
             }}
-            onDragLeave={() => setDragging(false)}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                setDragging(false);
+              }
+            }}
             onDrop={(event) => {
               event.preventDefault();
               setDragging(false);
               handleFile(event.dataTransfer.files?.[0]);
             }}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center transition-colors ${dragging
-              ? "border-ctp-mauve bg-ctp-mauve/10"
-              : "border-ctp-surface1 hover:border-ctp-mauve/50 hover:bg-ctp-surface0/30"
+            className={`mt-3 rounded-md border border-dashed p-4 transition-colors ${dragging
+                ? "border-ctp-mauve bg-ctp-mauve/10"
+                : "border-ctp-surface1"
               }`}
           >
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-ctp-surface0 text-ctp-mauve">
-              <Upload size={24} />
-            </div>
-            <p className="mt-3 font-inter text-sm font-semibold text-ctp-text">
-              Drop your backup file here or{" "}
-              <span className="text-ctp-mauve">browse files</span>
-            </p>
-            <p className="mt-1 font-inter text-xs text-ctp-subtext0">
-              SQL, DUMP, DB, SQLITE, BACKUP
-            </p>
-          </div>
-
-          {selectedFile && (
-            <div className="mt-3 flex flex-col justify-between gap-3 rounded-lg border border-ctp-surface0 bg-ctp-crust p-3 sm:flex-row sm:items-center">
-              <div className="flex min-w-0 items-center gap-3">
-                <FileCode2
-                  size={20}
-                  className="shrink-0 text-ctp-green"
-                />
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Upload size={18} className="shrink-0 text-ctp-mauve" />
                 <div className="min-w-0">
-                  <p className="truncate font-mono text-sm text-ctp-text">
-                    {selectedFile.name}
+                  <p className="font-inter text-xs font-semibold text-ctp-text">
+                    {selectedFile
+                      ? selectedFile.name
+                      : "Drop a backup file here"}
                   </p>
-                  <p className="font-inter text-xs text-ctp-subtext0">
-                    {formatFileSize(selectedFile.size)} · Selected locally, not uploaded
+                  <p className="mt-1 font-inter text-[11px] text-ctp-subtext0">
+                    {selectedFile
+                      ? `${formatFileSize(selectedFile.size)} · Selected locally`
+                      : "Or browse files on your device"}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedFile(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = "";
-                    }
-                  }}
-                  className="rounded-md p-2 text-ctp-subtext0 hover:bg-ctp-surface0 hover:text-ctp-red"
-                  aria-label="Remove selected backup"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-mauve/50`}
                 >
-                  <X size={16} />
+                  Browse
                 </button>
-                <button
-                  type="button"
-                  onClick={requestRestore}
-                  className="inline-flex items-center gap-2 rounded-lg bg-ctp-red/15 px-3 py-2 font-inter text-xs font-bold text-ctp-red transition-colors hover:bg-ctp-red/25"
-                >
-                  <RefreshCw size={14} />
-                  Prepare Restore
-                </button>
+
+                {selectedFile && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setShowRestoreConfirm(false);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = "";
+                        }
+                      }}
+                      className={`${actionClass} border-ctp-surface1 text-ctp-subtext0 hover:text-ctp-red`}
+                    >
+                      <X size={13} />
+                      Remove
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRestoreConfirm((current) => !current)}
+                      className={`${actionClass} border-ctp-red/20 bg-ctp-red/10 text-ctp-red hover:bg-ctp-red/20`}
+                    >
+                      <RefreshCw size={13} />
+                      Prepare restore
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {showRestoreConfirm && selectedFile && (
+            <div className="mt-3 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
+              <div className="flex items-start gap-2">
+                <CircleAlert
+                  size={16}
+                  className="mt-0.5 shrink-0 text-ctp-yellow"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-inter text-xs font-semibold text-ctp-text">
+                    Confirm restore preparation
+                  </p>
+                  <p className="mt-1 break-words font-inter text-xs leading-5 text-ctp-subtext1">
+                    {selectedFile.name} has not been uploaded. The backend
+                    restore service must validate the file and protect existing
+                    data before any restore can proceed.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={requestRestore}
+                      className={`${actionClass} border-ctp-red/20 bg-ctp-red/10 text-ctp-red`}
+                    >
+                      Continue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRestoreConfirm(false)}
+                      className={`${actionClass} border-ctp-surface1 text-ctp-text`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          <p className="mt-3 font-inter text-xs leading-5 text-ctp-subtext0">
-            Restoring a backup can overwrite existing data. A production restore
-            flow should validate the file server-side, verify compatibility,
-            create a pre-restore snapshot, and require explicit confirmation.
+          <p className="mt-3 font-inter text-[11px] leading-5 text-ctp-subtext0">
+            Restoring can overwrite existing data. A production service must
+            validate the file, verify compatibility, and create a pre-restore
+            backup before applying changes.
           </p>
         </div>
       </section>
 
-      {/* Quick query */}
-      <section className="overflow-hidden rounded-xl border border-ctp-surface0 bg-ctp-surface2/20">
-        <div className="p-5">
+      {/* SQL editor */}
+      <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
+        <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
           <SectionHeading
             icon={FileCode2}
-            title="Quick Query"
-            description="Run SQL and inspect the resulting rows."
+            title="SQL query"
+            description="Prepare a query and inspect its results."
           />
+          <StatusBadge label="EXECUTION DISABLED" tone="yellow" />
+        </div>
 
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="rounded-md bg-ctp-mauve/15 px-2 py-1 font-mono text-xs font-bold text-ctp-mauve">
-                SQL
-              </span>
-              <span className="font-inter text-xs text-ctp-subtext0">
-                SQLite dialect intended
-              </span>
-            </div>
-
-            <span className="flex items-center gap-1.5 font-inter text-xs text-ctp-yellow">
-              <LockKeyhole size={13} />
-              Execution disabled
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-crust">
-            <div className="flex items-center justify-between border-b border-ctp-surface0 bg-ctp-mantle px-4 py-2.5">
-              <span className="font-mono text-xs text-ctp-subtext0">
+        <div className="p-3">
+          <div className="overflow-hidden rounded-md border border-ctp-surface0 bg-ctp-crust">
+            <div className="flex items-center justify-between border-b border-ctp-surface0 bg-ctp-mantle px-3 py-2">
+              <span className="font-mono text-[11px] text-ctp-subtext0">
                 query.sql
               </span>
-              <span className="font-mono text-xs text-ctp-overlay1">
-                {query.split("\n").length} line
-                {query.split("\n").length === 1 ? "" : "s"}
+              <span className="font-mono text-[10px] text-ctp-overlay1">
+                SQLite
               </span>
             </div>
 
@@ -797,54 +851,57 @@ export default function Database() {
               onChange={(event) => {
                 setQuery(event.target.value);
                 setQueryMessage("");
+                setQueryResult(null);
               }}
               spellCheck={false}
-              rows={6}
+              rows={5}
               aria-label="SQL query editor"
               placeholder="SELECT * FROM products LIMIT 10;"
-              className="w-full resize-y bg-transparent p-4 font-mono text-sm leading-6 text-ctp-text outline-none placeholder:text-ctp-overlay1"
+              className="w-full resize-y bg-transparent p-3 font-mono text-xs leading-6 text-ctp-text outline-none placeholder:text-ctp-overlay1"
             />
 
-            <div className="flex flex-col justify-between gap-3 border-t border-ctp-surface0 bg-ctp-mantle px-4 py-3 sm:flex-row sm:items-center">
-              <p className="font-inter text-xs text-ctp-subtext0">
-                Use read-only queries for inspection where possible.
+            <div className="flex flex-col justify-between gap-2 border-t border-ctp-surface0 bg-ctp-mantle p-3 sm:flex-row sm:items-center">
+              <p className="font-inter text-[11px] text-ctp-subtext0">
+                No SQL will execute until the backend is connected.
               </p>
               <button
                 type="button"
                 onClick={runQuery}
                 disabled={!databaseConfigured}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-mauve px-4 py-2.5 font-inter text-sm font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-inter text-xs font-bold text-ctp-base hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Play size={15} />
-                Run Query
+                <Play size={13} />
+                Run query
               </button>
             </div>
           </div>
 
           {queryMessage && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
+            <div
+              role="status"
+              className="mt-3 flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3"
+            >
               <CircleAlert
-                size={16}
+                size={15}
                 className="mt-0.5 shrink-0 text-ctp-yellow"
               />
-              <p className="font-inter text-sm text-ctp-subtext1">
+              <p className="font-inter text-xs leading-5 text-ctp-subtext1">
                 {queryMessage}
               </p>
             </div>
           )}
 
-          {/* Results */}
-          <div className="mt-5 overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
-            <div className="flex flex-col justify-between gap-2 border-b border-ctp-surface0 px-4 py-3 sm:flex-row sm:items-center">
+          <div className="mt-3 overflow-hidden rounded-md border border-ctp-surface0">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2.5">
               <div className="flex items-center gap-2">
-                <Table2 size={16} className="text-ctp-blue" />
-                <h3 className="font-inter text-sm font-bold text-ctp-text">
-                  Query Results
+                <Table2 size={15} className="text-ctp-blue" />
+                <h3 className="font-inter text-xs font-bold text-ctp-text">
+                  Results
                 </h3>
               </div>
-              <span className="font-inter text-xs text-ctp-subtext0">
+              <span className="font-inter text-[11px] text-ctp-subtext0">
                 {queryResult
-                  ? `${queryResult.rows.length} rows returned`
+                  ? `${queryResult.rows.length} rows`
                   : "No results"}
               </span>
             </div>
@@ -857,7 +914,7 @@ export default function Database() {
                       {queryResult.columns.map((column) => (
                         <th
                           key={column}
-                          className="px-4 py-3 font-mono text-xs font-semibold text-ctp-mauve"
+                          className="px-3 py-2 font-mono text-xs font-semibold text-ctp-mauve"
                         >
                           {column}
                         </th>
@@ -870,7 +927,7 @@ export default function Database() {
                         {queryResult.columns.map((column) => (
                           <td
                             key={column}
-                            className="px-4 py-3 font-mono text-xs text-ctp-text"
+                            className="px-3 py-2 font-mono text-xs text-ctp-text"
                           >
                             {row[column] === null
                               ? "NULL"
@@ -883,65 +940,56 @@ export default function Database() {
                 </table>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-ctp-surface0 text-ctp-overlay1">
-                  <Table2 size={21} />
-                </div>
-                <p className="mt-3 font-inter text-sm font-semibold text-ctp-text">
-                  No query results yet
+              <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                <Table2 size={22} className="text-ctp-overlay1" />
+                <p className="mt-2 font-inter text-xs font-semibold text-ctp-text">
+                  No results to display
                 </p>
-                <p className="mt-1 max-w-sm font-inter text-xs leading-5 text-ctp-subtext0">
-                  Query output will appear here once a database is configured
-                  and the backend query endpoint is connected.
+                <p className="mt-1 max-w-sm font-inter text-[11px] leading-5 text-ctp-subtext0">
+                  Connect the database and query API to display returned rows.
                 </p>
               </div>
             )}
           </div>
-
-          {/* JSON preview format note */}
-          <div className="mt-3 flex items-center gap-2 text-ctp-subtext0">
-            <FileCode2 size={14} />
-            <p className="font-inter text-xs">
-              Results can be rendered as a table or raw JSON after backend integration.
-            </p>
-          </div>
         </div>
       </section>
 
-      {/* Shared feedback */}
+      {/* Feedback */}
       {notice && (
-        <div className="flex items-start gap-3 rounded-lg border border-ctp-blue/20 bg-ctp-blue/5 p-4">
-          <Info size={17} className="mt-0.5 shrink-0 text-ctp-blue" />
-          <p className="flex-1 font-inter text-sm leading-6 text-ctp-subtext1">
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-ctp-blue/20 bg-ctp-blue/5 p-3"
+        >
+          <Info size={15} className="mt-0.5 shrink-0 text-ctp-blue" />
+          <p className="flex-1 font-inter text-xs leading-5 text-ctp-subtext1">
             {notice}
           </p>
           <button
             type="button"
             onClick={() => setNotice("")}
             aria-label="Dismiss notification"
-            className="rounded-md p-1 text-ctp-subtext0 hover:text-ctp-text"
+            className="shrink-0 rounded p-1 text-ctp-subtext0 hover:text-ctp-text"
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       )}
 
-      {/* Security note */}
-      <div className="flex items-start gap-3 rounded-xl border border-ctp-surface0 bg-ctp-base p-4">
-        <LockKeyhole size={18} className="mt-0.5 shrink-0 text-ctp-overlay1" />
+      {/* Security */}
+      <footer className="flex items-start gap-2.5 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
+        <LockKeyhole size={16} className="mt-0.5 shrink-0 text-ctp-overlay1" />
         <div>
-          <h3 className="font-inter text-sm font-semibold text-ctp-text">
+          <h3 className="font-inter text-xs font-bold text-ctp-text">
             Database security
           </h3>
-          <p className="mt-1 font-inter text-xs leading-5 text-ctp-subtext0">
-            Protect database credentials and require administrator
-            authentication for queries, backups, and restores. Use parameterized
-            queries where applicable, enforce query permissions and timeouts,
-            and audit destructive operations. Never expose database secrets or
-            unrestricted SQL execution to ordinary clients.
+          <p className="mt-1 font-inter text-[11px] leading-5 text-ctp-subtext0">
+            Require administrator authentication for database operations.
+            Restrict SQL permissions, use parameterized queries where
+            applicable, enforce timeouts, and audit destructive actions. Never
+            expose database credentials or unrestricted SQL execution to clients.
           </p>
         </div>
-      </div>
+      </footer>
     </div>
   );
 }

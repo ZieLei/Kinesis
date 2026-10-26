@@ -15,7 +15,7 @@ export default function Overview() {
       <div className="flex flex-col gap-5">
         <div className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-mauve/15 text-ctp-mauve">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-surface0 text-ctp-text">
               <Server size={21} />
             </div>
             <div>
@@ -28,8 +28,8 @@ export default function Overview() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 rounded-lg border border-ctp-surface2/50 bg-ctp-surface0/20 p-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-ctp-surface2/15 text-ctp-green border border-ctp-surface2/50">
+          <div className="flex items-center gap-4 rounded-md border border-ctp-surface2/50 bg-ctp-base p-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-ctp-surface2/15 text-ctp-text">
               <Activity size={24} />
             </div>
 
@@ -75,7 +75,7 @@ export default function Overview() {
         {/* Network */}
         <div className="rounded-xl border border-ctp-surface0 bg-ctp-surface2/20 p-5">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-blue/15 text-ctp-blue">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-surface0 text-ctp-text">
               <Wifi size={21} />
             </div>
             <div>
@@ -146,29 +146,29 @@ export default function Overview() {
           </div>
 
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0 hover:border-ctp-green/40 transition-colors">
+            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0">
               <div className="flex flex-col text-center gap-1">
                 <span className="font-inter font-bold text-sm text-ctp-subtext1">
                   Today's Sales
                 </span>
-                <span className="font-inter font-bold text-xl text-ctp-green">
+                <span className="font-inter font-bold text-xl text-ctp-text">
                   ₱ 1,000.00
                 </span>
               </div>
             </div>
 
-            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0 hover:border-ctp-blue/40 transition-colors">
+            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0">
               <div className="flex flex-col text-center gap-1">
                 <span className="font-inter font-bold text-sm text-ctp-subtext1">
                   Transactions
                 </span>
-                <span className="font-inter font-bold text-xl text-ctp-blue">
+                <span className="font-inter font-bold text-xl text-ctp-text">
                   223
                 </span>
               </div>
             </div>
 
-            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0 hover:border-ctp-yellow/40 transition-colors">
+            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0">
               <div className="flex flex-col text-center gap-1">
                 <span className="font-inter font-bold text-sm text-ctp-subtext1">
                   Low Stock Items
@@ -179,7 +179,7 @@ export default function Overview() {
               </div>
             </div>
 
-            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0 hover:border-ctp-red/40 transition-colors">
+            <div className="bg-ctp-base p-3 rounded-lg border border-ctp-surface0">
               <div className="flex flex-col text-center gap-1">
                 <span className="font-inter font-bold text-sm text-ctp-subtext1">
                   Out of Stock
@@ -202,48 +202,6 @@ export default function Overview() {
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <span className="font-inter font-bold text-lg text-ctp-text">
-                Recent Transactions
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              {[
-                { id: "TRX-1024", item: "Engine Oil 10W-40", time: "12:14 PM", amount: 450, status: "Completed" },
-                { id: "TRX-1023", item: "Brake Pad Set", time: "11:52 AM", amount: 680, status: "Completed" },
-                { id: "TRX-1022", item: "Spark Plug NGK", time: "11:31 AM", amount: 250, status: "Completed" },
-                { id: "TRX-1021", item: "Motorcycle Chain", time: "10:48 AM", amount: 520, status: "Completed" },
-              ].map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center gap-3 bg-ctp-base p-3 rounded-lg border border-ctp-surface0"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-inter font-semibold text-sm text-ctp-text">
-                      {transaction.item}
-                    </p>
-                    <p className="font-inter text-xs text-ctp-subtext0 mt-1">
-                      {transaction.id} · {transaction.time}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="font-inter font-bold text-sm text-ctp-text">
-                      ₱{transaction.amount.toLocaleString("en-PH", {
-                        minimumFractionDigits: 2,
-                      })}
-                    </span>
-                    <span className="font-inter text-xs font-semibold text-ctp-green">
-                      {transaction.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <span className="font-inter font-bold text-lg text-ctp-text">
                 Low Stock Alerts
               </span>
             </div>
@@ -256,7 +214,10 @@ export default function Overview() {
               ].map((product) => (
                 <div
                   key={product.name}
-                  className="flex items-center gap-3 bg-ctp-base p-3 rounded-lg border border-ctp-surface0"
+                  className={`flex items-center gap-3 bg-ctp-base p-3 rounded-lg border ${product.stock === 0 ? "border border-ctp-red"
+                    : product.stock <= 5 ? "border border-ctp-peach"
+                      : null
+                    }`}
                 >
                   <div className="flex-1 min-w-0">
                     <p className="font-inter font-semibold text-sm text-ctp-text">
@@ -265,6 +226,10 @@ export default function Overview() {
                   </div>
 
                   <div className="flex flex-col items-end gap-1">
+
+                    <span className="font-inter text-xs text-ctp-subtext0">
+                      In inventory
+                    </span>
                     <span
                       className={`font-inter font-bold text-sm ${product.stock === 0
                         ? "text-ctp-red"
@@ -275,16 +240,15 @@ export default function Overview() {
                         ? "OUT OF STOCK"
                         : `${product.stock} LEFT`}
                     </span>
-                    <span className="font-inter text-xs text-ctp-subtext0">
-                      In inventory
-                    </span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div>
+
+
+          <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <span className="font-inter font-bold text-lg text-ctp-text">
                 Top Selling Products
@@ -332,6 +296,48 @@ export default function Overview() {
                     <p className="font-inter text-xs text-ctp-subtext0 mt-1">
                       Revenue
                     </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-inter font-bold text-lg text-ctp-text">
+                Recent Transactions
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {[
+                { id: "TRX-1024", item: "Engine Oil 10W-40", time: "12:14 PM", amount: 450, status: "Completed" },
+                { id: "TRX-1023", item: "Brake Pad Set", time: "11:52 AM", amount: 680, status: "Completed" },
+                { id: "TRX-1022", item: "Spark Plug NGK", time: "11:31 AM", amount: 250, status: "Completed" },
+                { id: "TRX-1021", item: "Motorcycle Chain", time: "10:48 AM", amount: 520, status: "Completed" },
+              ].map((transaction) => (
+                <div
+                  key={transaction.id}
+                  className="flex items-center gap-3 bg-ctp-base p-3 rounded-lg border border-ctp-surface0"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-inter font-semibold text-sm text-ctp-text">
+                      {transaction.item}
+                    </p>
+                    <p className="font-inter text-xs text-ctp-subtext0 mt-1">
+                      {transaction.id} · {transaction.time}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="font-inter font-bold text-sm text-ctp-text">
+                      ₱{transaction.amount.toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </span>
+                    <span className="font-inter text-xs font-semibold text-ctp-green bg-ctp-green/20 px-2 py-[0.5px] rounded-full">
+                      {transaction.status}
+                    </span>
                   </div>
                 </div>
               ))}
