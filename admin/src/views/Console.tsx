@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   Activity,
   CheckCircle2,
@@ -13,11 +21,13 @@ import {
   Terminal as TerminalIcon,
   Wifi,
   WifiOff,
-  XCircle,
   X,
 } from "lucide-react";
+import { API_BASE_URL } from "../lib/api";
 
 type LogLevel = "INFO" | "SUCCESS" | "WARN" | "ERROR" | "DEBUG" | "COMMAND";
+type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
+type LogFilter = "ALL" | LogLevel;
 
 type ConsoleLog = {
   id: string;
@@ -27,271 +37,478 @@ type ConsoleLog = {
 };
 
 type ServerMessage =
-  | { type: "log"; log: Omit<ConsoleLog, "id"> }
-  | { type: "result"; command: string; output: string }
-  | { type: "error"; message: string }
-  | { type: "status"; message: string };
-
-const MAX_LOGS = 2000;
-const WS_PATH = "/api/console/ws";
-
-const levelStyles: Record<LogLevel, string> = {
-  INFO: "text-ctp-blue",
-  SUCCESS: "text-ctp-green",
-  WARN: "text-ctp-yellow",
-  ERROR: "text-ctp-red",
-  DEBUG: "text-ctp-overlay1",
-  COMMAND: "text-ctp-mauve",
-};
-
-const levelIcons: Record<LogLevel, typeof Activity> = {
-  INFO: Activity,
-  SUCCESS: CheckCircle2,
-  WARN: CircleAlert,
-  ERROR: XCircle,
-  DEBUG: Clock,
-  COMMAND: TerminalIcon,
-};
-
-function createLog(level: LogLevel, message: string): ConsoleLog {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    timestamp: new Date().toISOString(),
-    level,
-    message,
+  | {
+    type: "log";
+    log: {
+      level?: string;
+      timestamp?: string;
+      message?: string;
+    };
+  }
+  | {
+    type: "result";
+    command?: string;
+    output?: string;
+  }
+  | {
+    type: "error";
+    message?: string;
+  }
+  | {
+    type: "status";
+    message?: string;
   };
+
+const TOKEN_STORAGE_KEY = "kinesis-admin-api-token";
+const MAX_LOG_ENTRIES = 2000;
+
+const LOG_FILTERS: LogFilter[] = [
+  "ALL",
+  "INFO",
+  "SUCCESS",
+  "WARN",
+  "ERROR",
+  "DEBUG",
+  "COMMAND",
+];
+
+const COMMAND_EXAMPLES = [
+  { command: "help", description: "List supported commands" },
+  { command: "status", description: "Check API status" },
+  { command: "db check", description: "Check database connectivity" },
+  { command: "inventory summary", description: "Summarize inventory" },
+  { command: "terminals list", description: "List registered terminals" },
+  { command: "sales today", description: "Summarize today's sales" },
+];
+
+function normalizeLevel(value?: string): LogLevel {
+  const level = value?.toUpperCase();
+
+  if (
+    level === "INFO" ||
+    level === "SUCCESS" ||
+    level === "WARN" ||
+    level === "ERROR" ||
+    level === "DEBUG" ||
+    level === "COMMAND"
+  ) {
+    return level;
+  }
+
+  return "INFO";
 }
 
-function formatTime(timestamp: string) {
+function formatTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
 
-  if (Number.isNaN(date.getTime())) return timestamp;
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
 
   return date.toLocaleTimeString("en-PH", {
-    hour12: false,
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: false,
   });
 }
 
-const buttonBase =
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ctp-mauve";
+function getWebSocketUrl(): string {
+  const url = new URL("/api/console/ws", API_BASE_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.search = "";
+  url.hash = "";
+
+  return url.toString();
+}
+
+function getLevelStyle(level: LogLevel): string {
+  switch (level) {
+    case "SUCCESS":
+      return "text-[#a6e3a1]";
+    case "WARN":
+      return "text-[#f9e2af]";
+    case "ERROR":
+      return "text-[#f38ba8]";
+    case "DEBUG":
+      return "text-[#9399b2]";
+    case "COMMAND":
+      return "text-[#89b4fa]";
+    case "INFO":
+    default:
+      return "text-[#cdd6f4]";
+  }
+}
+
+function getLevelBadgeStyle(level: LogFilter): string {
+  switch (level) {
+    case "SUCCESS":
+      return "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]";
+    case "WARN":
+      return "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]";
+    case "ERROR":
+      return "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]";
+    case "DEBUG":
+      return "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#9399b2]";
+    case "COMMAND":
+      return "border-[#89b4fa]/30 bg-[#89b4fa]/10 text-[#89b4fa]";
+    case "INFO":
+      return "border-[#cdd6f4]/20 bg-[#cdd6f4]/5 text-[#cdd6f4]";
+    case "ALL":
+    default:
+      return "border-[#585b70] bg-[#313244] text-[#cdd6f4]";
+  }
+}
 
 export default function Console() {
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  });
+
+  const [connection, setConnection] =
+    useState<ConnectionState>("disconnected");
   const [logs, setLogs] = useState<ConsoleLog[]>([]);
   const [command, setCommand] = useState("");
-  const [connection, setConnection] = useState<
-    "connecting" | "connected" | "disconnected"
-  >("connecting");
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [showTimestamps, setShowTimestamps] = useState(true);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [filter, setFilter] = useState("ALL");
+  const [filter, setFilter] = useState<LogFilter>("ALL");
   const [search, setSearch] = useState("");
-  const [inputError, setInputError] = useState("");
+  const [paused, setPaused] = useState(false);
+  const [showCommands, setShowCommands] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const generationRef = useRef(0);
+  const authenticatedRef = useRef(false);
+  const pausedRef = useRef(paused);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-  const reconnectAttemptsRef = useRef(0);
-  const manualCloseRef = useRef(false);
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   const appendLog = useCallback(
     (level: LogLevel, message: string, timestamp?: string) => {
-      setLogs((current) => {
-        const next = [
-          ...current,
-          {
-            ...createLog(level, message),
-            ...(timestamp ? { timestamp } : {}),
-          },
-        ];
+      const entry: ConsoleLog = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        timestamp: timestamp || new Date().toISOString(),
+        level,
+        message,
+      };
 
-        return next.slice(-MAX_LOGS);
-      });
+      setLogs((current) => [...current, entry].slice(-MAX_LOG_ENTRIES));
     },
     [],
   );
 
-  useEffect(() => {
-    mountedRef.current = true;
-    manualCloseRef.current = false;
-
-    function scheduleReconnect() {
-      if (!mountedRef.current || manualCloseRef.current) return;
-      if (reconnectTimerRef.current) return;
-
-      const attempt = reconnectAttemptsRef.current++;
-      const delay = Math.min(1000 * 2 ** attempt, 15000);
-
-      reconnectTimerRef.current = setTimeout(() => {
-        reconnectTimerRef.current = null;
-        connect();
-      }, delay);
+  const connect = useCallback(() => {
+    if (!token) {
+      setConnection("error");
+      appendLog(
+        "ERROR",
+        "Admin token not found. Enter it in Terminal Management first, then check the session token here.",
+      );
+      return;
     }
 
-    function connect() {
-      if (!mountedRef.current || manualCloseRef.current) return;
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    authenticatedRef.current = false;
 
-      setConnection("connecting");
+    const previousSocket = socketRef.current;
 
-      const protocol =
-        window.location.protocol === "https:" ? "wss:" : "ws:";
-      const socketUrl = `${protocol}//${window.location.host}${WS_PATH}`;
+    if (previousSocket) {
+      previousSocket.onclose = null;
+      previousSocket.onerror = null;
+      previousSocket.onmessage = null;
+      previousSocket.onopen = null;
 
-      let socket: WebSocket;
+      if (
+        previousSocket.readyState === WebSocket.CONNECTING ||
+        previousSocket.readyState === WebSocket.OPEN
+      ) {
+        previousSocket.close();
+      }
+    }
 
-      try {
-        socket = new WebSocket(socketUrl);
-        socketRef.current = socket;
-      } catch {
-        setConnection("disconnected");
-        scheduleReconnect();
+    socketRef.current = null;
+    setConnection("connecting");
+
+    let socket: WebSocket;
+
+    try {
+      socket = new WebSocket(getWebSocketUrl());
+    } catch (error) {
+      setConnection("error");
+      appendLog(
+        "ERROR",
+        error instanceof Error
+          ? `Could not create WebSocket: ${error.message}`
+          : "Could not create the WebSocket connection.",
+      );
+      return;
+    }
+
+    socketRef.current = socket;
+    appendLog("INFO", "Connecting to the Kinesis backend console...");
+
+    socket.onopen = () => {
+      if (generation !== generationRef.current) {
+        socket.close();
         return;
       }
 
-      socket.onopen = () => {
-        if (!mountedRef.current) return;
+      try {
+        socket.send(JSON.stringify({ type: "auth", token }));
+        appendLog("INFO", "Connection opened. Authenticating...");
+      } catch {
+        setConnection("error");
+        appendLog("ERROR", "Could not send the authentication message.");
+        socket.close();
+      }
+    };
 
-        reconnectAttemptsRef.current = 0;
-        setConnection("connected");
-        appendLog("SUCCESS", "Connected to the server console.");
-      };
+    socket.onmessage = (event: MessageEvent<string>) => {
+      if (generation !== generationRef.current) {
+        return;
+      }
 
-      socket.onmessage = (event: MessageEvent) => {
-        if (!mountedRef.current) return;
+      let data: ServerMessage;
 
-        try {
-          const data = JSON.parse(event.data) as ServerMessage;
+      try {
+        data = JSON.parse(event.data) as ServerMessage;
+      } catch {
+        appendLog("WARN", "Received an unreadable message from the server.");
+        return;
+      }
 
-          if (data.type === "log") {
-            const { level, message, timestamp } = data.log;
-            const validLevels: LogLevel[] = [
-              "INFO",
-              "SUCCESS",
-              "WARN",
-              "ERROR",
-              "DEBUG",
-              "COMMAND",
-            ];
-
-            appendLog(
-              validLevels.includes(level) ? level : "INFO",
-              String(message),
-              timestamp,
-            );
-          } else if (data.type === "result") {
-            appendLog("INFO", data.output);
-          } else if (data.type === "error") {
-            appendLog("ERROR", data.message);
-          } else if (data.type === "status") {
-            appendLog("INFO", data.message);
+      switch (data.type) {
+        case "log": {
+          if (pausedRef.current) {
+            return;
           }
-        } catch {
-          appendLog("WARN", "Received an invalid console message.");
+
+          appendLog(
+            normalizeLevel(data.log?.level),
+            data.log?.message || "",
+            data.log?.timestamp,
+          );
+          break;
         }
-      };
 
-      socket.onclose = () => {
-        if (!mountedRef.current || manualCloseRef.current) return;
+        case "result": {
+          const output = data.output?.trim() || "(No output)";
+          appendLog(
+            "SUCCESS",
+            `${data.command ? `$ ${data.command}\n` : ""}${output}`,
+          );
+          break;
+        }
 
-        setConnection("disconnected");
-        appendLog(
-          "WARN",
-          "Console connection closed. Attempting to reconnect...",
-        );
-        scheduleReconnect();
-      };
+        case "error": {
+          appendLog("ERROR", data.message || "The server reported an error.");
 
-      socket.onerror = () => {
-        if (!mountedRef.current) return;
-        setConnection("disconnected");
-      };
+          if (!authenticatedRef.current) {
+            setConnection("error");
+          }
+
+          break;
+        }
+
+        case "status": {
+          authenticatedRef.current = true;
+          setConnection("connected");
+          appendLog(
+            "SUCCESS",
+            data.message || "Authenticated with the Kinesis backend.",
+          );
+          break;
+        }
+
+        default: {
+          appendLog("DEBUG", "Received an unrecognized server message.");
+        }
+      }
+    };
+
+    socket.onerror = () => {
+      if (generation === generationRef.current) {
+        setConnection("error");
+      }
+    };
+
+    socket.onclose = () => {
+      if (generation !== generationRef.current) {
+        return;
+      }
+
+      socketRef.current = null;
+      setConnection(authenticatedRef.current ? "disconnected" : "error");
+
+      appendLog(
+        authenticatedRef.current ? "WARN" : "ERROR",
+        authenticatedRef.current
+          ? "The console connection closed. Reconnect to continue."
+          : "The console connection closed before authentication completed. Check the admin token and backend logs.",
+      );
+
+      authenticatedRef.current = false;
+    };
+  }, [appendLog, token]);
+
+  useEffect(() => {
+    if (!token) {
+      setConnection("error");
+      return;
     }
 
     connect();
 
     return () => {
-      mountedRef.current = false;
-      manualCloseRef.current = true;
+      generationRef.current += 1;
+      authenticatedRef.current = false;
 
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-
-      socketRef.current?.close();
+      const socket = socketRef.current;
       socketRef.current = null;
+
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        socket.onopen = null;
+
+        if (
+          socket.readyState === WebSocket.CONNECTING ||
+          socket.readyState === WebSocket.OPEN
+        ) {
+          socket.close();
+        }
+      }
     };
+  }, [connect, token]);
+
+  const filteredLogs = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return logs.filter((entry) => {
+      const matchesLevel = filter === "ALL" || entry.level === filter;
+      const matchesSearch =
+        !query ||
+        entry.message.toLowerCase().includes(query) ||
+        entry.level.toLowerCase().includes(query);
+
+      return matchesLevel && matchesSearch;
+    });
+  }, [filter, logs, search]);
+
+  // Scroll only the console output panel. Avoid scrollIntoView(), which
+  // can also move the page or other ancestor containers.
+  useEffect(() => {
+    if (paused) {
+      return;
+    }
+
+    const container = logContainerRef.current;
+
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [filteredLogs, paused]);
+
+  const refreshSessionToken = useCallback(() => {
+    const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    setToken(storedToken);
+
+    if (!storedToken) {
+      appendLog(
+        "WARN",
+        "No admin token was found. Open Terminal Management, enter your admin token, then return to this console.",
+      );
+    }
   }, [appendLog]);
 
-  useEffect(() => {
-    if (autoScroll && logContainerRef.current) {
-      logContainerRef.current.scrollTop =
-        logContainerRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
+  const handleCommandSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-  const sendCommand = useCallback(() => {
-    const trimmed = command.trim();
-    if (!trimmed) return;
+    const trimmedCommand = command.trim();
+
+    if (!trimmedCommand) {
+      return;
+    }
 
     const socket = socketRef.current;
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      setInputError("Not connected. Wait for the console to reconnect.");
+    if (
+      connection !== "connected" ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    ) {
+      appendLog(
+        "WARN",
+        "The console is not connected. Reconnect before running a command.",
+      );
       return;
     }
 
-    // The backend must validate and authorize commands before execution.
-    socket.send(
-      JSON.stringify({
-        type: "command",
-        command: trimmed,
-      }),
-    );
+    try {
+      socket.send(
+        JSON.stringify({
+          type: "command",
+          command: trimmedCommand,
+        }),
+      );
 
-    appendLog("COMMAND", trimmed);
-    setCommandHistory((current) =>
-      [trimmed, ...current.filter((item) => item !== trimmed)].slice(0, 100),
-    );
-    setHistoryIndex(-1);
-    setCommand("");
-    setInputError("");
-  }, [command, appendLog]);
+      appendLog("COMMAND", `$ ${trimmedCommand}`);
 
-  function handleCommandKeyDown(
-    event: React.KeyboardEvent<HTMLInputElement>,
-  ) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      sendCommand();
-      return;
+      setCommandHistory((current) =>
+        [
+          ...current.filter((item) => item !== trimmedCommand),
+          trimmedCommand,
+        ].slice(-100),
+      );
+
+      setHistoryIndex(-1);
+      setCommand("");
+    } catch {
+      appendLog("ERROR", "Could not send the command to the backend.");
     }
 
+    commandInputRef.current?.focus();
+  };
+
+  const handleCommandKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
     if (event.key === "ArrowUp") {
       event.preventDefault();
 
-      const nextIndex = Math.min(
-        historyIndex + 1,
-        commandHistory.length - 1,
-      );
-
-      if (nextIndex >= 0) {
-        setHistoryIndex(nextIndex);
-        setCommand(commandHistory[nextIndex]);
+      if (commandHistory.length === 0) {
+        return;
       }
+
+      const nextIndex =
+        historyIndex < 0
+          ? commandHistory.length - 1
+          : Math.max(0, historyIndex - 1);
+
+      setHistoryIndex(nextIndex);
+      setCommand(commandHistory[nextIndex]);
     }
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
 
-      const nextIndex = historyIndex - 1;
+      if (historyIndex < 0) {
+        return;
+      }
 
-      if (nextIndex < 0) {
+      const nextIndex = historyIndex + 1;
+
+      if (nextIndex >= commandHistory.length) {
         setHistoryIndex(-1);
         setCommand("");
       } else {
@@ -299,80 +516,81 @@ export default function Console() {
         setCommand(commandHistory[nextIndex]);
       }
     }
-  }
+  };
 
-  function downloadLogs() {
-    const content = [
-      "Timestamp\tLevel\tMessage",
-      ...logs.map((log) =>
-        [
-          log.timestamp,
-          log.level,
-          log.message.replace(/\r?\n/g, "\\n"),
-        ].join("\t"),
-      ),
-    ].join("\n");
+  const clearLogs = () => {
+    setLogs([]);
+  };
+
+  const exportLogs = () => {
+    const content = logs
+      .map(
+        (entry) =>
+          `[${formatTimestamp(entry.timestamp)}] [${entry.level}] ${entry.message}`,
+      )
+      .join("\n");
 
     const blob = new Blob([content], {
       type: "text/plain;charset=utf-8",
     });
 
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    const link = document.createElement("a");
 
-    anchor.href = url;
-    anchor.download = `kinesis-console-${new Date()
+    link.href = url;
+    link.download = `kinesis-console-${new Date()
       .toISOString()
       .replace(/[:.]/g, "-")}.log`;
 
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
     URL.revokeObjectURL(url);
-  }
+  };
 
-  const filteredLogs = logs.filter((log) => {
-    const matchesLevel = filter === "ALL" || log.level === filter;
-    const matchesSearch = `${log.message} ${log.level}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-
-    return matchesLevel && matchesSearch;
-  });
-
-  const errorCount = logs.filter((log) => log.level === "ERROR").length;
-  const warningCount = logs.filter((log) => log.level === "WARN").length;
-
-  const connectionStyle =
-    connection === "connected"
-      ? "border-ctp-green/25 bg-ctp-green/10 text-ctp-green"
-      : connection === "connecting"
-        ? "border-ctp-yellow/25 bg-ctp-yellow/10 text-ctp-yellow"
-        : "border-ctp-red/25 bg-ctp-red/10 text-ctp-red";
+  const statusConfig: Record<
+    ConnectionState,
+    { label: string; color: string }
+  > = {
+    connecting: {
+      label: "Connecting",
+      color: "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]",
+    },
+    connected: {
+      label: "Connected",
+      color: "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]",
+    },
+    disconnected: {
+      label: "Disconnected",
+      color: "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#bac2de]",
+    },
+    error: {
+      label: "Connection error",
+      color: "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]",
+    },
+  };
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] min-h-[500px] flex-col gap-3">
-      {/* Compact page header */}
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-ctp-mauve/20 bg-ctp-mauve/10">
-            <TerminalIcon size={20} className="text-ctp-mauve" />
+    <div className="min-w-0 space-y-5 font-line-seed text-[#cdd6f4]">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div className="flex items-start gap-3">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-[#89b4fa]/20 bg-[#89b4fa]/10">
+            <TerminalIcon size={22} className="text-[#89b4fa]" />
           </div>
 
-          <div className="min-w-0">
-            <h1 className="font-line-seed text-xl font-bold text-ctp-text">
-              Server Console
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">
+              Operational Console
             </h1>
-            <p className="font-line-seed text-xs text-ctp-subtext0">
-              Monitor output and send server commands.
+            <p className="mt-1 max-w-xl text-sm leading-6 text-[#a6adc8]">
+              Inspect backend health, inventory, sales, and registered
+              terminals through approved diagnostic commands.
             </p>
           </div>
         </div>
 
         <div
-          className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 ${connectionStyle}`}
-          role="status"
-          aria-live="polite"
+          className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${statusConfig[connection].color}`}
         >
           {connection === "connected" ? (
             <Wifi size={14} />
@@ -381,327 +599,301 @@ export default function Console() {
           ) : (
             <WifiOff size={14} />
           )}
-
-          <span className="font-line-seed text-xs font-semibold">
-            {connection === "connected"
-              ? "Connected"
-              : connection === "connecting"
-                ? "Connecting"
-                : "Disconnected"}
-          </span>
+          {statusConfig[connection].label}
         </div>
       </header>
 
-      {/* Compact stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2">
-          <span className="font-line-seed text-xs text-ctp-subtext0">
-            Logs
-          </span>
-          <span className="font-mono text-sm font-bold tabular-nums text-ctp-text">
-            {logs.length}
-          </span>
-        </div>
+      <section className="rounded-xl border border-[#313244] bg-[#1e1e2e] p-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-3">
+            {connection === "connected" ? (
+              <CheckCircle2
+                size={18}
+                className="mt-0.5 shrink-0 text-[#a6e3a1]"
+              />
+            ) : connection === "connecting" ? (
+              <Clock
+                size={18}
+                className="mt-0.5 shrink-0 text-[#f9e2af]"
+              />
+            ) : (
+              <CircleAlert
+                size={18}
+                className="mt-0.5 shrink-0 text-[#f38ba8]"
+              />
+            )}
 
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2">
-          <span className="font-line-seed text-xs text-ctp-subtext0">
-            Errors
-          </span>
-          <span className="font-mono text-sm font-bold tabular-nums text-ctp-red">
-            {errorCount}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2">
-          <span className="font-line-seed text-xs text-ctp-subtext0">
-            Warnings
-          </span>
-          <span className="font-mono text-sm font-bold tabular-nums text-ctp-yellow">
-            {warningCount}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setAutoScroll((current) => !current)}
-          aria-pressed={autoScroll}
-          className="flex items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2 text-left transition-colors hover:border-ctp-surface1"
-        >
-          <span className="font-line-seed text-xs text-ctp-subtext0">
-            Auto-scroll
-          </span>
-          <span
-            className={`font-line-seed text-xs font-semibold ${autoScroll ? "text-ctp-green" : "text-ctp-subtext0"
-              }`}
-          >
-            {autoScroll ? "On" : "Paused"}
-          </span>
-        </button>
-      </div>
-
-      {/* Terminal */}
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-crust shadow-[0_4px_16px_rgba(0,0,0,0.10)]">
-        {/* Toolbar */}
-        <div className="shrink-0 border-b border-ctp-surface0 bg-ctp-mantle p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <div
-                className="flex shrink-0 items-center gap-1.5"
-                aria-hidden="true"
-              >
-                <span className="h-2.5 w-2.5 rounded-full bg-ctp-red" />
-                <span className="h-2.5 w-2.5 rounded-full bg-ctp-yellow" />
-                <span className="h-2.5 w-2.5 rounded-full bg-ctp-green" />
-              </div>
-
-              <span className="truncate font-mono text-xs text-ctp-subtext0">
-                kinesis-server / console
-              </span>
-
-              <span className="hidden rounded border border-ctp-surface0 px-1.5 py-0.5 font-mono text-[10px] text-ctp-overlay1 sm:inline">
-                {filteredLogs.length} shown
-              </span>
+            <div>
+              <p className="text-sm font-medium text-[#cdd6f4]">
+                {connection === "connected"
+                  ? "Authenticated with the backend"
+                  : connection === "connecting"
+                    ? "Opening secure console session"
+                    : "Console session is not active"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#a6adc8]">
+                {connection === "connected"
+                  ? "You can run the supported diagnostic commands below."
+                  : token
+                    ? "Check the backend terminal output if the connection keeps failing."
+                    : "Enter the admin token in Terminal Management, then return here and check the session token."}
+              </p>
             </div>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {!token && (
               <button
                 type="button"
-                onClick={() => setShowTimestamps((current) => !current)}
-                aria-pressed={showTimestamps}
-                className={`${buttonBase} ${showTimestamps
-                    ? "border-ctp-mauve/30 bg-ctp-mauve/10 text-ctp-mauve"
-                    : "border-ctp-surface1 text-ctp-subtext0 hover:text-ctp-text"
+                onClick={refreshSessionToken}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#45475a] px-3 py-2 text-xs font-medium text-[#cdd6f4] transition hover:bg-[#313244]"
+              >
+                Check session token
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={connect}
+              disabled={!token || connection === "connecting"}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshCw
+                size={14}
+                className={connection === "connecting" ? "animate-spin" : ""}
+              />
+              Reconnect
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-[#313244] bg-[#181825]">
+        <div className="flex flex-col justify-between gap-3 border-b border-[#313244] px-4 py-3 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2">
+            <Activity size={16} className="text-[#89b4fa]" />
+            <h2 className="text-sm font-semibold">Backend output</h2>
+            <span className="rounded-md bg-[#313244] px-2 py-0.5 text-[11px] tabular-nums text-[#bac2de]">
+              {filteredLogs.length.toLocaleString()} entries
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPaused((current) => !current)}
+              title={
+                paused
+                  ? "Resume incoming log display"
+                  : "Pause incoming log display"
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition ${paused
+                  ? "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]"
+                  : "border-[#45475a] text-[#bac2de] hover:bg-[#313244]"
+                }`}
+            >
+              {paused ? <Play size={13} /> : <Pause size={13} />}
+              {paused ? "Resume logs" : "Pause logs"}
+            </button>
+
+            <button
+              type="button"
+              onClick={exportLogs}
+              disabled={logs.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#45475a] px-2.5 py-2 text-xs text-[#bac2de] transition hover:bg-[#313244] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Download size={13} />
+              Export
+            </button>
+
+            <button
+              type="button"
+              onClick={clearLogs}
+              disabled={logs.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#45475a] px-2.5 py-2 text-xs text-[#bac2de] transition hover:bg-[#313244] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Eraser size={13} />
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 border-b border-[#313244] px-4 py-3">
+          <div className="flex flex-wrap gap-1.5">
+            {LOG_FILTERS.map((item) => (
+              <button
+                type="button"
+                key={item}
+                onClick={() => setFilter(item)}
+                className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${filter === item
+                    ? getLevelBadgeStyle(item)
+                    : "border-transparent text-[#9399b2] hover:bg-[#313244] hover:text-[#cdd6f4]"
                   }`}
               >
-                <Clock size={13} />
-                Time
+                {item}
               </button>
-
-              <button
-                type="button"
-                onClick={() => setAutoScroll((current) => !current)}
-                aria-pressed={autoScroll}
-                className={`${buttonBase} border-ctp-surface1 text-ctp-subtext0 hover:border-ctp-blue/40 hover:text-ctp-blue`}
-              >
-                {autoScroll ? <Pause size={13} /> : <Play size={13} />}
-                {autoScroll ? "Pause" : "Resume"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLogs([])}
-                disabled={logs.length === 0}
-                className={`${buttonBase} border-ctp-surface1 text-ctp-subtext0 hover:border-ctp-red/40 hover:text-ctp-red disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                <Eraser size={13} />
-                Clear
-              </button>
-
-              <button
-                type="button"
-                onClick={downloadLogs}
-                disabled={logs.length === 0}
-                className={`${buttonBase} border-ctp-surface1 text-ctp-subtext0 hover:border-ctp-green/40 hover:text-ctp-green disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                <Download size={13} />
-                Export
-              </button>
-            </div>
+            ))}
           </div>
 
-          {/* Search and level filter */}
-          <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-ctp-surface0 bg-ctp-crust px-2.5 focus-within:border-ctp-mauve/60">
-              <Activity size={14} className="shrink-0 text-ctp-overlay1" />
-
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search messages..."
-                aria-label="Search console messages"
-                className="min-w-0 flex-1 bg-transparent py-2 font-mono text-xs text-ctp-text outline-none placeholder:text-ctp-overlay1"
-              />
-
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  aria-label="Clear search"
-                  className="shrink-0 text-ctp-overlay1 hover:text-ctp-text"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              aria-label="Filter log level"
-              className="rounded-md border border-ctp-surface0 bg-ctp-crust px-3 py-2 font-line-seed text-xs text-ctp-subtext1 outline-none focus:border-ctp-mauve sm:w-36"
-            >
-              <option value="ALL">All levels</option>
-              <option value="INFO">Info</option>
-              <option value="SUCCESS">Success</option>
-              <option value="WARN">Warning</option>
-              <option value="ERROR">Error</option>
-              <option value="DEBUG">Debug</option>
-              <option value="COMMAND">Commands</option>
-            </select>
+          <div className="flex items-center gap-2 rounded-lg border border-[#313244] bg-[#1e1e2e] px-3">
+            <Activity size={14} className="shrink-0 text-[#9399b2]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter messages..."
+              aria-label="Filter console messages"
+              className="min-w-0 flex-1 bg-transparent py-2.5 text-xs text-[#cdd6f4] outline-none placeholder:text-[#6c7086]"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear message filter"
+                className="text-[#9399b2] transition hover:text-[#cdd6f4]"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Output */}
         <div
           ref={logContainerRef}
-          className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-xs leading-5 sm:px-4 sm:py-3 sm:text-[13px] sm:leading-6"
-          role="log"
-          aria-label="Server console output"
+          className="h-[340px] overflow-auto bg-[#11111b] px-3 py-3 font-mono text-xs leading-5 sm:h-[420px] sm:px-4"
           aria-live="polite"
-          aria-relevant="additions text"
+          aria-label="Backend console output"
         >
           {filteredLogs.length === 0 ? (
-            <div className="flex min-h-full flex-col items-center justify-center px-4 py-10 text-center">
-              <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-ctp-surface0 bg-ctp-mantle">
-                <TerminalIcon size={21} className="text-ctp-overlay1" />
-              </div>
-
-              <p className="font-line-seed text-sm font-semibold text-ctp-subtext1">
+            <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-2 text-center">
+              <TerminalIcon size={25} className="text-[#45475a]" />
+              <p className="text-[#a6adc8]">
                 {logs.length === 0
-                  ? connection === "connected"
-                    ? "Waiting for server output"
-                    : "No console output yet"
-                  : "No matching entries"}
+                  ? "No console output yet."
+                  : "No entries match your filters."}
               </p>
-
-              <p className="mt-1 max-w-sm font-line-seed text-xs leading-relaxed text-ctp-overlay1">
+              <p className="text-[11px] text-[#6c7086]">
                 {logs.length === 0
-                  ? connection === "connected"
-                    ? "The connection is ready. Output will appear when the server sends log events."
-                    : "The console will show output after the WebSocket connection is established."
-                  : "Change the search or log level to see more entries."}
+                  ? "Connect to the backend or run help to get started."
+                  : "Change the level filter or search term."}
               </p>
-
-              {connection === "disconnected" && logs.length === 0 && (
-                <p className="mt-3 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 px-2.5 py-1.5 font-line-seed text-xs text-ctp-yellow">
-                  Check that FastAPI exposes {WS_PATH}.
-                </p>
-              )}
             </div>
           ) : (
-            <div className="flex flex-col">
-              {filteredLogs.map((log) => {
-                const Icon = levelIcons[log.level];
-
-                return (
-                  <div
-                    key={log.id}
-                    className="group flex min-w-0 items-start gap-2 rounded px-1 py-0.5 hover:bg-ctp-surface0/40"
+            <div className="space-y-1">
+              {filteredLogs.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="grid grid-cols-[66px_58px_minmax(0,1fr)] gap-x-2 sm:grid-cols-[72px_70px_minmax(0,1fr)] sm:gap-x-3"
+                >
+                  <span className="whitespace-nowrap text-[#6c7086]">
+                    {formatTimestamp(entry.timestamp)}
+                  </span>
+                  <span
+                    className={`font-semibold ${getLevelStyle(entry.level)}`}
                   >
-                    {showTimestamps && (
-                      <span className="shrink-0 select-none text-ctp-overlay1">
-                        {formatTime(log.timestamp)}
-                      </span>
-                    )}
-
-                    <span
-                      className={`flex w-[74px] shrink-0 items-center gap-1 font-bold ${levelStyles[log.level]}`}
-                    >
-                      <Icon size={12} className="shrink-0" />
-                      {log.level}
-                    </span>
-
-                    <span
-                      className={`min-w-0 flex-1 whitespace-pre-wrap break-words ${log.level === "ERROR"
-                          ? "text-ctp-red"
-                          : log.level === "WARN"
-                            ? "text-ctp-yellow"
-                            : log.level === "COMMAND"
-                              ? "text-ctp-mauve"
-                              : "text-ctp-text"
-                        }`}
-                    >
-                      {log.message}
-                    </span>
-                  </div>
-                );
-              })}
+                    {entry.level}
+                  </span>
+                  <pre
+                    className={`min-w-0 whitespace-pre-wrap break-words font-mono ${getLevelStyle(entry.level)}`}
+                  >
+                    {entry.message}
+                  </pre>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Command input */}
-        <div className="shrink-0 border-t border-ctp-surface0 bg-ctp-mantle p-2.5 sm:p-3">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              sendCommand();
-            }}
-          >
-            <div
-              className={`flex items-center gap-2 rounded-lg border bg-ctp-crust px-3 py-2 transition-colors focus-within:border-ctp-mauve ${inputError ? "border-ctp-red/50" : "border-ctp-surface0"
-                }`}
+        {paused && (
+          <div className="border-t border-[#45475a] bg-[#f9e2af]/5 px-4 py-2 text-[11px] text-[#f9e2af]">
+            Incoming backend log messages are hidden until you resume logs.
+            Command results and errors will still appear.
+          </div>
+        )}
+
+        <form
+          onSubmit={handleCommandSubmit}
+          className="border-t border-[#313244] bg-[#1e1e2e] p-3 sm:p-4"
+        >
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <label
+              htmlFor="console-command"
+              className="text-xs font-medium text-[#bac2de]"
             >
-              <span
-                className="select-none font-mono text-sm font-bold text-ctp-green"
-                aria-hidden="true"
-              >
-                $
-              </span>
+              Diagnostic command
+            </label>
 
-              <input
-                value={command}
-                onChange={(event) => {
-                  setCommand(event.target.value);
-                  setInputError("");
-                }}
-                onKeyDown={handleCommandKeyDown}
-                disabled={connection !== "connected"}
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="Enter server command"
-                placeholder={
-                  connection === "connected"
-                    ? "Enter an authorized server command..."
-                    : "Waiting for connection..."
-                }
-                className="min-w-0 flex-1 bg-transparent py-1 font-mono text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 disabled:cursor-not-allowed"
-              />
+            <button
+              type="button"
+              onClick={() => setShowCommands((current) => !current)}
+              className="text-[11px] text-[#89b4fa] transition hover:text-[#b4befe]"
+            >
+              {showCommands ? "Hide commands" : "Supported commands"}
+            </button>
+          </div>
 
-              <button
-                type="submit"
-                disabled={connection !== "connected" || !command.trim()}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-ctp-mauve px-3 py-2 font-line-seed text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Send size={13} />
-                <span className="hidden sm:inline">Execute</span>
-              </button>
+          {showCommands && (
+            <div className="mb-3 grid grid-cols-1 gap-1.5 rounded-lg border border-[#313244] bg-[#181825] p-2 sm:grid-cols-2">
+              {COMMAND_EXAMPLES.map((item) => (
+                <button
+                  type="button"
+                  key={item.command}
+                  onClick={() => {
+                    setCommand(item.command);
+                    commandInputRef.current?.focus();
+                  }}
+                  className="flex min-w-0 flex-col items-start rounded-md px-2.5 py-2 text-left transition hover:bg-[#313244]"
+                >
+                  <code className="text-xs text-[#89b4fa]">
+                    {item.command}
+                  </code>
+                  <span className="mt-1 text-[11px] text-[#9399b2]">
+                    {item.description}
+                  </span>
+                </button>
+              ))}
             </div>
+          )}
 
-            {inputError && (
-              <p className="mt-1.5 font-line-seed text-xs text-ctp-red" role="alert">
-                {inputError}
-              </p>
-            )}
+          <div className="flex items-center gap-2 rounded-lg border border-[#45475a] bg-[#11111b] px-3 focus-within:border-[#89b4fa]/60">
+            <span className="select-none font-mono text-sm text-[#a6e3a1]">
+              $
+            </span>
 
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-              <p className="font-line-seed text-[11px] text-ctp-overlay1">
-                Enter to execute · ↑ / ↓ for history
-              </p>
+            <input
+              id="console-command"
+              ref={commandInputRef}
+              type="text"
+              value={command}
+              onChange={(event) => {
+                setCommand(event.target.value);
+                setHistoryIndex(-1);
+              }}
+              onKeyDown={handleCommandKeyDown}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={200}
+              placeholder="Type help or a diagnostic command..."
+              disabled={connection !== "connected"}
+              className="min-w-0 flex-1 bg-transparent py-3 font-mono text-xs text-[#cdd6f4] outline-none placeholder:text-[#585b70] disabled:cursor-not-allowed"
+            />
 
-              <p
-                className={`font-line-seed text-[11px] ${connection === "connected"
-                    ? "text-ctp-green"
-                    : "text-ctp-overlay1"
-                  }`}
-              >
-                {connection === "connected"
-                  ? "WebSocket ready"
-                  : "Commands disabled while disconnected"}
-              </p>
-            </div>
-          </form>
-        </div>
+            <button
+              type="submit"
+              disabled={connection !== "connected" || !command.trim()}
+              aria-label="Run diagnostic command"
+              className="inline-flex items-center gap-2 rounded-md bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Send size={13} />
+              <span className="hidden sm:inline">Run</span>
+            </button>
+          </div>
+
+          <p className="mt-2 text-[10px] leading-5 text-[#6c7086]">
+            Commands are restricted by the backend allowlist. This console
+            does not provide arbitrary shell or SQL execution.
+          </p>
+        </form>
       </section>
     </div>
   );
