@@ -2,10 +2,13 @@ import { DarkTheme, DefaultTheme, ThemeProvider, Slot } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { View } from "react-native";
 import { useColorScheme } from "nativewind";
-import "../../global.css";
 import { useFonts } from "expo-font";
+
+import "../../global.css";
+
 import { CartProvider } from "@/app/context/CartContext";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { TerminalAgent } from "@/components/TerminalAgent";
 import { latte, mocha } from "@/theme";
 
 SplashScreen.preventAutoHideAsync();
@@ -27,9 +30,7 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider
-      value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-    >
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <View
         style={[
           { flex: 1 },
@@ -39,6 +40,7 @@ export default function RootLayout() {
         <CartProvider>
           <AnimatedSplashOverlay />
           <Slot />
+          <TerminalAgent />
         </CartProvider>
       </View>
     </ThemeProvider>

@@ -16,12 +16,10 @@ import {
   ChevronDown,
   PhilippinePeso,
   Printer,
-  Smartphone,
   Database,
   Network,
   Clock,
   LockKeyhole,
-  SlidersHorizontal,
   ScanBarcode,
   HardDrive,
   Activity,
@@ -492,29 +490,29 @@ const sections: SectionDefinition[] = [
   },
 ];
 
-function Toggle({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${checked ? "bg-ctp-mauve" : "bg-ctp-surface1"
-        }`}
-    >
-      <span
-        className={`absolute left-0.5 size-4 rounded-full bg-ctp-base shadow-sm transition-transform ${checked ? "translate-x-4" : "translate-x-0"
-          }`}
-      />
-    </button>
-  );
-}
+// function Toggle({
+//   checked,
+//   onChange,
+// }: {
+//   checked: boolean;
+//   onChange: (checked: boolean) => void;
+// }) {
+//   return (
+//     <button
+//       type="button"
+//       role="switch"
+//       aria-checked={checked}
+//       onClick={() => onChange(!checked)}
+//       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${checked ? "bg-ctp-mauve" : "bg-ctp-surface1"
+//         }`}
+//     >
+//       <span
+//         className={`absolute left-0.5 size-4 rounded-full bg-ctp-base shadow-sm transition-transform ${checked ? "translate-x-4" : "translate-x-0"
+//           }`}
+//       />
+//     </button>
+//   );
+// }
 
 function Field({
   label,
@@ -909,8 +907,8 @@ export default function Settings() {
                     type="button"
                     onClick={() => navigateTo(section.id)}
                     className={`flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition lg:w-full ${active
-                        ? "bg-ctp-mauve/15 font-semibold text-ctp-mauve"
-                        : "text-ctp-subtext1 hover:bg-ctp-surface0 hover:text-ctp-text"
+                      ? "bg-ctp-mauve/15 font-semibold text-ctp-mauve"
+                      : "text-ctp-subtext1 hover:bg-ctp-surface0 hover:text-ctp-text"
                       }`}
                   >
                     <Icon size={15} className="shrink-0" />

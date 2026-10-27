@@ -9,8 +9,6 @@ import {
   Copy,
   Check,
   CircleAlert,
-  CircleCheck,
-  Clock,
   HardDrive,
   Download,
   Upload,
@@ -718,8 +716,8 @@ export default function Database() {
               handleFile(event.dataTransfer.files?.[0]);
             }}
             className={`mt-3 rounded-md border border-dashed p-4 transition-colors ${dragging
-                ? "border-ctp-mauve bg-ctp-mauve/10"
-                : "border-ctp-surface1"
+              ? "border-ctp-mauve bg-ctp-mauve/10"
+              : "border-ctp-surface1"
               }`}
           >
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">

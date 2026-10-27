@@ -24,6 +24,7 @@ from database import get_db
 from models import Product
 from sales_routes import router as sales_router
 from services_routes import router as services_router
+from terminal_routes import router as terminal_router
 
 
 logger = logging.getLogger(__name__)
@@ -45,8 +46,8 @@ app = FastAPI(
     title="Kinesis API",
     version="1.3.0",
     description=(
-        "Inventory, services, checkout, and reporting API "
-        "for the Kinesis point-of-sale system."
+        "Inventory, services, checkout, reporting, and terminal "
+        "management API for the Kinesis point-of-sale system."
     ),
 )
 
@@ -67,6 +68,7 @@ app.add_middleware(
 
 app.include_router(sales_router)
 app.include_router(services_router)
+app.include_router(terminal_router)
 
 
 # -------------------------
