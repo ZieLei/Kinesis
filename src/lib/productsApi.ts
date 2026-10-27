@@ -1,3 +1,4 @@
+
 import type { ImagePickerAsset } from "expo-image-picker";
 
 import { apiRequest } from "@/lib/api";
@@ -15,7 +16,6 @@ export async function fetchAllProducts(
 ): Promise<Product[]> {
   const allProducts: Product[] = [];
   let offset = 0;
-  let expectedCount: number | null = null;
 
   while (true) {
     const response = await apiRequest<ProductsResponse>(
@@ -27,17 +27,11 @@ export async function fetchAllProducts(
       throw new Error("The server returned an unexpected inventory response.");
     }
 
-    if (expectedCount === null) {
-      expectedCount = response.count;
-    }
-
     allProducts.push(...response.items);
 
-    if (
-      response.items.length === 0 ||
-      allProducts.length >= expectedCount ||
-      response.items.length < PAGE_SIZE
-    ) {
+    // Stop only when the server returns a partial or empty page.
+    // response.count is the current page's count in the existing backend.
+    if (response.items.length < PAGE_SIZE) {
       break;
     }
 
@@ -97,7 +91,10 @@ export function deleteProductImage(id: number): Promise<Product> {
 }
 
 export function deleteProduct(id: number) {
-  return apiRequest<{ message: string; id: number }>(`/api/products/${id}`, {
-    method: "DELETE",
-  });
+  return apiRequest<{ message: string; id: number }>(
+    `/api/products/${id}`,
+    {
+      method: "DELETE",
+    },
+  );
 }

@@ -1,14 +1,23 @@
-import { useState, useMemo } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
+
+import { useCallback, useState } from "react";
+import { View, Text, Pressable, ScrollView, Share } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
-import products from "@/data/products.json";
-import dashboardData from "@/data/dashboard-data.json";
+import { router, useFocusEffect } from "expo-router";
+
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Download from "lucide-react-native/icons/download";
 import Funnel from "lucide-react-native/icons/funnel";
+
 import { styledIcon } from "@/components/StyledIcon";
-import { useColorScheme } from "nativewind";
+import {
+  fetchProductSalesReport,
+  fetchSalesReport,
+} from "@/lib/salesApi";
+import type {
+  ProductSalesReport,
+  ReportPeriod,
+  SalesReportResponse,
+} from "@/types/sale";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledDownload = styledIcon(Download);
@@ -21,8 +30,6 @@ const options = [
   { label: "Yearly", value: "yearly" },
 ] as const;
 
-type Period = (typeof options)[number]["value"];
-
 const money = (amount: number) =>
   `₱${amount.toLocaleString("en-PH", {
     minimumFractionDigits: 2,
@@ -31,112 +38,150 @@ const money = (amount: number) =>
 
 const number = (value: number) => value.toLocaleString("en-PH");
 
-const confirmedTransactions = dashboardData.transactions.filter(
-  (transaction) => transaction.status === "Confirmed"
-);
+const periodLabels: Record<
+  ReportPeriod,
+  { current: string; previous: string }
+> = {
+  daily: { current: "Today", previous: "Yesterday" },
+  weekly: { current: "This Week", previous: "Last Week" },
+  monthly: { current: "This Month", previous: "Last Month" },
+  yearly: { current: "This Year", previous: "Last Year" },
+};
 
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(
-    date.getMonth() + 1
-  ).padStart(2, "0")}`;
+function getErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "The report could not be loaded.";
 }
 
 export default function Reports() {
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === "dark";
-
   const [selected, setSelected] = useState<"sale" | "product">("sale");
   const [open, setOpen] = useState<string | null>(null);
-  const [period, setPeriod] = useState<Period>("monthly");
+  const [period, setPeriod] = useState<ReportPeriod>("monthly");
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  const [salesReport, setSalesReport] =
+    useState<SalesReportResponse | null>(null);
+  const [productReport, setProductReport] =
+    useState<ProductSalesReport | null>(null);
+
+  const [salesLoading, setSalesLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [salesError, setSalesError] = useState("");
+  const [productsError, setProductsError] = useState("");
+
+  useFocusEffect(
+    useCallback(() => {
+      const controller = new AbortController();
+
+      setSalesLoading(true);
+      setProductsLoading(true);
+      setSalesError("");
+      setProductsError("");
+
+      void fetchSalesReport(period, controller.signal)
+        .then((report) => {
+          if (!controller.signal.aborted) {
+            setSalesReport(report);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setSalesError(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setSalesLoading(false);
+          }
+        });
+
+      void fetchProductSalesReport(5, controller.signal)
+        .then((report) => {
+          if (!controller.signal.aborted) {
+            setProductReport(report);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setProductsError(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setProductsLoading(false);
+          }
+        });
+
+      return () => controller.abort();
+    }, [period, refreshCount]),
+  );
 
   const selectedLabel =
     options.find((option) => option.value === period)?.label ?? "Monthly";
 
-  const totals = useMemo(() => {
-    return confirmedTransactions.reduce(
-      (result, transaction) => {
-        result.sales += transaction.total;
-        result.transactions += 1;
-        result.items += transaction.items.reduce(
-          (sum, item) => sum + item.quantity,
-          0
-        );
-        return result;
-      },
-      { sales: 0, transactions: 0, items: 0 }
-    );
-  }, []);
+  const refreshReports = () => {
+    setOpen(null);
+    setRefreshCount((value) => value + 1);
+  };
 
-  const monthlyComparison = useMemo(() => {
-    const now = new Date();
-    const thisMonth = monthKey(now);
+  const handleExport = async () => {
+    if (!salesReport) {
+      refreshReports();
+      return;
+    }
 
-    const previousDate = new Date(
-      now.getFullYear(),
-      now.getMonth() - 1,
-      1
-    );
-    const lastMonth = monthKey(previousDate);
+    const currentLabels = periodLabels[period];
 
-    const summarize = (key: string) => {
-      const monthTransactions = confirmedTransactions.filter(
-        (transaction) =>
-          monthKey(new Date(transaction.date)) === key
-      );
+    const message = [
+      "KINESIS REPORT",
+      `Period: ${selectedLabel}`,
+      `Generated: ${new Date().toLocaleString("en-PH", {
+        timeZone: "Asia/Manila",
+      })}`,
+      "",
+      "LIFETIME TOTALS",
+      `Sales: ${money(salesReport.lifetime.sales)}`,
+      `Transactions: ${number(salesReport.lifetime.transactions)}`,
+      `Items sold: ${number(salesReport.lifetime.items)}`,
+      "",
+      currentLabels.current,
+      `Sales: ${money(salesReport.current.sales)}`,
+      `Transactions: ${number(salesReport.current.transactions)}`,
+      `Items sold: ${number(salesReport.current.items)}`,
+      "",
+      currentLabels.previous,
+      `Sales: ${money(salesReport.previous.sales)}`,
+      `Transactions: ${number(salesReport.previous.transactions)}`,
+      `Items sold: ${number(salesReport.previous.items)}`,
+    ].join("\n");
 
-      return {
-        sales: monthTransactions.reduce(
-          (sum, transaction) => sum + transaction.total,
-          0
-        ),
-        transactions: monthTransactions.length,
-        items: monthTransactions.reduce(
-          (sum, transaction) =>
-            sum +
-            transaction.items.reduce(
-              (itemSum, item) => itemSum + item.quantity,
-              0
-            ),
-          0
-        ),
-      };
-    };
-
-    return {
-      current: summarize(thisMonth),
-      previous: summarize(lastMonth),
-    };
-  }, []);
-
-  const topProducts = useMemo(() => {
-    return [...products]
-      .sort((a, b) => b.sold - a.sold)
-      .slice(0, 5)
-      .map((product, index) => ({
-        ...product,
-        rank: index + 1,
-        change:
-          index % 2 === 0
-            ? "↑0.0" + (index + 1)
-            : "↓0.0" + (index + 1),
-      }));
-  }, []);
+    try {
+      await Share.share({
+        title: "Kinesis Sales Report",
+        message,
+      });
+    } catch {
+      // Dismissing the native share sheet does not affect saved sales.
+    }
+  };
 
   const renderPeriodSelector = () => (
     <View className="relative z-20">
       <Pressable
-        onPress={() =>
-          setOpen(open === "period" ? null : "period")
-        }
+        onPress={() => setOpen(open === "period" ? null : "period")}
+        accessibilityRole="button"
+        accessibilityLabel={`Selected period: ${selectedLabel}`}
         className="h-11 w-[130px] flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-mantle px-3"
       >
         <Text className="font-inter-medium text-ctp-text">
           {selectedLabel}
         </Text>
+
         <Text className="text-ctp-subtext0">▼</Text>
       </Pressable>
 
-      {open === "period" && (
+      {open === "period" ? (
         <View className="absolute right-0 top-12 z-50 w-[150px] rounded-xl border border-ctp-surface0 bg-ctp-mantle p-1">
           {options.map((option) => (
             <Pressable
@@ -153,16 +198,16 @@ export default function Reports() {
             </Pressable>
           ))}
         </View>
-      )}
+      ) : null}
     </View>
   );
 
   const renderComparisonCard = (
     title: string,
-    total: number,
+    lifetimeTotal: number,
     current: number,
     previous: number,
-    format: (value: number) => string
+    format: (value: number) => string,
   ) => {
     const maxValue = Math.max(current, previous, 1);
 
@@ -173,7 +218,8 @@ export default function Reports() {
           : 0
         : ((current - previous) / previous) * 100;
 
-    const positive = change === null ? current > 0 : change >= 0;
+    const positive = change === null ? true : change >= 0;
+    const labels = periodLabels[period];
 
     return (
       <View className="gap-3 rounded-md bg-ctp-mantle p-3">
@@ -183,14 +229,14 @@ export default function Reports() {
           </Text>
 
           <Text className="font-inter-semibold text-ctp-text">
-            {format(total)}
+            {format(lifetimeTotal)}
           </Text>
         </View>
 
         <View className="gap-3">
           <View className="flex-row items-center gap-2">
             <Text className="w-[90px] text-xs font-inter-medium text-ctp-subtext0">
-              This Month
+              {labels.current}
             </Text>
 
             <View className="h-3 flex-1 overflow-hidden rounded-full bg-ctp-surface0">
@@ -209,7 +255,7 @@ export default function Reports() {
 
           <View className="flex-row items-center gap-2">
             <Text className="w-[90px] text-xs font-inter-medium text-ctp-subtext0">
-              Last Month
+              {labels.previous}
             </Text>
 
             <View className="h-3 flex-1 overflow-hidden rounded-full bg-ctp-surface0">
@@ -229,8 +275,8 @@ export default function Reports() {
 
         <View
           className={`self-start rounded-2xl border px-3 py-1 ${positive
-            ? "border-ctp-green/50 bg-ctp-green/15"
-            : "border-ctp-red/50 bg-ctp-red/15"
+              ? "border-ctp-green/50 bg-ctp-green/15"
+              : "border-ctp-red/50 bg-ctp-red/15"
             }`}
         >
           <Text
@@ -238,10 +284,8 @@ export default function Reports() {
               }`}
           >
             {change === null
-              ? "No previous-month baseline"
-              : `${change >= 0 ? "+" : ""}${change.toFixed(
-                1
-              )}% vs last month`}
+              ? "No previous-period baseline"
+              : `${change >= 0 ? "+" : ""}${change.toFixed(1)}% vs previous period`}
           </Text>
         </View>
       </View>
@@ -255,12 +299,11 @@ export default function Reports() {
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
             className="h-8 w-8 items-center justify-center"
           >
-            <StyledChevronLeft
-              size={22}
-              className="text-ctp-text"
-            />
+            <StyledChevronLeft size={22} className="text-ctp-text" />
           </Pressable>
 
           <Text className="font-inter-semibold text-lg text-ctp-text">
@@ -268,17 +311,16 @@ export default function Reports() {
           </Text>
 
           <Pressable
-            onPress={() => setOpen(null)}
+            onPress={handleExport}
+            accessibilityRole="button"
+            accessibilityLabel="Export sales report"
             className="h-8 w-8 items-center justify-center"
-            accessibilityLabel="Report options"
           >
-            <StyledDownload
-              size={22}
-              className="text-ctp-text"
-            />
+            <StyledDownload size={22} className="text-ctp-text" />
           </Pressable>
         </View>
 
+        {/* Report tabs */}
         <View className="flex-row justify-center gap-4 rounded-md border border-ctp-surface0 bg-ctp-mantle p-2">
           {(["sale", "product"] as const).map((tab) => (
             <Pressable
@@ -287,15 +329,11 @@ export default function Reports() {
                 setSelected(tab);
                 setOpen(null);
               }}
-              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab
-                ? "bg-ctp-blue"
-                : "bg-ctp-mantle"
+              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab ? "bg-ctp-blue" : "bg-ctp-mantle"
                 }`}
             >
               <Text
-                className={`font-inter-medium text-base ${selected === tab
-                  ? "text-ctp-crust"
-                  : "text-ctp-text"
+                className={`font-inter-medium text-base ${selected === tab ? "text-ctp-crust" : "text-ctp-text"
                   }`}
               >
                 {tab === "sale" ? "Sale" : "Product"}
@@ -312,15 +350,14 @@ export default function Reports() {
             >
               <View className="rounded-lg bg-ctp-mantle p-3">
                 <View className="flex-row items-center justify-between pb-2">
-                  <View>
-                    <Text className="font-inter-semibold text-lg text-ctp-text">
-                      Sales Report
-                    </Text>
-                  </View>
+                  <Text className="font-inter-semibold text-lg text-ctp-text">
+                    Sales Report
+                  </Text>
 
                   {renderPeriodSelector()}
                 </View>
 
+                {/* Reserved for future sales chart integration. */}
                 <View className="items-center justify-center rounded-lg bg-ctp-base py-8">
                   <Text className="font-inter-medium text-base text-ctp-text">
                     GRAPH
@@ -328,29 +365,67 @@ export default function Reports() {
                 </View>
               </View>
 
-              {renderComparisonCard(
-                "Total Sales",
-                totals.sales,
-                monthlyComparison.current.sales,
-                monthlyComparison.previous.sales,
-                money
-              )}
+              {salesLoading ? (
+                <View className="rounded-lg bg-ctp-mantle p-4">
+                  <Text className="text-sm font-inter-medium text-ctp-subtext0">
+                    Loading sales from the database...
+                  </Text>
+                </View>
+              ) : salesError ? (
+                <View className="gap-3 rounded-lg border border-ctp-red/40 bg-ctp-red/10 p-4">
+                  <Text className="font-inter-medium text-sm text-ctp-red">
+                    {salesError}
+                  </Text>
 
-              {renderComparisonCard(
-                "Total Transactions",
-                totals.transactions,
-                monthlyComparison.current.transactions,
-                monthlyComparison.previous.transactions,
-                number
-              )}
+                  <Pressable
+                    onPress={refreshReports}
+                    className="self-start rounded-md bg-ctp-surface0 px-4 py-2"
+                  >
+                    <Text className="font-inter-semibold text-sm text-ctp-text">
+                      Retry
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : salesReport ? (
+                <>
+                  {salesReport.lifetime.transactions === 0 ? (
+                    <View className="gap-1 rounded-lg bg-ctp-mantle p-4">
+                      <Text className="font-inter-semibold text-base text-ctp-text">
+                        No sales recorded yet
+                      </Text>
+                      <Text className="text-sm leading-5 text-ctp-subtext0">
+                        Complete a checkout to save a transaction and populate
+                        these reports. Existing product records are not counted
+                        as historical sales.
+                      </Text>
+                    </View>
+                  ) : null}
 
-              {renderComparisonCard(
-                "Total Items Sold",
-                totals.items,
-                monthlyComparison.current.items,
-                monthlyComparison.previous.items,
-                number
-              )}
+                  {renderComparisonCard(
+                    "Total Sales",
+                    salesReport.lifetime.sales,
+                    salesReport.current.sales,
+                    salesReport.previous.sales,
+                    money,
+                  )}
+
+                  {renderComparisonCard(
+                    "Total Transactions",
+                    salesReport.lifetime.transactions,
+                    salesReport.current.transactions,
+                    salesReport.previous.transactions,
+                    number,
+                  )}
+
+                  {renderComparisonCard(
+                    "Total Items Sold",
+                    salesReport.lifetime.items,
+                    salesReport.current.items,
+                    salesReport.previous.items,
+                    number,
+                  )}
+                </>
+              ) : null}
             </ScrollView>
           ) : (
             <ScrollView
@@ -363,14 +438,62 @@ export default function Reports() {
                     Top Categories
                   </Text>
 
-                  {renderPeriodSelector()}
-                </View>
-
-                <View className="h-52 w-full items-center justify-center rounded-lg bg-ctp-base">
-                  <Text className="text-base text-ctp-text">
-                    CHART
+                  <Text className="text-xs font-inter-medium text-ctp-subtext0">
+                    All recorded sales
                   </Text>
                 </View>
+
+                {/* Reserved for future category chart integration. */}
+                <View className="h-52 w-full items-center justify-center rounded-lg bg-ctp-base">
+                  <Text className="text-base text-ctp-text">CHART</Text>
+                </View>
+
+                {productsLoading ? (
+                  <Text className="mt-3 text-sm text-ctp-subtext0">
+                    Loading category sales...
+                  </Text>
+                ) : productsError ? (
+                  <View className="mt-3 gap-2">
+                    <Text className="text-sm text-ctp-red">
+                      {productsError}
+                    </Text>
+
+                    <Pressable
+                      onPress={refreshReports}
+                      className="self-start rounded-md bg-ctp-surface0 px-3 py-2"
+                    >
+                      <Text className="font-inter-semibold text-sm text-ctp-text">
+                        Retry
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : productReport && productReport.categories.length > 0 ? (
+                  <View className="mt-3 gap-3">
+                    {productReport.categories.slice(0, 5).map((category) => (
+                      <View
+                        key={category.category}
+                        className="flex-row items-center justify-between gap-3"
+                      >
+                        <View className="flex-1">
+                          <Text className="font-inter-medium text-sm text-ctp-text">
+                            {category.category}
+                          </Text>
+                          <Text className="text-xs text-ctp-subtext0">
+                            {number(category.units_sold)} pcs sold
+                          </Text>
+                        </View>
+
+                        <Text className="font-inter-semibold text-sm text-ctp-text">
+                          {money(category.revenue)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : productReport ? (
+                  <Text className="mt-3 text-sm text-ctp-subtext0">
+                    No completed sales to categorize yet.
+                  </Text>
+                ) : null}
               </View>
 
               <View className="rounded-lg bg-ctp-mantle p-3">
@@ -381,66 +504,98 @@ export default function Reports() {
 
                   <View className="flex-row items-center gap-3">
                     <View className="h-7 w-7 items-center justify-center rounded-md bg-ctp-surface0">
-                      <StyledFunnel
-                        size={14}
-                        className="text-ctp-text"
-                      />
+                      <StyledFunnel size={14} className="text-ctp-text" />
                     </View>
 
                     <Pressable
                       onPress={() => router.push("/product-performance")}
                       className="rounded-md bg-ctp-surface0 px-2 py-2"
                     >
-                      <Text className="text-xs font-inter-bold text-ctp-text">
+                      <Text className="font-inter-bold text-xs text-ctp-text">
                         View All
                       </Text>
                     </Pressable>
                   </View>
                 </View>
 
-                {topProducts.map((product) => (
-                  <View
-                    key={product.rank}
-                    className={`m-2 flex-row rounded-lg border-[1.5px] bg-ctp-base ${product.rank === 1
-                      ? "border-ctp-yellow"
-                      : product.rank === 2
-                        ? "border-ctp-rosewater/60"
-                        : product.rank === 3
-                          ? "border-ctp-peach/90"
-                          : "border-transparent"
-                      }`}
-                    style={{
-                      boxShadow: "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
-                    }}
-                  >
-                    <View className="m-2 h-20 w-20 rounded-lg bg-ctp-surface0" />
+                {productsLoading ? (
+                  <Text className="py-6 text-center text-sm text-ctp-subtext0">
+                    Loading product sales...
+                  </Text>
+                ) : productsError ? (
+                  <View className="gap-3 py-4">
+                    <Text className="text-center text-sm text-ctp-red">
+                      {productsError}
+                    </Text>
 
-                    <View className="my-3 mx-1 flex-1 justify-between">
-                      <Text className="font-inter-semibold text-md text-ctp-text">
-                        {product.name}
+                    <Pressable
+                      onPress={refreshReports}
+                      className="self-center rounded-md bg-ctp-surface0 px-4 py-2"
+                    >
+                      <Text className="font-inter-semibold text-sm text-ctp-text">
+                        Retry
                       </Text>
-
-                      <Text className="font-inter-semibold text-sm text-ctp-subtext0">
-                        {money(product.price)}
-                      </Text>
-                    </View>
-
-                    <View className="my-3 mr-3 items-end justify-between">
-                      <Text className="font-inter-semibold text-ctp-text">
-                        {number(product.sold)} pcs
-                      </Text>
-
-                      <Text
-                        className={`font-inter-semibold ${product.change.startsWith("↑")
-                          ? "text-ctp-green"
-                          : "text-ctp-red"
-                          }`}
-                      >
-                        {product.change}
-                      </Text>
-                    </View>
+                    </Pressable>
                   </View>
-                ))}
+                ) : productReport && productReport.top_products.length > 0 ? (
+                  productReport.top_products.map((product, index) => (
+                    <View
+                      key={
+                        product.product_id ??
+                        `${product.category}-${product.name}`
+                      }
+                      className={`m-2 flex-row rounded-lg border-[1.5px] bg-ctp-base ${index === 0
+                          ? "border-ctp-yellow"
+                          : index === 1
+                            ? "border-ctp-rosewater/60"
+                            : index === 2
+                              ? "border-ctp-peach/90"
+                              : "border-transparent"
+                        }`}
+                      style={{
+                        boxShadow: "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
+                      }}
+                    >
+                      <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-ctp-surface0">
+                        <Text className="text-xs font-inter-medium text-ctp-subtext0">
+                          #{index + 1}
+                        </Text>
+                      </View>
+
+                      <View className="mx-1 my-3 flex-1 justify-between">
+                        <Text
+                          numberOfLines={2}
+                          className="font-inter-semibold text-base text-ctp-text"
+                        >
+                          {product.name}
+                        </Text>
+
+                        <Text
+                          numberOfLines={1}
+                          className="text-xs font-inter-medium text-ctp-subtext0"
+                        >
+                          {product.category}
+                        </Text>
+                      </View>
+
+                      <View className="mr-3 my-3 items-end justify-between">
+                        <Text className="font-inter-semibold text-sm text-ctp-text">
+                          {number(product.units_sold)} pcs
+                        </Text>
+
+                        <Text className="text-right text-xs font-inter-medium text-ctp-subtext0">
+                          {money(product.revenue)}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                ) : productReport ? (
+                  <View className="items-center py-8">
+                    <Text className="text-center font-inter-medium text-sm text-ctp-subtext0">
+                      No completed product sales yet.
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </ScrollView>
           )}

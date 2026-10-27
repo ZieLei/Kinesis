@@ -22,16 +22,17 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Product
+from sales_routes import router as sales_router
+from services_routes import router as services_router
 
 
 logger = logging.getLogger(__name__)
 
-MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MiB
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 IMAGE_DIRECTORY = Path(
     os.getenv("KINESIS_IMAGE_DIRECTORY", "uploads/products")
 ).resolve()
 
-# Supported formats are checked by their file signatures, not filenames.
 IMAGE_FORMATS = {
     b"\xff\xd8\xff": (".jpg", "image/jpeg"),
     b"\x89PNG\r\n\x1a\n": (".png", "image/png"),
@@ -42,8 +43,11 @@ IMAGE_FORMATS = {
 
 app = FastAPI(
     title="Kinesis API",
-    version="1.1.0",
-    description="Inventory API for the Kinesis point-of-sale system.",
+    version="1.3.0",
+    description=(
+        "Inventory, services, checkout, and reporting API "
+        "for the Kinesis point-of-sale system."
+    ),
 )
 
 origins = [
@@ -61,9 +65,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(sales_router)
+app.include_router(services_router)
+
 
 # -------------------------
-# Request schemas
+# Product request schemas
 # -------------------------
 
 
@@ -79,8 +86,10 @@ class ProductCreate(BaseModel):
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         value = value.strip()
+
         if not value:
             raise ValueError("This field cannot be blank.")
+
         return value
 
     @field_validator("sku")
@@ -88,6 +97,7 @@ class ProductCreate(BaseModel):
     def normalize_sku(cls, value: str | None) -> str | None:
         if value is None:
             return None
+
         return value.strip() or None
 
 
@@ -108,9 +118,12 @@ class ProductUpdate(BaseModel):
     def normalize_required_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
+
         value = value.strip()
+
         if not value:
             raise ValueError("This field cannot be blank.")
+
         return value
 
     @field_validator("sku")
@@ -118,11 +131,12 @@ class ProductUpdate(BaseModel):
     def normalize_sku(cls, value: str | None) -> str | None:
         if value is None:
             return None
+
         return value.strip() or None
 
 
 # -------------------------
-# Response helpers
+# Product response helpers
 # -------------------------
 
 
@@ -145,15 +159,19 @@ def product_response(product: Product) -> dict:
 def commit_or_raise_sku_conflict(db: Session) -> None:
     try:
         db.commit()
+
     except IntegrityError as exc:
         db.rollback()
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="That SKU is already assigned to another product.",
         ) from exc
+
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Database commit failed")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The database operation failed.",
@@ -180,7 +198,6 @@ def detect_image(data: bytes) -> tuple[str, str] | None:
         if data.startswith(signature):
             extension, media_type = result
 
-            # RIFF is also used by non-image WebP containers.
             if signature == b"RIFF":
                 if len(data) < 12 or data[8:12] != b"WEBP":
                     continue
@@ -207,6 +224,7 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str, str]:
         )
 
     detected = detect_image(data)
+
     if detected is None:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -231,7 +249,7 @@ def health_check():
 
 
 # -------------------------
-# List, search, and filter
+# List, search, and filter products
 # -------------------------
 
 
@@ -246,11 +264,11 @@ def get_products(
     statement = select(Product)
 
     if search and search.strip():
-        term = search.strip()
-        escaped_term = (
-            term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = (
+            search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
-        pattern = f"%{escaped_term}%"
+        pattern = f"%{term}%"
+
         statement = statement.where(
             or_(
                 Product.name.ilike(pattern, escape="\\"),
@@ -315,9 +333,11 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
 
     try:
         db.refresh(product)
+
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not refresh created product")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Product was saved, but its latest data could not be loaded.",
@@ -346,6 +366,7 @@ def update_product(
         )
 
     updates = product_data.model_dump(exclude_unset=True)
+
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -359,9 +380,11 @@ def update_product(
 
     try:
         db.refresh(product)
+
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not refresh updated product")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Product was updated, but its latest data could not be loaded.",
@@ -397,15 +420,18 @@ async def upload_product_image(
 
     try:
         IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-        # Exclusive creation avoids overwriting an existing file.
+
         with new_path.open("xb") as image_file:
             image_file.write(data)
+
     except OSError as exc:
         logger.exception("Could not store uploaded product image")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The image could not be stored.",
         ) from exc
+
     finally:
         await file.close()
 
@@ -415,26 +441,30 @@ async def upload_product_image(
     try:
         db.commit()
         db.refresh(product)
+
     except IntegrityError as exc:
         db.rollback()
         new_path.unlink(missing_ok=True)
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The image could not be associated with the product.",
         ) from exc
+
     except SQLAlchemyError as exc:
         db.rollback()
         new_path.unlink(missing_ok=True)
         logger.exception("Could not save product image path")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The image path could not be saved.",
         ) from exc
 
-    # Only remove the previous file after the DB points at the new file.
     if old_relative_path and old_relative_path != relative_path:
         try:
             resolve_image_path(old_relative_path).unlink(missing_ok=True)
+
         except OSError:
             logger.exception("Old product image could not be removed")
 
@@ -465,16 +495,15 @@ def get_product_image(product_id: int, db: Session = Depends(get_db)):
     image_path = resolve_image_path(product.image_path)
 
     if not image_path.is_file():
-        logger.error(
-            "Image file is missing for product ID %s",
-            product_id,
-        )
+        logger.error("Image file is missing for product ID %s", product_id)
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="The product image file is missing.",
         )
 
     media_type = detect_image(image_path.read_bytes())
+
     if media_type is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -506,6 +535,7 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
         )
 
     old_relative_path = product.image_path
+
     if not old_relative_path:
         return {"message": "Product has no image.", "id": product_id}
 
@@ -513,9 +543,11 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
 
     try:
         db.commit()
+
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not remove product image reference")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The product image could not be removed.",
@@ -523,11 +555,14 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
 
     try:
         resolve_image_path(old_relative_path).unlink(missing_ok=True)
+
     except OSError:
-        # The database no longer references this file; log for later cleanup.
         logger.exception("Unreferenced product image could not be removed")
 
-    return {"message": "Product image deleted successfully.", "id": product_id}
+    return {
+        "message": "Product image deleted successfully.",
+        "id": product_id,
+    }
 
 
 # -------------------------
@@ -550,9 +585,11 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     try:
         db.delete(product)
         db.commit()
+
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not delete product")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The product could not be deleted.",
@@ -561,10 +598,14 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     if image_path:
         try:
             resolve_image_path(image_path).unlink(missing_ok=True)
+
         except OSError:
             logger.exception(
                 "Product %s was deleted but its image file remains",
                 product_id,
             )
 
-    return {"message": "Product deleted successfully.", "id": product_id}
+    return {
+        "message": "Product deleted successfully.",
+        "id": product_id,
+    }

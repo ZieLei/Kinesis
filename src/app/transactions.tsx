@@ -1,22 +1,25 @@
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  FlatList,
   Pressable,
   Text,
-  FlatList,
-} from 'react-native';
-import ChevronLeft from 'lucide-react-native/icons/chevron-left';
-import ShoppingCart from 'lucide-react-native/icons/shopping-cart';
-import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect, useRouter } from "expo-router";
 
-import LeftArrow from 'lucide-react-native/icons/chevron-left';
-import RightArrow from 'lucide-react-native/icons/chevron-right';
-import DoubleLeftArrow from 'lucide-react-native/icons/chevrons-left';
-import DoubleRightArrow from 'lucide-react-native/icons/chevrons-right';
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import ShoppingCart from "lucide-react-native/icons/shopping-cart";
+import LeftArrow from "lucide-react-native/icons/chevron-left";
+import RightArrow from "lucide-react-native/icons/chevron-right";
+import DoubleLeftArrow from "lucide-react-native/icons/chevrons-left";
+import DoubleRightArrow from "lucide-react-native/icons/chevrons-right";
 
-import { styledIcon } from '@/components/StyledIcon';
-import dashboardData from '../data/dashboard-data.json';
+import { styledIcon } from "@/components/StyledIcon";
+import { fetchSalesList } from "@/lib/salesApi";
+import type { SaleListItem, SalesListResponse } from "@/types/sale";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledShoppingCart = styledIcon(ShoppingCart);
@@ -25,153 +28,183 @@ const StyledRightArrow = styledIcon(RightArrow);
 const StyledDoubleLeftArrow = styledIcon(DoubleLeftArrow);
 const StyledDoubleRightArrow = styledIcon(DoubleRightArrow);
 
-type Transaction = {
-  id: number;
-  date: string;
-  status: 'Confirmed' | 'Pending' | 'Cancelled';
-  total: number;
-  items: {
-    productId: number;
-    name: string;
-    quantity: number;
-    price: number;
-  }[];
-};
-
 const PAGE_SIZE = 10;
 
-const statusStyles: Record<Transaction['status'], string> = {
-  Confirmed: 'bg-ctp-green/15 text-ctp-green',
-  Pending: 'bg-ctp-yellow/15 text-ctp-yellow',
-  Cancelled: 'bg-ctp-red/15 text-ctp-red',
-};
-
 const money = (amount: number) =>
-  new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
+  new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
 
-const formatDate = (date: Date) =>
-  date.toLocaleDateString('en-PH', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+const formatDate = (value: string) =>
+  new Date(value).toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "Asia/Manila",
   });
 
-const formatTime = (date: Date) =>
-  date.toLocaleTimeString('en-PH', {
-    hour: '2-digit',
-    minute: '2-digit',
+const formatTime = (value: string) =>
+  new Date(value).toLocaleTimeString("en-PH", {
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: true,
+    timeZone: "Asia/Manila",
   });
+
+function getStatusPresentation(status: string) {
+  switch (status.toLowerCase()) {
+    case "completed":
+    case "confirmed":
+      return {
+        label: status.toLowerCase() === "completed" ? "Completed" : "Confirmed",
+        style: "bg-ctp-green/15 text-ctp-green",
+      };
+    case "pending":
+      return {
+        label: "Pending",
+        style: "bg-ctp-yellow/15 text-ctp-yellow",
+      };
+    case "cancelled":
+    case "canceled":
+      return {
+        label: "Cancelled",
+        style: "bg-ctp-red/15 text-ctp-red",
+      };
+    default:
+      return {
+        label: status.charAt(0).toUpperCase() + status.slice(1),
+        style: "bg-ctp-surface0 text-ctp-text",
+      };
+  }
+}
 
 export default function Transactions() {
   const router = useRouter();
+
   const [currentPage, setCurrentPage] = useState(1);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [response, setResponse] = useState<SalesListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const transactions = dashboardData.transactions as Transaction[];
+  useFocusEffect(
+    useCallback(() => {
+      const controller = new AbortController();
 
-  const stats = useMemo(() => {
-    const recentTransactions = [...transactions].sort(
-      (a, b) =>
-        new Date(b.date).getTime() -
-        new Date(a.date).getTime(),
+      setLoading(true);
+      setError("");
+
+      void fetchSalesList(
+        PAGE_SIZE,
+        (currentPage - 1) * PAGE_SIZE,
+        controller.signal,
+      )
+        .then((result) => {
+          if (controller.signal.aborted) return;
+
+          setResponse(result);
+
+          const availablePages = Math.max(
+            1,
+            Math.ceil(result.count / PAGE_SIZE),
+          );
+
+          setCurrentPage((page) => Math.min(page, availablePages));
+        })
+        .catch((requestError: unknown) => {
+          if (controller.signal.aborted) return;
+
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not load transactions.",
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+
+      return () => controller.abort();
+    }, [currentPage, refreshCount]),
+  );
+
+  const transactions = response?.items ?? [];
+  const totalCount = response?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const pageNumbers = useMemo(() => {
+    const visibleCount = Math.min(4, totalPages);
+    const startPage = Math.max(
+      1,
+      Math.min(currentPage - 1, totalPages - visibleCount + 1),
     );
 
-    return {
-      recentTransactions,
-      totalTransactions: transactions.length,
-      confirmedTransactions: transactions.filter(
-        (transaction) => transaction.status === 'Confirmed',
-      ).length,
-      pendingTransactions: transactions.filter(
-        (transaction) => transaction.status === 'Pending',
-      ).length,
-      cancelledTransactions: transactions.filter(
-        (transaction) => transaction.status === 'Cancelled',
-      ).length,
-    };
-  }, [transactions]);
+    return Array.from(
+      { length: visibleCount },
+      (_, index) => startPage + index,
+    );
+  }, [currentPage, totalPages]);
 
-  const totalPages = Math.ceil(
-    stats.totalTransactions / PAGE_SIZE,
-  );
-
-  const pageNumbers = Array.from(
-    { length: Math.min(4, totalPages) },
-    (_, i) => {
-      const startPage = Math.max(
-        1,
-        Math.min(currentPage - 1, totalPages - 3),
-      );
-
-      return startPage + i;
-    },
-  );
-
-  const startIndex = (currentPage - 1) * PAGE_SIZE;
-
-  const paginatedTransactions = stats.recentTransactions.slice(
-    startIndex,
-    startIndex + PAGE_SIZE,
-  );
+  const statusCounts = response?.statuses ?? {};
+  const completedCount = statusCounts.completed ?? statusCounts.confirmed ?? 0;
+  const pendingCount = statusCounts.pending ?? 0;
 
   const firstTransaction =
-    stats.totalTransactions === 0 ? 0 : startIndex + 1;
+    totalCount === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
 
-  const lastTransaction = Math.min(
-    startIndex + PAGE_SIZE,
-    stats.totalTransactions,
-  );
+  const lastTransaction = Math.min(safePage * PAGE_SIZE, totalCount);
 
-  const renderTransaction = ({
-    item: transaction,
-  }: {
-    item: Transaction;
-  }) => {
-    const date = new Date(transaction.date);
+  const renderTransaction = ({ item }: { item: SaleListItem }) => {
+    const presentation = getStatusPresentation(item.status);
 
     return (
-      <View className="my-2 h-[90px] w-full flex-row items-center rounded-xl bg-ctp-mantle px-3">
+      <View className="my-2 min-h-[90px] w-full flex-row items-center rounded-xl bg-ctp-mantle px-3 py-3">
         <View className="aspect-square rounded-lg bg-ctp-surface0 p-3">
-          <StyledShoppingCart
-            size={24}
-            className="text-ctp-subtext0"
-          />
+          <StyledShoppingCart size={24} className="text-ctp-subtext0" />
         </View>
 
         <View className="ml-3 flex-1 justify-center gap-1">
           <Text
-            className="text-base font-inter-bold text-ctp-text"
+            className="text-sm font-inter-bold text-ctp-text"
             numberOfLines={1}
           >
-            Order #{transaction.id}
+            Order #{item.id}
+          </Text>
+
+          <Text
+            className="text-xs font-inter-semibold text-ctp-subtext0"
+            numberOfLines={1}
+          >
+            {item.transaction_code}
           </Text>
 
           <Text className="text-xs font-inter-semibold text-ctp-subtext0">
-            {formatDate(date)}
+            {formatDate(item.created_at)}
           </Text>
 
           <Text className="text-xs font-inter-semibold text-ctp-subtext0">
-            {formatTime(date)}
+            {formatTime(item.created_at)} · {item.item_count}{" "}
+            {item.item_count === 1 ? "item" : "items"}
           </Text>
         </View>
 
         <View className="ml-2 items-end">
-          <Text
-            className="mb-2 text-sm font-inter-bold text-ctp-text"
-            numberOfLines={1}
-          >
-            {money(transaction.total)}
+          <Text className="mb-2 text-sm font-inter-bold text-ctp-text">
+            {money(item.total)}
           </Text>
 
           <Text
-            className={`w-[85px] rounded-full py-1 text-center text-xs font-inter-bold ${statusStyles[transaction.status]
-              }`}
+            className={`min-w-[85px] rounded-full px-2 py-1 text-center text-xs font-inter-bold ${presentation.style}`}
           >
-            {transaction.status}
+            {presentation.label}
           </Text>
         </View>
       </View>
@@ -184,37 +217,36 @@ export default function Transactions() {
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
-            className="h-5 w-5 items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            className="h-8 w-8 items-center justify-center"
           >
-            <StyledChevronLeft
-              size={20}
-              className="text-ctp-text"
-            />
+            <StyledChevronLeft size={20} className="text-ctp-text" />
           </Pressable>
 
           <Text className="text-lg font-inter-semibold text-ctp-text">
             Transactions
           </Text>
 
-          <View className="h-5 w-5" />
+          <View className="h-8 w-8" />
         </View>
 
-        <View className="mb-4 flex-row gap-4">
+        <View className="mb-4 flex-row gap-3">
           <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
             <Text className="text-xs font-inter-medium text-ctp-subtext0">
               Total
             </Text>
             <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {stats.totalTransactions}
+              {response ? totalCount.toLocaleString("en-PH") : loading ? "…" : "—"}
             </Text>
           </View>
 
           <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
             <Text className="text-xs font-inter-medium text-ctp-subtext0">
-              Confirmed
+              Completed
             </Text>
             <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {stats.confirmedTransactions}
+              {response ? completedCount.toLocaleString("en-PH") : loading ? "…" : "—"}
             </Text>
           </View>
 
@@ -223,71 +255,84 @@ export default function Transactions() {
               Pending
             </Text>
             <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {stats.pendingTransactions}
+              {response ? pendingCount.toLocaleString("en-PH") : loading ? "…" : "—"}
             </Text>
           </View>
         </View>
 
-        {/* Paginated transaction list */}
-        <FlatList
-          className="flex-1"
-          data={paginatedTransactions}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderTransaction}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
-          ListEmptyComponent={
-            <View className="flex-1 items-center justify-center py-10">
-              <StyledShoppingCart
-                size={36}
-                className="text-ctp-overlay1"
-              />
+        {error ? (
+          <View className="mb-3 gap-2 rounded-lg border border-ctp-red/40 bg-ctp-red/10 p-3">
+            <Text className="text-sm leading-5 text-ctp-red">{error}</Text>
 
-              <Text className="mt-3 text-sm font-inter-medium text-ctp-subtext0">
-                No transactions available.
+            <Pressable
+              onPress={() => setRefreshCount((count) => count + 1)}
+              className="self-start rounded-md bg-ctp-surface0 px-3 py-2"
+            >
+              <Text className="text-sm font-inter-semibold text-ctp-text">
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {loading && !response ? (
+          <View className="flex-1 items-center justify-center gap-3">
+            <ActivityIndicator size="large" color="#89B4FA" />
+            <Text className="text-sm font-inter-medium text-ctp-subtext0">
+              Loading transactions...
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            className="flex-1"
+            data={transactions}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={renderTransaction}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
+            ListEmptyComponent={
+              <View className="flex-1 items-center justify-center py-10">
+                <StyledShoppingCart size={36} className="text-ctp-overlay1" />
+                <Text className="mt-3 text-sm font-inter-medium text-ctp-subtext0">
+                  {error
+                    ? "Transactions could not be loaded."
+                    : "No transactions available."}
+                </Text>
+              </View>
+            }
+          />
+        )}
+
+        {totalCount > 0 ? (
+          <>
+            <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-3">
+              <Text className="text-xs font-inter-medium text-ctp-subtext0">
+                Showing {firstTransaction}–{lastTransaction} of {totalCount}
               </Text>
             </View>
-          }
-        />
 
-        {stats.totalTransactions > 0 && (
-          <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-4 pb-7">
-            <View className="w-full flex-row items-center justify-center gap-2.5">
+            <View className="flex-row items-center justify-center gap-2.5 pb-5">
               <Pressable
                 onPress={() => setCurrentPage(1)}
-                disabled={currentPage === 1}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === 1
-                    ? 'bg-ctp-surface0/50'
-                    : 'bg-ctp-mantle'
+                disabled={safePage === 1}
+                className={`rounded-lg px-3 py-2.5 ${safePage === 1 ? "bg-ctp-surface0/50" : "bg-ctp-mantle"
                   }`}
               >
                 <StyledDoubleLeftArrow
                   size={20}
-                  className={
-                    currentPage === 1
-                      ? 'text-ctp-overlay1'
-                      : 'text-ctp-text'
-                  }
+                  className={safePage === 1 ? "text-ctp-overlay1" : "text-ctp-text"}
                 />
               </Pressable>
 
               <Pressable
-                onPress={() =>
-                  setCurrentPage((page) => Math.max(1, page - 1))
-                }
-                disabled={currentPage === 1}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === 1
-                    ? 'bg-ctp-surface0/50'
-                    : 'bg-ctp-mantle'
+                onPress={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={safePage === 1}
+                className={`rounded-lg px-3 py-2.5 ${safePage === 1 ? "bg-ctp-surface0/50" : "bg-ctp-mantle"
                   }`}
               >
                 <StyledLeftArrow
                   size={20}
-                  className={
-                    currentPage === 1
-                      ? 'text-ctp-overlay1'
-                      : 'text-ctp-text'
-                  }
+                  className={safePage === 1 ? "text-ctp-overlay1" : "text-ctp-text"}
                 />
               </Pressable>
 
@@ -295,15 +340,11 @@ export default function Transactions() {
                 <Pressable
                   key={page}
                   onPress={() => setCurrentPage(page)}
-                  className={`h-10 min-w-10 items-center justify-center rounded-lg px-2 ${currentPage === page
-                      ? 'bg-ctp-blue'
-                      : 'bg-ctp-mantle'
+                  className={`h-10 min-w-10 items-center justify-center rounded-lg px-2 ${safePage === page ? "bg-ctp-blue" : "bg-ctp-mantle"
                     }`}
                 >
                   <Text
-                    className={`text-base font-inter-bold ${currentPage === page
-                        ? 'text-ctp-crust'
-                        : 'text-ctp-subtext0'
+                    className={`text-base font-inter-bold ${safePage === page ? "text-ctp-crust" : "text-ctp-subtext0"
                       }`}
                   >
                     {page}
@@ -312,47 +353,35 @@ export default function Transactions() {
               ))}
 
               <Pressable
-                onPress={() =>
-                  setCurrentPage((page) =>
-                    Math.min(totalPages, page + 1),
-                  )
-                }
-                disabled={currentPage >= totalPages}
-                className={`rounded-lg px-3 py-2.5 ${currentPage >= totalPages
-                    ? 'bg-ctp-surface0/50'
-                    : 'bg-ctp-mantle'
+                onPress={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={safePage >= totalPages}
+                className={`rounded-lg px-3 py-2.5 ${safePage >= totalPages
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
                 <StyledRightArrow
                   size={20}
-                  className={
-                    currentPage >= totalPages
-                      ? 'text-ctp-overlay1'
-                      : 'text-ctp-text'
-                  }
+                  className={safePage >= totalPages ? "text-ctp-overlay1" : "text-ctp-text"}
                 />
               </Pressable>
 
               <Pressable
                 onPress={() => setCurrentPage(totalPages)}
-                disabled={currentPage === totalPages}
-                className={`rounded-lg px-3 py-2.5 ${currentPage === totalPages
-                    ? 'bg-ctp-surface0/50'
-                    : 'bg-ctp-mantle'
+                disabled={safePage === totalPages}
+                className={`rounded-lg px-3 py-2.5 ${safePage === totalPages
+                    ? "bg-ctp-surface0/50"
+                    : "bg-ctp-mantle"
                   }`}
               >
                 <StyledDoubleRightArrow
                   size={20}
-                  className={
-                    currentPage === totalPages
-                      ? 'text-ctp-overlay1'
-                      : 'text-ctp-text'
-                  }
+                  className={safePage === totalPages ? "text-ctp-overlay1" : "text-ctp-text"}
                 />
               </Pressable>
             </View>
-          </View>
-        )}
+          </>
+        ) : null}
       </View>
     </SafeAreaView>
   );

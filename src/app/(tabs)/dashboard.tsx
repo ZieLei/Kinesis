@@ -1,22 +1,23 @@
-import { useMemo } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import dashboardData from '../../data/dashboard-data.json';
-import products from '../../data/products.json';
-import { styledIcon } from '@/components/StyledIcon'
 
+import { useCallback, useMemo } from "react";
+import { View, Text, Pressable, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
+
+import { styledIcon } from "@/components/StyledIcon";
+import { useDashboardData, LOW_STOCK_THRESHOLD } from "@/hooks/useDashboardData";
+
 import SunIcon from "lucide-react-native/icons/sun";
 import MoonIcon from "lucide-react-native/icons/moon";
-
 import PackageIcon from "lucide-react-native/icons/package";
 import LayoutGridIcon from "lucide-react-native/icons/layout-grid";
 import ShoppingCartIcon from "lucide-react-native/icons/shopping-cart";
 import DollarSignIcon from "lucide-react-native/icons/dollar-sign";
 import UserIcon from "lucide-react-native/icons/user";
 
-import { useRouter } from 'expo-router';
+import type { SaleListItem } from "@/types/sale";
 
 const Package = styledIcon(PackageIcon);
 const LayoutGrid = styledIcon(LayoutGridIcon);
@@ -26,293 +27,206 @@ const User = styledIcon(UserIcon);
 const Sun = styledIcon(SunIcon);
 const Moon = styledIcon(MoonIcon);
 
-type Transaction = {
-  id: number;
-  date: string;
-  status: 'Confirmed' | 'Pending' | 'Cancelled';
-  total: number;
-  items: {
-    productId: number;
-    name: string;
-    quantity: number;
-    price: number;
-  }[];
-};
-
-const transactions = dashboardData.transactions as Transaction[];
-
 const money = (amount: number) =>
-  `₱${amount.toLocaleString('en-PH', {
+  `₱${amount.toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 
 const shortMoney = (amount: number) => {
-  if (amount >= 1000000) {
-    return `₱${(amount / 1000000).toFixed(2)}M`;
+  if (amount >= 1_000_000) {
+    return `₱${(amount / 1_000_000).toFixed(2)}M`;
   }
 
-  if (amount >= 1000) {
-    return `₱${(amount / 1000).toFixed(2)}K`;
+  if (amount >= 1_000) {
+    return `₱${(amount / 1_000).toFixed(2)}K`;
   }
 
   return money(amount);
 };
 
 const formatDate = (date: Date) =>
-  date.toLocaleDateString('en-PH', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
+  date.toLocaleDateString("en-PH", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Manila",
   });
 
 const formatTime = (date: Date) =>
-  date.toLocaleTimeString('en-PH', {
-    hour: '2-digit',
-    minute: '2-digit',
+  date.toLocaleTimeString("en-PH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Manila",
   });
-
-const startOfDay = (date: Date) => {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
-};
-
-const startOfWeek = (date: Date) => {
-  const result = startOfDay(date);
-  const day = result.getDay();
-
-  result.setDate(result.getDate() - (day === 0 ? 6 : day - 1));
-
-  return result;
-};
-
-const startOfMonth = (date: Date) =>
-  new Date(date.getFullYear(), date.getMonth(), 1);
-
-const sumSales = (start: Date, end: Date) =>
-  transactions.reduce((sum, transaction) => {
-    const date = new Date(transaction.date);
-
-    if (
-      transaction.status !== 'Confirmed' ||
-      date < start ||
-      date >= end
-    ) {
-      return sum;
-    }
-
-    return sum + transaction.total;
-  }, 0);
-
-const sumItemsSold = (start: Date, end: Date) =>
-  transactions.reduce((sum, transaction) => {
-    const date = new Date(transaction.date);
-
-    if (
-      transaction.status !== 'Confirmed' ||
-      date < start ||
-      date >= end
-    ) {
-      return sum;
-    }
-
-    return (
-      sum +
-      transaction.items.reduce(
-        (itemSum, item) => itemSum + item.quantity,
-        0,
-      )
-    );
-  }, 0);
 
 const percentageChange = (
   current: number,
   previous: number,
 ): string | null => {
   if (previous === 0) {
-    if (current === 0) return null;
-    return '+100%';
+    return current === 0 ? null : "New";
   }
 
   const change = ((current - previous) / previous) * 100;
   const rounded = Math.round(Math.abs(change));
 
-  return `${change >= 0 ? '+' : '-'}${rounded}%`;
+  return `${change >= 0 ? "+" : "-"}${rounded}%`;
 };
 
-const statusStyles = {
-  Confirmed: 'bg-ctp-green/15 text-ctp-green',
-  Pending: 'bg-ctp-peach/15 text-ctp-peach',
-  Cancelled: 'bg-ctp-red/15 text-ctp-red',
-};
+function getStatusPresentation(status: string) {
+  switch (status.toLowerCase()) {
+    case "completed":
+    case "confirmed":
+      return {
+        label: status.toLowerCase() === "completed" ? "Completed" : "Confirmed",
+        style: "bg-ctp-green/15 text-ctp-green",
+      };
+
+    case "pending":
+      return {
+        label: "Pending",
+        style: "bg-ctp-peach/15 text-ctp-peach",
+      };
+
+    case "cancelled":
+    case "canceled":
+      return {
+        label: "Cancelled",
+        style: "bg-ctp-red/15 text-ctp-red",
+      };
+
+    default:
+      return {
+        label: status.charAt(0).toUpperCase() + status.slice(1),
+        style: "bg-ctp-surface0 text-ctp-text",
+      };
+  }
+}
 
 export default function Dashboard() {
-  const router = useRouter();
   const { colorScheme, setColorScheme } = useColorScheme();
-
   const isDark = colorScheme === "dark";
+
+  const { data, loading, error, loadDashboard } = useDashboardData();
+
+  // Reload dashboard data whenever this screen regains focus.
+  useFocusEffect(
+    useCallback(() => {
+      const controller = new AbortController();
+
+      void loadDashboard(controller.signal);
+
+      return () => controller.abort();
+    }, [loadDashboard]),
+  );
 
   const toggleTheme = () => {
     setColorScheme(isDark ? "light" : "dark");
   };
+
   const stats = useMemo(() => {
-    const now = new Date();
-    const today = startOfDay(now);
+    if (!data) return null;
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const lowStockCount = data.products.filter(
+      (product) =>
+        product.stock > 0 &&
+        product.stock <= LOW_STOCK_THRESHOLD,
+    ).length;
 
-    const todaySales = sumSales(today, tomorrow);
+    const outOfStockCount = data.products.filter(
+      (product) => product.stock === 0,
+    ).length;
 
-    const previousWeekSameDay = new Date(today);
-    previousWeekSameDay.setDate(
-      previousWeekSameDay.getDate() - 7,
-    );
+    const todaySales = data.dailyReport.current.sales;
+    const previousDaySales = data.dailyReport.previous.sales;
 
-    const previousWeekSameDayEnd = new Date(
-      previousWeekSameDay,
-    );
-    previousWeekSameDayEnd.setDate(
-      previousWeekSameDayEnd.getDate() + 1,
-    );
+    const thisWeekItems = data.weeklyReport.current.items;
+    const lastWeekItems = data.weeklyReport.previous.items;
 
-    const previousDaySales = sumSales(
-      previousWeekSameDay,
-      previousWeekSameDayEnd,
-    );
-
-    const weekStart = startOfWeek(now);
-
-    const previousWeekStart = new Date(weekStart);
-    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
-
-    const previousWeekEnd = new Date(previousWeekStart);
-    previousWeekEnd.setDate(
-      previousWeekEnd.getDate() + (now.getDay() === 0 ? 7 : now.getDay() - 1),
-    );
-
-    const elapsed = now.getTime() - weekStart.getTime();
-
-    const comparablePreviousWeekEnd = new Date(
-      previousWeekStart.getTime() + elapsed,
-    );
-
-    const thisWeekSales = sumSales(weekStart, now);
-    const lastWeekSales = sumSales(
-      previousWeekStart,
-      comparablePreviousWeekEnd,
-    );
-
-    const thisWeekItems = sumItemsSold(weekStart, now);
-    const lastWeekItems = sumItemsSold(
-      previousWeekStart,
-      comparablePreviousWeekEnd,
-    );
-
-    const monthStart = startOfMonth(now);
-
-    const nextMonthStart = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      1,
-    );
-
-    const previousMonthStart = new Date(
-      now.getFullYear(),
-      now.getMonth() - 1,
-      1,
-    );
-
-    const elapsedMonth = now.getTime() - monthStart.getTime();
-
-    const comparablePreviousMonthEnd = new Date(
-      previousMonthStart.getTime() + elapsedMonth,
-    );
-
-    const monthlySales = sumSales(monthStart, nextMonthStart);
-    const previousMonthlySales = sumSales(
-      previousMonthStart,
-      comparablePreviousMonthEnd,
-    );
-
-    const uniqueCategories = new Set(
-      products
-        .map((product) => product.category)
-        .filter(Boolean),
-    );
-
-    const recentTransactions = [...transactions]
-      .sort(
-        (a, b) =>
-          new Date(b.date).getTime() -
-          new Date(a.date).getTime(),
-      )
-      .slice(0, 5);
+    const monthlySales = data.monthlyReport.current.sales;
+    const previousMonthlySales = data.monthlyReport.previous.sales;
 
     return {
       todaySales,
-      todayChange: percentageChange(
-        todaySales,
-        previousDaySales,
-      ),
-      productsCount: products.length,
-      categoriesCount: uniqueCategories.size,
+      todayChange: percentageChange(todaySales, previousDaySales),
+      lowStockCount,
+      outOfStockCount,
       thisWeekItems,
-      itemsChange: percentageChange(
-        thisWeekItems,
-        lastWeekItems,
-      ),
+      itemsChange: percentageChange(thisWeekItems, lastWeekItems),
       monthlySales,
       monthlyChange: percentageChange(
         monthlySales,
         previousMonthlySales,
       ),
-      thisWeekSales,
-      lastWeekSales,
-      recentTransactions,
-      updatedDate: formatDate(now),
+      recentTransactions: data.recentTransactions.items,
+      updatedDate: formatDate(new Date()),
     };
-  }, []);
+  }, [data]);
 
-  // TODO: Change Products and Categories cards to Low stock and no stock indicator cards
   const statCards = [
     {
-      title: 'Products',
-      value: stats.productsCount.toLocaleString('en-PH'),
+      title: "Low stock",
+      value:
+        stats !== null
+          ? stats.lowStockCount.toLocaleString("en-PH")
+          : loading
+            ? "…"
+            : "—",
       icon: Package,
-      subtitle: 'In inventory',
-      change: null,
+      subtitle: `1–${LOW_STOCK_THRESHOLD} units remaining`,
+      change: null as string | null,
     },
     {
-      title: 'Categories',
-      value: stats.categoriesCount.toString(),
+      title: "Out of stock",
+      value:
+        stats !== null
+          ? stats.outOfStockCount.toLocaleString("en-PH")
+          : loading
+            ? "…"
+            : "—",
       icon: LayoutGrid,
-      subtitle: 'Available categories',
-      change: null,
+      subtitle: "Products with zero stock",
+      change: null as string | null,
     },
     {
-      title: 'Items sold',
-      value: stats.thisWeekItems.toLocaleString('en-PH'),
+      title: "Items sold",
+      value:
+        stats !== null
+          ? stats.thisWeekItems.toLocaleString("en-PH")
+          : loading
+            ? "…"
+            : "—",
       icon: ShoppingCart,
-      subtitle: 'This week',
-      change: stats.itemsChange,
+      subtitle: "This week",
+      change: stats?.itemsChange ?? null,
     },
     {
-      title: 'Monthly sales',
-      value: shortMoney(stats.monthlySales),
+      title: "Monthly sales",
+      value:
+        stats !== null
+          ? shortMoney(stats.monthlySales)
+          : loading
+            ? "Loading..."
+            : "—",
       icon: DollarSign,
-      subtitle: 'Month to date',
-      change: stats.monthlyChange,
+      subtitle: "Month to date",
+      change: stats?.monthlyChange ?? null,
     },
   ];
+
+  const recentTransactions: SaleListItem[] =
+    stats?.recentTransactions ?? [];
 
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
         className="flex-1"
         contentContainerClassName="px-5 py-7"
+        showsVerticalScrollIndicator={false}
       >
+        {/* Header */}
         <View className="flex-row items-center justify-between">
           <Text
             className="text-2xl text-ctp-text"
@@ -346,10 +260,37 @@ export default function Dashboard() {
             </View>
           </View>
         </View>
-        <Text className="py-6 text-lg font-inter-medium text-ctp-text">
-          Welcome, User!
-        </Text>
-        {/* TODO: Change colors here because the catpuccin colors cant be used in style sheets and the text cant be changed becaue color changes depending on the mode*/}
+
+        <View className="flex-row items-center justify-between py-6">
+          <Text className="text-lg font-inter-medium text-ctp-text">
+            Welcome, User!
+          </Text>
+
+          {stats ? (
+            <Text className="text-xs font-inter-medium text-ctp-subtext0">
+              Updated {stats.updatedDate}
+            </Text>
+          ) : null}
+        </View>
+
+        {error ? (
+          <View className="mb-4 gap-3 rounded-lg border border-ctp-red/40 bg-ctp-red/10 p-3">
+            <Text className="text-sm leading-5 text-ctp-red">
+              Dashboard refresh failed: {error}
+            </Text>
+
+            <Pressable
+              onPress={() => void loadDashboard()}
+              className="self-start rounded-md bg-ctp-surface0 px-3 py-2"
+            >
+              <Text className="text-sm font-inter-semibold text-ctp-text">
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Today's sales */}
         <View className="relative min-h-[200px] overflow-hidden rounded-[10px]">
           {!isDark ? (
             <LinearGradient
@@ -383,11 +324,11 @@ export default function Dashboard() {
               className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark ? "text-[#4C4F69]" : "text-white"
                 }`}
             >
-              {money(stats.todaySales)}
+              {stats ? money(stats.todaySales) : loading ? "Loading..." : "—"}
             </Text>
 
             <View className="flex-row items-center">
-              {stats.todayChange !== null ? (
+              {stats?.todayChange !== null && stats?.todayChange !== undefined ? (
                 <Text
                   className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark ? "bg-ctp-surface2/30" : "bg-white"
                     } ${stats.todayChange.startsWith("-")
@@ -412,12 +353,13 @@ export default function Dashboard() {
                 className={`ml-2 font-inter ${isDark ? "text-[#6C6F85]" : "text-white/80"
                   }`}
               >
-                From the same day last week.
+                Compared with yesterday.
               </Text>
             </View>
           </View>
         </View>
 
+        {/* Inventory and sales statistic cards */}
         <View className="flex-row justify-between py-[20px]">
           {statCards.slice(0, 2).map((card) => {
             const Icon = card.icon;
@@ -425,7 +367,8 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"} `}
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
+                  }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
@@ -445,7 +388,7 @@ export default function Dashboard() {
 
                 <View className="-mx-[15px] h-[1px] bg-ctp-surface2/15" />
 
-                <Text className="mt-auto text-xs text-ctp-text/50 font-inter-medium">
+                <Text className="mt-auto font-inter-medium text-xs text-ctp-text/50">
                   {card.subtitle}
                 </Text>
               </View>
@@ -460,7 +403,8 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"} `}
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
+                  }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
@@ -472,29 +416,29 @@ export default function Dashboard() {
                   </Text>
                 </View>
 
-                <View className="flex-row items-center justify-between py-5">
+                <View className="flex-row items-center justify-between gap-1 py-5">
                   <Text
-                    className="text-xl font-inter-bold text-ctp-text"
+                    className="flex-1 text-xl font-inter-bold text-ctp-text"
                     numberOfLines={1}
                   >
                     {card.value}
                   </Text>
 
-                  {card.change !== null && (
+                  {card.change !== null ? (
                     <Text
-                      className={`rounded-full px-2 py-1 text-xs font-inter-bold ${card.change.startsWith('-')
-                        ? 'bg-ctp-red/15 text-ctp-red'
-                        : 'bg-ctp-green/15 text-ctp-green'
+                      className={`rounded-full px-2 py-1 text-xs font-inter-bold ${card.change.startsWith("-")
+                        ? "bg-ctp-red/15 text-ctp-red"
+                        : "bg-ctp-green/15 text-ctp-green"
                         }`}
                     >
                       {card.change}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
 
                 <View className="-mx-[15px] h-[1px] bg-ctp-surface2/15" />
 
-                <Text className="mt-auto text-xs text-ctp-text/50 font-inter-medium">
+                <Text className="mt-auto font-inter-medium text-xs text-ctp-text/50">
                   {card.subtitle}
                 </Text>
               </View>
@@ -502,17 +446,19 @@ export default function Dashboard() {
           })}
         </View>
 
-        <View className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark ? "bg-ctp-surface0" : "bg-white"}`}>
+        {/* Recent transactions */}
+        <View
+          className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark ? "bg-ctp-surface0" : "bg-white"
+            }`}
+        >
           <View className="mb-3 flex-row items-center">
-            <Text className="text-lg text-ctp-text font-inter-medium">
+            <Text className="text-lg font-inter-medium text-ctp-text">
               Recent Transactions
             </Text>
 
             <Pressable
               className="ml-auto rounded-md bg-ctp-surface1 px-2 py-2"
-              onPress={() => {
-                router.push('/transactions')
-              }}
+              onPress={() => router.push("/transactions")}
             >
               <Text
                 className="text-xs font-inter-bold text-ctp-subtext1"
@@ -523,20 +469,33 @@ export default function Dashboard() {
             </Pressable>
           </View>
 
-          {stats.recentTransactions.length === 0 ? (
+          {loading && !data ? (
             <View className="flex-1 items-center justify-center py-10">
-              <Text className="text-sm text-ctp-text font-inter-medium">
+              <Text className="text-sm font-inter-medium text-ctp-subtext0">
+                Loading dashboard data...
+              </Text>
+            </View>
+          ) : !data ? (
+            <View className="flex-1 items-center justify-center py-10">
+              <Text className="text-center text-sm font-inter-medium text-ctp-subtext0">
+                Dashboard data is unavailable. Try refreshing.
+              </Text>
+            </View>
+          ) : recentTransactions.length === 0 ? (
+            <View className="flex-1 items-center justify-center py-10">
+              <Text className="text-sm font-inter-medium text-ctp-text">
                 No transactions available.
               </Text>
             </View>
           ) : (
-            stats.recentTransactions.map((transaction) => {
-              const date = new Date(transaction.date);
+            recentTransactions.map((transaction) => {
+              const date = new Date(transaction.created_at);
+              const status = getStatusPresentation(transaction.status);
 
               return (
                 <View
                   key={transaction.id}
-                  className="my-2 h-[70px] w-full flex-row items-center"
+                  className="my-2 min-h-[70px] w-full flex-row items-center"
                 >
                   <View className="aspect-square rounded-lg bg-ctp-base p-3">
                     <ShoppingCart size={24} className="text-ctp-text" />
@@ -544,32 +503,31 @@ export default function Dashboard() {
 
                   <View className="ml-2 flex-1 flex-col gap-2">
                     <Text
-                      className="text-base text-ctp-text font-inter-bold"
+                      className="text-sm font-inter-bold text-ctp-text"
                       numberOfLines={1}
                     >
                       Order #{transaction.id}
                     </Text>
 
-                    <Text className="text-xs text-ctp-text/40 font-inter-semibold">
+                    <Text className="text-xs font-inter-semibold text-ctp-text/40">
                       {formatTime(date)}
-                      {'\n'}
+                      {"\n"}
                       {formatDate(date)}
                     </Text>
                   </View>
 
                   <View className="ml-2 items-end">
                     <Text
-                      className="mb-2 text-base font-inter-bold text-ctp-text"
+                      className="mb-2 text-sm font-inter-bold text-ctp-text"
                       numberOfLines={1}
                     >
                       {money(transaction.total)}
                     </Text>
 
                     <Text
-                      className={`w-[80px] rounded-full py-1 text-center text-sm font-inter-semibold ${statusStyles[transaction.status]
-                        }`}
+                      className={`min-w-[80px] rounded-full px-2 py-1 text-center text-xs font-inter-semibold ${status.style}`}
                     >
-                      {transaction.status}
+                      {status.label}
                     </Text>
                   </View>
                 </View>

@@ -4,7 +4,8 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from database import Base, DATABASE_URL
-from models import Product
+import models  # noqa: F401 — registers every model with Base.metadata
+
 
 config = context.config
 
@@ -21,6 +22,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_type=True,
     )
 
     with context.begin_transaction():
@@ -30,7 +32,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations using a live database connection."""
     connectable = engine_from_config(
-        {"sqlalchemy.url": DATABASE_URL.render_as_string(hide_password=False)},
+        {
+            "sqlalchemy.url": DATABASE_URL.render_as_string(
+                hide_password=False,
+            )
+        },
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
@@ -39,6 +45,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            compare_type=True,
         )
 
         with context.begin_transaction():

@@ -1,4 +1,5 @@
-import { SafeAreaView } from "react-native-safe-area-context";
+
+import { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,8 +7,8 @@ import {
   TextInput,
   ScrollView,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import FilterModal, {
   type FilterSection,
@@ -20,10 +21,10 @@ import ChevronsLeft from "lucide-react-native/icons/chevrons-left";
 import ChevronsRight from "lucide-react-native/icons/chevrons-right";
 import Search from "lucide-react-native/icons/search";
 import Funnel from "lucide-react-native/icons/funnel";
+
 import { styledIcon } from "@/components/StyledIcon";
 import { useColorScheme } from "nativewind";
-
-import products from "../data/products.json";
+import { useInventory } from "@/hooks/useInventory";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledChevronRight = styledIcon(ChevronRight);
@@ -47,20 +48,32 @@ export default function ProductPerformance() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
+  const { inventory, loading, loadError, fetchInventory } = useInventory();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-
   const [filterVisible, setFilterVisible] = useState(false);
+
   const [activeFilters, setActiveFilters] = useState<FilterValues>({
-    sold: ["all"],
+    soldRange: ["all"],
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      const controller = new AbortController();
+
+      void fetchInventory(true, controller.signal);
+
+      return () => controller.abort();
+    }, [fetchInventory]),
+  );
 
   const filterSections = useMemo<FilterSection[]>(() => {
     const categories = [
-      ...new Set(products.map((product) => product.category)),
+      ...new Set(inventory.map((product) => product.category)),
     ]
       .filter(Boolean)
-      .sort();
+      .sort((a, b) => a.localeCompare(b));
 
     return [
       {
@@ -85,17 +98,18 @@ export default function ProductPerformance() {
         ],
       },
     ];
-  }, []);
+  }, [inventory]);
 
   const filteredProducts = useMemo(() => {
     const selectedCategories = activeFilters.category ?? [];
     const selectedSoldRange = activeFilters.soldRange?.[0];
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    return [...products]
+    return [...inventory]
       .filter((product) => {
         const matchesSearch = product.name
           .toLowerCase()
-          .includes(searchQuery.trim().toLowerCase());
+          .includes(normalizedQuery);
 
         const matchesCategory =
           selectedCategories.length === 0 ||
@@ -106,20 +120,20 @@ export default function ProductPerformance() {
         switch (selectedSoldRange) {
           case "1-10":
             matchesSoldRange =
-              product.sold >= 1 && product.sold <= 10;
+              product.howMuchSold >= 1 && product.howMuchSold <= 10;
             break;
 
           case "11-50":
             matchesSoldRange =
-              product.sold >= 11 && product.sold <= 50;
+              product.howMuchSold >= 11 && product.howMuchSold <= 50;
             break;
 
           case "51+":
-            matchesSoldRange = product.sold >= 51;
+            matchesSoldRange = product.howMuchSold >= 51;
             break;
 
           case "zero":
-            matchesSoldRange = product.sold === 0;
+            matchesSoldRange = product.howMuchSold === 0;
             break;
 
           case "all":
@@ -128,14 +142,10 @@ export default function ProductPerformance() {
             break;
         }
 
-        return (
-          matchesSearch &&
-          matchesCategory &&
-          matchesSoldRange
-        );
+        return matchesSearch && matchesCategory && matchesSoldRange;
       })
-      .sort((a, b) => b.sold - a.sold);
-  }, [searchQuery, activeFilters]);
+      .sort((a, b) => b.howMuchSold - a.howMuchSold);
+  }, [inventory, searchQuery, activeFilters]);
 
   const totalPages = Math.max(
     1,
@@ -178,7 +188,7 @@ export default function ProductPerformance() {
   };
 
   const handleResetFilters = () => {
-    setActiveFilters({});
+    setActiveFilters({ soldRange: ["all"] });
     setCurrentPage(1);
   };
 
@@ -200,12 +210,11 @@ export default function ProductPerformance() {
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
             className="h-8 w-8 items-center justify-center"
           >
-            <StyledChevronLeft
-              size={22}
-              className="text-ctp-text"
-            />
+            <StyledChevronLeft size={22} className="text-ctp-text" />
           </Pressable>
 
           <Text className="font-inter-semibold text-lg text-ctp-text">
@@ -265,7 +274,11 @@ export default function ProductPerformance() {
         {/* Result count */}
         <View className="mb-2 flex-row items-center justify-between">
           <Text className="font-inter-medium text-sm text-ctp-subtext0">
-            {filteredProducts.length} products found
+            {loading
+              ? "Loading products..."
+              : loadError
+                ? "Products unavailable"
+                : `${filteredProducts.length} products found`}
           </Text>
 
           <Text className="font-inter-medium text-sm text-ctp-subtext0">
@@ -279,7 +292,28 @@ export default function ProductPerformance() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 12 }}
         >
-          {paginatedProducts.length > 0 ? (
+          {loading ? (
+            <View className="items-center py-12">
+              <Text className="font-inter-medium text-sm text-ctp-subtext0">
+                Fetching products from the database...
+              </Text>
+            </View>
+          ) : loadError ? (
+            <View className="items-center gap-3 px-3 py-12">
+              <Text className="text-center font-inter-medium text-sm text-ctp-red">
+                {loadError}
+              </Text>
+
+              <Pressable
+                onPress={() => void fetchInventory(true)}
+                className="rounded-md bg-ctp-surface0 px-4 py-2"
+              >
+                <Text className="font-inter-semibold text-sm text-ctp-text">
+                  Retry
+                </Text>
+              </Pressable>
+            </View>
+          ) : paginatedProducts.length > 0 ? (
             paginatedProducts.map((product) => {
               const rank =
                 filteredProducts.findIndex(
@@ -319,7 +353,7 @@ export default function ProductPerformance() {
                     </Text>
                   </View>
 
-                  <View className="my-3 mx-1 flex-1 justify-between">
+                  <View className="mx-1 my-3 flex-1 justify-between">
                     <Text
                       numberOfLines={2}
                       className="font-inter-semibold text-base text-ctp-text"
@@ -332,9 +366,9 @@ export default function ProductPerformance() {
                     </Text>
                   </View>
 
-                  <View className="my-3 mr-3 items-end justify-between">
+                  <View className="mr-3 my-3 items-end justify-between">
                     <Text className="font-inter-semibold text-sm text-ctp-text">
-                      {number(product.sold)} pcs
+                      {number(product.howMuchSold)} pcs
                     </Text>
 
                     <Text
@@ -365,7 +399,7 @@ export default function ProductPerformance() {
         </ScrollView>
 
         {/* Pagination */}
-        {filteredProducts.length > 0 && (
+        {!loading && !loadError && filteredProducts.length > 0 && (
           <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-4">
             <View className="w-full flex-row items-center justify-center gap-1.5">
               <Pressable
@@ -469,14 +503,13 @@ export default function ProductPerformance() {
           </View>
         )}
 
-        {filteredProducts.length > 0 && (
+        {!loading && !loadError && filteredProducts.length > 0 && (
           <Text className="pb-2 text-center font-inter-medium text-sm text-ctp-subtext0">
             Page {safePage} of {totalPages}
           </Text>
         )}
       </View>
 
-      {/* Reusable filter modal */}
       <FilterModal
         visible={filterVisible}
         title="Filter Products"
