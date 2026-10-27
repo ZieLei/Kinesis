@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import {
   Modal,
@@ -190,7 +189,7 @@ export default function FilterModal({
         />
 
         <Animated.View
-          className="max-h-[85%] rounded-t-3xl bg-[#F5F5F5] px-5 pt-5"
+          className="max-h-[85%] rounded-t-3xl bg-ctp-base px-5 pt-5"
           style={{
             paddingBottom: 20,
             transform: [{ translateY: panelTranslateY }],
@@ -198,7 +197,7 @@ export default function FilterModal({
         >
           <View className="mb-5 flex-row items-center justify-between">
             <View>
-              <Text className="font-inter-semibold text-xl">
+              <Text className="font-inter-semibold text-xl text-ctp-text">
                 {title}
               </Text>
             </View>
@@ -208,7 +207,7 @@ export default function FilterModal({
               className="h-9 w-9 items-center justify-center rounded-full"
               accessibilityLabel="Close filters"
             >
-              <X size={20} color="#000000" />
+              <X size={20} color="#A6ADC8" />
             </Pressable>
           </View>
 
@@ -219,7 +218,7 @@ export default function FilterModal({
           >
             {sections.map((section) => (
               <View key={section.key} className="mb-5">
-                <Text className="mb-3 font-inter-semibold text-base">
+                <Text className="mb-3 font-inter-semibold text-base text-ctp-text">
                   {section.title}
                 </Text>
 
@@ -231,13 +230,14 @@ export default function FilterModal({
                         updateRange(section.key, 0, value)
                       }
                       placeholder="Min price"
-                      placeholderTextColor="#666666"
+                      placeholderTextColor="#A6ADC8"
                       keyboardType="numeric"
                       inputMode="decimal"
-                      className="h-12 flex-1 rounded-lg border border-black/10 bg-white px-3 font-inter-medium text-black"
+                      selectionColor="#89B4FA"
+                      className="h-12 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
                     />
 
-                    <Text className="font-inter-medium text-black/50">
+                    <Text className="font-inter-medium text-ctp-subtext0">
                       –
                     </Text>
 
@@ -247,10 +247,11 @@ export default function FilterModal({
                         updateRange(section.key, 1, value)
                       }
                       placeholder="Max price"
-                      placeholderTextColor="#666666"
+                      placeholderTextColor="#A6ADC8"
                       keyboardType="numeric"
                       inputMode="decimal"
-                      className="h-12 flex-1 rounded-lg border border-black/10 bg-white px-3 font-inter-medium text-black"
+                      selectionColor="#89B4FA"
+                      className="h-12 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
                     />
                   </View>
                 ) : (
@@ -271,14 +272,14 @@ export default function FilterModal({
                             checked: isSelected,
                           }}
                           className={`flex-row items-center rounded-lg border px-3 py-2.5 ${isSelected
-                            ? "bg-black"
-                            : "border-black/10 bg-white"
+                              ? "border-ctp-blue bg-ctp-blue"
+                              : "border-ctp-surface1 bg-ctp-mantle"
                             }`}
                         >
                           <Text
                             className={`font-inter-medium text-sm ${isSelected
-                              ? "text-white"
-                              : "text-black/70"
+                                ? "text-ctp-crust"
+                                : "text-ctp-subtext1"
                               }`}
                           >
                             {option.label}
@@ -292,21 +293,21 @@ export default function FilterModal({
             ))}
           </ScrollView>
 
-          <View className="flex-row items-center gap-3 border-t border-black/10 pt-4">
+          <View className="flex-row items-center gap-3 border-t border-ctp-surface1 pt-4">
             <Pressable
               onPress={resetFilters}
-              className="h-12 flex-1 items-center justify-center rounded-lg border border-black/15 bg-white"
+              className="h-12 flex-1 items-center justify-center rounded-lg border border-ctp-surface2 bg-ctp-mantle"
             >
-              <Text className="font-inter-semibold text-base">
+              <Text className="font-inter-semibold text-base text-ctp-text">
                 Reset{activeCount > 0 ? ` (${activeCount})` : ""}
               </Text>
             </Pressable>
 
             <Pressable
               onPress={applyFilters}
-              className="h-12 flex-[1.5] items-center justify-center rounded-lg bg-black"
+              className="h-12 flex-[1.5] items-center justify-center rounded-lg bg-ctp-blue"
             >
-              <Text className="font-inter-semibold text-base text-white">
+              <Text className="font-inter-semibold text-base text-ctp-crust">
                 Apply
               </Text>
             </Pressable>

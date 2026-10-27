@@ -1,4 +1,3 @@
-
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -42,16 +41,16 @@ module.exports = {
       },
 
       fontFamily: {
-        inter: ["Inter-Regular"],
-        "inter-regular": ["Inter-Regular"],
-        "inter-thin": ["Inter-Thin"],
-        "inter-extralight": ["Inter-ExtraLight"],
-        "inter-light": ["Inter-Light"],
-        "inter-medium": ["Inter-Medium"],
-        "inter-semibold": ["Inter-SemiBold"],
-        "inter-bold": ["Inter-Bold"],
-        "inter-extrabold": ["Inter-ExtraBold"],
-        "inter-black": ["Inter-Black"],
+        inter: ["LINESeed-Regular"],
+        "inter-regular": ["LINESeed-Regular"],
+        "inter-thin": ["LINESeed-Thin"],
+        "inter-extralight": ["LINESeed-Thin"],
+        "inter-light": ["LINESeed-Regular"],
+        "inter-medium": ["LINESeed-Regular"],
+        "inter-semibold": ["LINESeed-Bold"],
+        "inter-bold": ["LINESeed-Bold"],
+        "inter-extrabold": ["LINESeed-ExtraBold"],
+        "inter-black": ["LINESeed-Heavy"],
         fredoka: ["FredokaOne"],
       },
     },
