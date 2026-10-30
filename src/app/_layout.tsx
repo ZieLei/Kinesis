@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DarkTheme, DefaultTheme, ThemeProvider, Slot } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { View } from "react-native";
@@ -7,6 +8,7 @@ import { useFonts } from "expo-font";
 import "../../global.css";
 
 import { CartProvider } from "@/app/context/CartContext";
+import { TerminalSettingsProvider } from "@/app/context/TerminalSettingsContext";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { TerminalAgent } from "@/components/TerminalAgent";
 import { latte, mocha } from "@/theme";
@@ -15,6 +17,9 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
+
+  const [terminalSessionToken, setTerminalSessionToken] =
+    useState<string | null>(null);
 
   const [fontsLoaded] = useFonts({
     FredokaOne: require("../../assets/fonts/FredokaOne-Regular.ttf"),
@@ -37,11 +42,15 @@ export default function RootLayout() {
           colorScheme === "dark" ? mocha : latte,
         ]}
       >
-        <CartProvider>
-          <AnimatedSplashOverlay />
-          <Slot />
-          <TerminalAgent />
-        </CartProvider>
+        <TerminalSettingsProvider sessionToken={terminalSessionToken}>
+          <CartProvider>
+            <AnimatedSplashOverlay />
+            <Slot />
+            <TerminalAgent
+              onSessionTokenChange={setTerminalSessionToken}
+            />
+          </CartProvider>
+        </TerminalSettingsProvider>
       </View>
     </ThemeProvider>
   );

@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,11 +13,21 @@ import { router, useLocalSearchParams } from "expo-router";
 import { fetchSale } from "@/lib/salesApi";
 import type { SaleRecord } from "@/types/sale";
 
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function formatMoney(
+  amount: number,
+  currencySymbol: string,
+  currencyPlacement: "before" | "after",
+  decimalPrecision: number,
+): string {
+  const formatted = amount.toLocaleString("en-PH", {
+    minimumFractionDigits: decimalPrecision,
+    maximumFractionDigits: decimalPrecision,
+  });
+
+  return currencyPlacement === "before"
+    ? `${currencySymbol}${formatted}`
+    : `${formatted} ${currencySymbol}`;
+}
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -42,8 +51,48 @@ function formatDate(value: string) {
   };
 }
 
-function createReceiptText(sale: SaleRecord) {
+function getReceiptSettings(sale: SaleRecord) {
+  const snapshot = sale.settings_snapshot ?? {};
+
+  const requestedPrecision = Number(snapshot.decimalPrecision ?? "2");
+
+  const decimalPrecision =
+    Number.isInteger(requestedPrecision) &&
+      requestedPrecision >= 0 &&
+      requestedPrecision <= 3
+      ? requestedPrecision
+      : 2;
+
+  return {
+    currencySymbol: snapshot.currencySymbol || "₱",
+    currencyPlacement: snapshot.currencyPlacement ?? "before",
+    decimalPrecision,
+    receiptHeader:
+      snapshot.receiptHeader?.trim() || "KINESIS MOTORCYCLE PARTS",
+    receiptFooter:
+      snapshot.receiptFooter?.trim() || "Thank you for your purchase!",
+    receiptNotes: snapshot.receiptNotes?.trim() || "",
+  };
+}
+
+function createReceiptText(sale: SaleRecord): string {
   const { date, time } = formatDate(sale.created_at);
+
+  const settings = getReceiptSettings(sale);
+
+  const money = (amount: number) =>
+    formatMoney(
+      amount,
+      settings.currencySymbol,
+      settings.currencyPlacement,
+      settings.decimalPrecision,
+    );
+
+  const taxAmount = sale.tax_amount ?? 0;
+
+  const roundingAdjustment =
+    sale.rounding_adjustment ??
+    sale.total - sale.subtotal - taxAmount;
 
   const itemLines = sale.items.map(
     (item) =>
@@ -51,8 +100,9 @@ function createReceiptText(sale: SaleRecord) {
   );
 
   return [
-    "KINESIS",
-    "Receipt",
+    settings.receiptHeader,
+    "Transaction Receipt",
+    "",
     `Transaction: ${sale.transaction_code}`,
     `Date: ${date}`,
     `Time: ${time}`,
@@ -60,7 +110,10 @@ function createReceiptText(sale: SaleRecord) {
     ...itemLines,
     "",
     `Subtotal: ${money(sale.subtotal)}`,
-    `Discount: ${money(0)}`,
+    `Tax: ${money(taxAmount)}`,
+    ...(roundingAdjustment !== 0
+      ? [`Cash rounding: ${money(roundingAdjustment)}`]
+      : []),
     `TOTAL: ${money(sale.total)}`,
     `Payment: ${sale.payment_method.toUpperCase()}`,
     ...(sale.reference_number
@@ -69,7 +122,10 @@ function createReceiptText(sale: SaleRecord) {
     `Amount received/paid: ${money(sale.amount_tendered)}`,
     `Change: ${money(sale.change_due)}`,
     "",
-    "Thank you for your purchase!",
+    ...(settings.receiptNotes
+      ? [settings.receiptNotes, ""]
+      : []),
+    settings.receiptFooter,
   ].join("\n");
 }
 
@@ -137,16 +193,43 @@ export default function Receipt() {
     }
   };
 
+  const receiptSettings = sale
+    ? getReceiptSettings(sale)
+    : null;
+
+  const money = (amount: number) => {
+    if (!receiptSettings) return "—";
+
+    return formatMoney(
+      amount,
+      receiptSettings.currencySymbol,
+      receiptSettings.currencyPlacement,
+      receiptSettings.decimalPrecision,
+    );
+  };
+
+  const taxAmount = sale?.tax_amount ?? 0;
+
+  const roundingAdjustment = sale
+    ? sale.rounding_adjustment ??
+    sale.total - sale.subtotal - taxAmount
+    : 0;
+
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 28, paddingBottom: 32 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 28,
+          paddingBottom: 32,
+        }}
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
           <View className="items-center justify-center py-16">
             <ActivityIndicator size="large" color="#89B4FA" />
+
             <Text className="mt-3 font-inter-medium text-sm text-ctp-subtext0">
               Loading saved receipt...
             </Text>
@@ -156,6 +239,7 @@ export default function Receipt() {
             <Text className="text-center font-inter-semibold text-lg text-ctp-text">
               Could not load receipt
             </Text>
+
             <Text className="mt-2 text-center text-sm leading-5 text-ctp-subtext0">
               {error}
             </Text>
@@ -178,11 +262,11 @@ export default function Receipt() {
               </Text>
             </Pressable>
           </View>
-        ) : sale ? (
+        ) : sale && receiptSettings ? (
           <View className="w-full max-w-sm self-center rounded-lg border border-ctp-surface0 bg-ctp-mantle p-5">
             {/* Receipt header */}
             <Text className="whitespace-pre-wrap text-center font-fredoka text-2xl font-bold text-ctp-text">
-              Kinesis
+              {receiptSettings.receiptHeader}
             </Text>
 
             <Text className="mt-1 text-center font-inter-medium text-xs text-ctp-subtext0">
@@ -197,6 +281,7 @@ export default function Receipt() {
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
                   Transaction
                 </Text>
+
                 <Text className="flex-1 text-right text-xs font-inter-semibold text-ctp-text">
                   {sale.transaction_code}
                 </Text>
@@ -206,6 +291,7 @@ export default function Receipt() {
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
                   Date
                 </Text>
+
                 <Text className="text-right text-xs font-inter-regular text-ctp-text">
                   {formatDate(sale.created_at).date}
                 </Text>
@@ -215,6 +301,7 @@ export default function Receipt() {
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
                   Time
                 </Text>
+
                 <Text className="text-right text-xs font-inter-regular text-ctp-text">
                   {formatDate(sale.created_at).time}
                 </Text>
@@ -224,6 +311,7 @@ export default function Receipt() {
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
                   Status
                 </Text>
+
                 <Text className="text-right text-xs font-inter-semibold text-ctp-green">
                   {sale.status.toUpperCase()}
                 </Text>
@@ -238,9 +326,11 @@ export default function Receipt() {
                 <Text className="flex-1 text-[11px] font-inter-bold text-ctp-text">
                   ITEM
                 </Text>
+
                 <Text className="w-10 text-center text-[11px] font-inter-bold text-ctp-text">
                   QTY
                 </Text>
+
                 <Text className="w-24 text-right text-[11px] font-inter-bold text-ctp-text">
                   TOTAL
                 </Text>
@@ -255,6 +345,7 @@ export default function Receipt() {
                     <Text className="text-[11px] font-inter-medium text-ctp-text">
                       {item.product_name}
                     </Text>
+
                     <Text className="mt-0.5 text-[10px] font-inter-regular text-ctp-subtext0">
                       {money(item.unit_price)} each
                     </Text>
@@ -279,6 +370,7 @@ export default function Receipt() {
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   Subtotal
                 </Text>
+
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   {money(sale.subtotal)}
                 </Text>
@@ -286,12 +378,26 @@ export default function Receipt() {
 
               <View className="flex-row justify-between gap-3">
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                  Discount
+                  Tax
                 </Text>
+
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                  {money(0)}
+                  {money(taxAmount)}
                 </Text>
               </View>
+
+              {roundingAdjustment !== 0 && (
+                <View className="flex-row justify-between gap-3">
+                  <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
+                    Cash rounding
+                  </Text>
+
+                  <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
+                    {roundingAdjustment > 0 ? "+" : ""}
+                    {money(roundingAdjustment)}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
@@ -302,6 +408,7 @@ export default function Receipt() {
                 <Text className="flex-1 text-xs font-inter-bold text-ctp-text">
                   TOTAL
                 </Text>
+
                 <Text className="text-xs font-inter-bold text-ctp-text">
                   {money(sale.total)}
                 </Text>
@@ -311,6 +418,7 @@ export default function Receipt() {
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   Payment
                 </Text>
+
                 <Text className="text-[11px] font-inter-semibold text-ctp-text">
                   {sale.payment_method.toUpperCase()}
                 </Text>
@@ -321,6 +429,7 @@ export default function Receipt() {
                   <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                     Reference
                   </Text>
+
                   <Text className="flex-1 text-right text-[11px] font-inter-regular text-ctp-text">
                     {sale.reference_number}
                   </Text>
@@ -331,6 +440,7 @@ export default function Receipt() {
                 <Text className="flex-1 text-[11px] font-inter-regular text-ctp-subtext0">
                   Amount Received / Paid
                 </Text>
+
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   {money(sale.amount_tendered)}
                 </Text>
@@ -340,16 +450,27 @@ export default function Receipt() {
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   Change
                 </Text>
+
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                   {money(sale.change_due)}
                 </Text>
               </View>
             </View>
 
+            {receiptSettings.receiptNotes ? (
+              <>
+                <View className="my-3 border-t border-dashed border-ctp-surface1" />
+
+                <Text className="whitespace-pre-wrap text-center text-[10px] font-inter-regular leading-4 text-ctp-subtext0">
+                  {receiptSettings.receiptNotes}
+                </Text>
+              </>
+            ) : null}
+
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
             <Text className="whitespace-pre-wrap text-center text-[11px] font-inter-semibold text-ctp-text">
-              Thank you for your purchase!
+              {receiptSettings.receiptFooter}
             </Text>
 
             {error ? (

@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api";
+import { apiRequest, API_BASE_URL } from "@/lib/api";
 
 export type TerminalRegistrationRequest = {
   device_id: string;
@@ -32,6 +32,49 @@ export type TerminalHeartbeatResponse = {
   }>;
 };
 
+export type TerminalPOSSettings = {
+  currencySymbol: string;
+  currencyPlacement: "before" | "after";
+  decimalPrecision: string;
+  cashRounding: string;
+  lowStockThreshold: string;
+  allowNegativeInventory: boolean;
+  skuFormat: string;
+  skuPrefix: string;
+  skuDigits: string;
+  skuIncludeYear: boolean;
+  taxRate: string;
+  receiptHeader: string;
+  receiptFooter: string;
+  receiptNotes: string;
+  digitalReceipts: boolean;
+  receiptOutput: "bluetooth" | "sms" | "qr";
+  supervisorPinForDiscounts: boolean;
+  allowCustomLineItems: boolean;
+  discountLimit: string;
+  inactivityLock: string;
+  offlineQueueStrategy: string;
+};
+
+export type TerminalSettingsResponse = {
+  settings: TerminalPOSSettings;
+  version: number;
+  updated_at: string;
+};
+
+export type TerminalSettingsSocketMessage =
+  | {
+    type: "authenticated";
+    terminal_id: number;
+  }
+  | {
+    type: "settings_updated";
+    version: number;
+  }
+  | {
+    type: "ping";
+  };
+
 export function registerTerminal(
   registration: TerminalRegistrationRequest,
   enrollmentKey: string,
@@ -64,4 +107,47 @@ export function sendTerminalHeartbeat(
       }),
     },
   );
+}
+
+export function fetchTerminalSettings(
+  sessionToken: string,
+  signal?: AbortSignal,
+): Promise<TerminalSettingsResponse> {
+  return apiRequest<TerminalSettingsResponse>(
+    "/api/terminals/settings",
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+      signal,
+    },
+  );
+}
+
+export function connectTerminalSettingsSocket(
+  sessionToken: string,
+): WebSocket {
+  const websocketBaseUrl = API_BASE_URL
+    .replace(/^https:/i, "wss:")
+    .replace(/^http:/i, "ws:");
+
+  const socket = new WebSocket(
+    `${websocketBaseUrl}/api/terminals/ws`,
+  );
+
+  // Authenticate through the first WebSocket message.
+  // The session token is not placed in the URL.
+  socket.onopen = () => {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "authenticate",
+          session_token: sessionToken,
+        }),
+      );
+    }
+  };
+
+  return socket;
 }

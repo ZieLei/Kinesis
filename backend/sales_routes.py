@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -7,11 +7,12 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
-from models import Product, Sale, SaleItem
+from models import AppSettings, Product, Sale, SaleItem
 
 
 logger = logging.getLogger(__name__)
@@ -21,9 +22,25 @@ router = APIRouter(prefix="/api", tags=["Sales"])
 REPORT_TIMEZONE = ZoneInfo("Asia/Manila")
 ZERO_MONEY = Decimal("0.00")
 CENT = Decimal("0.01")
+DEFAULT_CASH_ROUNDING = Decimal("0.01")
 
 PaymentMethod = Literal["cash", "gcash"]
 ReportPeriod = Literal["daily", "weekly", "monthly", "yearly"]
+
+DEFAULT_SETTINGS = {
+    "currencySymbol": "₱",
+    "currencyPlacement": "before",
+    "decimalPrecision": "2",
+    "cashRounding": "0.01",
+    "lowStockThreshold": "5",
+    "allowNegativeInventory": False,
+    "taxRate": "0",
+    "receiptHeader": "KINESIS MOTORCYCLE PARTS",
+    "receiptFooter": "Thank you for your purchase!",
+    "receiptNotes": "Please keep your receipt for returns and exchanges.",
+    "digitalReceipts": False,
+    "receiptOutput": "bluetooth",
+}
 
 
 # --------------------------------------------------
@@ -91,21 +108,177 @@ class CheckoutCreate(BaseModel):
 
 
 # --------------------------------------------------
+# Pricing settings and receipt snapshot
+# --------------------------------------------------
+
+
+def get_checkout_settings(
+    db: Session,
+) -> tuple[Decimal, Decimal, dict, bool]:
+    """
+    Load checkout settings under a shared row lock.
+
+    The shared lock prevents an admin settings update from changing
+    pricing or inventory policy halfway through a checkout.
+    """
+
+    statement = (
+        pg_insert(AppSettings)
+        .values(
+            id=1,
+            settings=DEFAULT_SETTINGS,
+            version=1,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[AppSettings.id],
+        )
+    )
+
+    db.execute(statement)
+
+    row = db.scalar(
+        select(AppSettings).where(AppSettings.id == 1).with_for_update(read=True)
+    )
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Application settings could not be loaded for checkout.",
+        )
+
+    stored_settings = row.settings
+
+    if not isinstance(stored_settings, dict):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The saved application settings are invalid.",
+        )
+
+    try:
+        tax_rate = Decimal(str(stored_settings.get("taxRate", "0")))
+
+        cash_rounding = Decimal(str(stored_settings.get("cashRounding", "0.01")))
+
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        logger.error("Invalid checkout pricing settings in the database.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The saved checkout pricing settings are invalid.",
+        ) from exc
+
+    if not tax_rate.is_finite() or not Decimal("0") <= tax_rate <= Decimal("100"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The saved tax rate is outside the permitted range.",
+        )
+
+    allowed_rounding = {
+        Decimal("0.01"),
+        Decimal("0.05"),
+        Decimal("0.10"),
+        Decimal("1.00"),
+    }
+
+    if cash_rounding not in allowed_rounding:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The saved cash rounding setting is invalid.",
+        )
+
+    allow_negative_inventory = stored_settings.get(
+        "allowNegativeInventory",
+        False,
+    )
+
+    if not isinstance(allow_negative_inventory, bool):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The saved negative-inventory setting is invalid.",
+        )
+
+    snapshot_keys = (
+        "currencySymbol",
+        "currencyPlacement",
+        "decimalPrecision",
+        "taxRate",
+        "cashRounding",
+        "receiptHeader",
+        "receiptFooter",
+        "receiptNotes",
+        "digitalReceipts",
+        "receiptOutput",
+        "allowNegativeInventory",
+    )
+
+    snapshot = {
+        key: stored_settings.get(
+            key,
+            DEFAULT_SETTINGS.get(key),
+        )
+        for key in snapshot_keys
+    }
+
+    return (
+        tax_rate,
+        cash_rounding,
+        snapshot,
+        allow_negative_inventory,
+    )
+
+
+def calculate_tax(
+    subtotal: Decimal,
+    tax_rate: Decimal,
+) -> Decimal:
+    return (subtotal * tax_rate / Decimal("100")).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def round_cash_total(
+    amount: Decimal,
+    increment: Decimal,
+) -> Decimal:
+    """Round a cash amount to the nearest configured increment."""
+
+    if increment == CENT:
+        return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+
+    units = (amount / increment).quantize(
+        Decimal("1"),
+        rounding=ROUND_HALF_UP,
+    )
+
+    return (units * increment).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
+
+
+# --------------------------------------------------
 # Transaction response helpers
 # --------------------------------------------------
 
 
 def sale_response(sale: Sale) -> dict:
+    subtotal = Decimal(sale.subtotal)
+    tax_amount = Decimal(sale.tax_amount)
+    total = Decimal(sale.total)
+
+    rounding_adjustment = (total - subtotal - tax_amount).quantize(CENT)
+
     return {
         "id": sale.id,
         "transaction_code": sale.transaction_code,
         "payment_method": sale.payment_method,
         "reference_number": sale.reference_number,
         "status": sale.status,
-        "subtotal": float(sale.subtotal),
-        "total": float(sale.total),
+        "subtotal": float(subtotal),
+        "tax_amount": float(tax_amount),
+        "rounding_adjustment": float(rounding_adjustment),
+        "total": float(total),
         "amount_tendered": float(sale.amount_tendered),
         "change_due": float(sale.change_due),
+        "settings_snapshot": sale.settings_snapshot or {},
         "created_at": sale.created_at.isoformat(),
         "items": [
             {
@@ -136,7 +309,10 @@ def sale_list_response(sale: Sale) -> dict:
     }
 
 
-def get_sale_by_code(db: Session, transaction_code: str) -> Sale | None:
+def get_sale_by_code(
+    db: Session,
+    transaction_code: str,
+) -> Sale | None:
     return db.scalar(
         select(Sale)
         .options(selectinload(Sale.items))
@@ -149,6 +325,7 @@ def checkout_matches_sale(
     request: CheckoutCreate,
 ) -> bool:
     """Determine whether an existing transaction is a safe idempotent retry."""
+
     if sale.payment_method != request.payment_method:
         return False
 
@@ -156,6 +333,7 @@ def checkout_matches_sale(
         return False
 
     stored_items = {(item.product_id, item.quantity) for item in sale.items}
+
     requested_items = {(item.product_id, item.quantity) for item in request.items}
 
     if stored_items != requested_items:
@@ -225,8 +403,16 @@ def create_sale(
         )
 
     try:
+        (
+            tax_rate,
+            cash_rounding,
+            settings_snapshot,
+            allow_negative_inventory,
+        ) = get_checkout_settings(db)
+
         products_by_id: dict[int, Product] = {}
 
+        # Lock products in a consistent order to reduce deadlock risk.
         for item in sorted(
             checkout.items,
             key=lambda entry: entry.product_id,
@@ -243,6 +429,7 @@ def create_sale(
 
             products_by_id[product.id] = product
 
+        # Recheck idempotency after acquiring product locks.
         existing = get_sale_by_code(db, checkout.transaction_code)
 
         if existing is not None:
@@ -270,12 +457,15 @@ def create_sale(
                 )
 
         calculated_items: list[tuple[CheckoutItem, Product, Decimal, Decimal]] = []
+
         subtotal = ZERO_MONEY
 
         for item in checkout.items:
             product = products_by_id[item.product_id]
 
-            if product.stock < item.quantity:
+            # Only enforce stock availability when negative inventory
+            # is disabled in the current server settings.
+            if not allow_negative_inventory and product.stock < item.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
@@ -286,14 +476,25 @@ def create_sale(
                 )
 
             unit_price = Decimal(product.price).quantize(CENT)
+
             line_total = (unit_price * item.quantity).quantize(CENT)
+
             subtotal += line_total
 
             calculated_items.append((item, product, unit_price, line_total))
 
-        total = subtotal.quantize(CENT)
+        subtotal = subtotal.quantize(CENT)
+
+        tax_amount = calculate_tax(subtotal, tax_rate)
+
+        unrounded_total = (subtotal + tax_amount).quantize(CENT)
 
         if checkout.payment_method == "cash":
+            total = round_cash_total(
+                unrounded_total,
+                cash_rounding,
+            )
+
             amount_tendered = checkout.amount_tendered
 
             if amount_tendered is None or amount_tendered < total:
@@ -303,8 +504,11 @@ def create_sale(
                 )
 
             amount_tendered = amount_tendered.quantize(CENT)
+
             change_due = (amount_tendered - total).quantize(CENT)
+
         else:
+            total = unrounded_total
             amount_tendered = total
             change_due = ZERO_MONEY
 
@@ -314,9 +518,11 @@ def create_sale(
             reference_number=checkout.reference_number,
             status="completed",
             subtotal=subtotal,
+            tax_amount=tax_amount,
             total=total,
             amount_tendered=amount_tendered,
             change_due=change_due,
+            settings_snapshot=settings_snapshot,
         )
 
         db.add(sale)
@@ -380,6 +586,7 @@ def create_sale(
                 ) from exc
 
         logger.warning("Checkout failed due to a database constraint.")
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The checkout conflicts with an existing transaction.",
@@ -388,6 +595,7 @@ def create_sale(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not complete checkout")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
@@ -406,7 +614,10 @@ def get_sale(
     transaction_code: str,
     db: Session = Depends(get_db),
 ):
-    sale = get_sale_by_code(db, transaction_code.strip().upper())
+    sale = get_sale_by_code(
+        db,
+        transaction_code.strip().upper(),
+    )
 
     if sale is None:
         raise HTTPException(
@@ -573,9 +784,9 @@ def build_series(
 
         while cursor < end_date:
             bucket = {
-                "label": cursor.strftime("%a")
-                if period == "weekly"
-                else str(cursor.day),
+                "label": (
+                    cursor.strftime("%a") if period == "weekly" else str(cursor.day)
+                ),
                 "date": cursor.isoformat(),
                 "sales": ZERO_MONEY,
                 "transactions": 0,
@@ -625,10 +836,12 @@ def get_sales_report(
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
     current_start, current_end = period_dates(period, selected_date)
+
     previous_start, _ = period_dates(
         period,
         current_start - timedelta(days=1),
     )
+
     previous_end = current_start
 
     current_rows, current_quantities = load_period_rows(

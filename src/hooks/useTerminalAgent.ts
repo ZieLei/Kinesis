@@ -13,14 +13,6 @@ const DEVICE_ID_KEY = "kinesis-terminal-device-id";
 const SESSION_TOKEN_KEY = "kinesis-terminal-session-token";
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 
-export type TerminalAgentStatus =
-  | "initializing"
-  | "enrollment-required"
-  | "registering"
-  | "active"
-  | "registration-error"
-  | "storage-error";
-
 function createDeviceId(): string {
   return [
     "KNS",
@@ -59,7 +51,17 @@ function errorMessage(error: unknown): string {
     : "An unexpected terminal registration error occurred.";
 }
 
-export function useTerminalAgent() {
+export type TerminalAgentStatus =
+  | "initializing"
+  | "enrollment-required"
+  | "registering"
+  | "active"
+  | "registration-error"
+  | "storage-error";
+
+export function useTerminalAgent(
+  onSessionTokenChange?: (token: string | null) => void,
+) {
   const [status, setStatus] =
     useState<TerminalAgentStatus>("initializing");
 
@@ -93,8 +95,10 @@ export function useTerminalAgent() {
 
         if (storedToken) {
           setSessionToken(storedToken);
+          onSessionTokenChange?.(storedToken);
           setStatus("active");
         } else {
+          onSessionTokenChange?.(null);
           setStatus("enrollment-required");
         }
       } catch (error) {
@@ -113,7 +117,7 @@ export function useTerminalAgent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onSessionTokenChange]);
 
   const enroll = useCallback(
     async (enrollmentKey: string) => {
@@ -152,6 +156,8 @@ export function useTerminalAgent() {
         );
 
         setSessionToken(registration.session_token);
+        onSessionTokenChange?.(registration.session_token);
+
         setStatus("active");
         setMessage("");
       } catch (error) {
@@ -159,7 +165,7 @@ export function useTerminalAgent() {
         setStatus("registration-error");
       }
     },
-    [deviceId],
+    [deviceId, onSessionTokenChange],
   );
 
   useEffect(() => {
@@ -167,7 +173,6 @@ export function useTerminalAgent() {
       return;
     }
 
-    // Capture the token after validating it so nested functions see a string.
     const activeSessionToken: string = sessionToken;
 
     let cancelled = false;

@@ -12,6 +12,7 @@ import Pencil from "lucide-react-native/icons/pencil";
 import Trash from "lucide-react-native/icons/trash";
 
 import { styledIcon } from "@/components/StyledIcon";
+import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { LOW_STOCK_THRESHOLD, formatPrice, getImageUri } from "@/lib/products";
 import type { Product } from "@/types/product";
 
@@ -21,17 +22,25 @@ const StyledTrash = styledIcon(Trash);
 const ACTION_WIDTH = 120;
 const OPEN_THRESHOLD = 60;
 
-function getStockBorderStyle(stock: number) {
-  if (stock === 0) return { borderWidth: 1, borderColor: "#F38BA8" };
-  if (stock < LOW_STOCK_THRESHOLD) {
+function getStockBorderStyle(stock: number, threshold: number) {
+  if (stock <= 0) {
+    return { borderWidth: 1, borderColor: "#F38BA8" };
+  }
+
+  if (stock <= threshold) {
     return { borderWidth: 1, borderColor: "#F9E2AF" };
   }
-  return { borderWidth: 1, borderColor: "rgba(128, 128, 128, 0.15)" };
+
+  return {
+    borderWidth: 1,
+    borderColor: "rgba(128, 128, 128, 0.15)",
+  };
 }
 
-function getStockTextClass(stock: number) {
-  if (stock === 0) return "text-ctp-red";
-  if (stock < LOW_STOCK_THRESHOLD) return "text-ctp-yellow";
+function getStockTextClass(stock: number, threshold: number) {
+  if (stock <= 0) return "text-ctp-red";
+  if (stock <= threshold) return "text-ctp-yellow";
+
   return "text-ctp-text";
 }
 
@@ -51,6 +60,15 @@ export default function StockItem({
   onDelete,
   deleting,
 }: StockItemProps) {
+  const { settings } = useTerminalSettings();
+
+  const configuredThreshold = Number(settings?.lowStockThreshold);
+
+  const lowStockThreshold =
+    Number.isInteger(configuredThreshold) && configuredThreshold >= 0
+      ? configuredThreshold
+      : LOW_STOCK_THRESHOLD;
+
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
   const imageUri = getImageUri(item);
@@ -87,6 +105,7 @@ export default function StockItem({
         translateX.value = withSpring(-ACTION_WIDTH);
       } else {
         translateX.value = withSpring(0);
+
         if (openItemId.value === item.id) {
           openItemId.value = null;
         }
@@ -122,7 +141,10 @@ export default function StockItem({
 
       <GestureDetector gesture={gesture}>
         <Animated.View
-          style={[swipeStyle, getStockBorderStyle(item.stock)]}
+          style={[
+            swipeStyle,
+            getStockBorderStyle(item.stock, lowStockThreshold),
+          ]}
           className="flex-row rounded-xl bg-ctp-mantle"
         >
           <View className="flex-1 flex-row px-3 py-[10px]">
@@ -160,7 +182,10 @@ export default function StockItem({
               </Text>
 
               <Text
-                className={`mt-auto font-inter-semibold text-sm ${getStockTextClass(item.stock)}`}
+                className={`mt-auto font-inter-semibold text-sm ${getStockTextClass(
+                  item.stock,
+                  lowStockThreshold,
+                )}`}
               >
                 Stock: {item.stock}
               </Text>

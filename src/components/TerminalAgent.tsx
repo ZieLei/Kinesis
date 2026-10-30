@@ -12,13 +12,19 @@ import { KeyRound, ShieldCheck, Smartphone } from "lucide-react-native";
 
 import { useTerminalAgent } from "@/hooks/useTerminalAgent";
 
-export function TerminalAgent() {
+type TerminalAgentProps = {
+  onSessionTokenChange: (token: string | null) => void;
+};
+
+export function TerminalAgent({
+  onSessionTokenChange,
+}: TerminalAgentProps) {
   const {
     status,
     deviceId,
     message,
     enroll,
-  } = useTerminalAgent();
+  } = useTerminalAgent(onSessionTokenChange);
 
   const [enrollmentKey, setEnrollmentKey] = useState("");
 

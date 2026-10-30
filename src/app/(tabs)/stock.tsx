@@ -24,7 +24,8 @@ import StockStats from "@/components/stock/StockStats";
 import { useInventory } from "@/hooks/useInventory";
 import { useStockFilters } from "@/hooks/useStockFilters";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { computeStockStats } from "@/lib/products";
+import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
+import { computeStockStats, LOW_STOCK_THRESHOLD } from "@/lib/products";
 import { styledIcon } from "@/components/StyledIcon";
 import type { Product, ProductFormValues } from "@/types/product";
 
@@ -35,6 +36,17 @@ export default function Stock() {
   const scrollY = useSharedValue(0);
 
   const { isDark, selection } = useThemeColors();
+
+  const { settings } = useTerminalSettings();
+
+  const parsedThreshold = Number(
+    settings?.lowStockThreshold ?? LOW_STOCK_THRESHOLD,
+  );
+
+  const lowStockThreshold =
+    Number.isSafeInteger(parsedThreshold) && parsedThreshold >= 0
+      ? parsedThreshold
+      : LOW_STOCK_THRESHOLD;
 
   const {
     inventory,
@@ -62,7 +74,7 @@ export default function Stock() {
     filterSections,
     filteredProducts,
     activeFilterCount,
-  } = useStockFilters(inventory);
+  } = useStockFilters(inventory, lowStockThreshold);
 
   const [editingItem, setEditingItem] = useState<Product | null>(null);
   const [addingProduct, setAddingProduct] = useState(false);
@@ -74,7 +86,10 @@ export default function Stock() {
     }, [fetchInventory]),
   );
 
-  const stockStats = useMemo(() => computeStockStats(inventory), [inventory]);
+  const stockStats = useMemo(
+    () => computeStockStats(inventory, lowStockThreshold),
+    [inventory, lowStockThreshold],
+  );
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -133,7 +148,10 @@ export default function Stock() {
                 current?.id === product.id ? null : current,
               );
 
-              Alert.alert("Product deleted", `${product.name} was deleted.`);
+              Alert.alert(
+                "Product deleted",
+                `${product.name} was deleted.`,
+              );
             } catch (error) {
               Alert.alert(
                 "Delete failed",
@@ -172,9 +190,15 @@ export default function Stock() {
         <StockStats stats={stockStats} />
 
         <View className="flex-1">
-          <Text className="pb-2 font-inter-semibold text-lg text-ctp-text">
-            Categories
-          </Text>
+          <View className="flex-row items-center justify-between pb-2">
+            <Text className="font-inter-semibold text-lg text-ctp-text">
+              Categories
+            </Text>
+
+            <Text className="font-inter-regular text-xs text-ctp-subtext0">
+              Low stock: ≤ {lowStockThreshold} units
+            </Text>
+          </View>
 
           <CategoryTabs
             categories={categories}
@@ -185,6 +209,7 @@ export default function Stock() {
           {loading && inventory.length === 0 ? (
             <View className="flex-1 items-center justify-center gap-3">
               <ActivityIndicator size="large" color={selection} />
+
               <Text className="font-inter-medium text-sm text-ctp-subtext0">
                 Loading inventory...
               </Text>

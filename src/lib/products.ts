@@ -2,9 +2,7 @@ import { API_BASE_URL } from "@/lib/api";
 import type { Product } from "@/types/product";
 
 export const ALL_CATEGORY = "All";
-
-/** Items with fewer units than this (but more than 0) count as low stock. */
-export const LOW_STOCK_THRESHOLD = 10;
+export const LOW_STOCK_THRESHOLD = 5;
 
 export type StockStatsSummary = {
   outOfStock: number;
@@ -26,17 +24,31 @@ export function getImageUri(product: Product | null | undefined) {
     ? product.image_url
     : `${API_BASE_URL}${product.image_url.startsWith("/") ? "" : "/"}${product.image_url}`;
 
-  // The image path changes when a new image is uploaded. Use it as a cache key.
   const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}v=${encodeURIComponent(product.image_path ?? String(product.id))}`;
+
+  return `${url}${separator}v=${encodeURIComponent(
+    product.image_path ?? String(product.id),
+  )}`;
 }
 
-export function computeStockStats(inventory: Product[]): StockStatsSummary {
-  const outOfStock = inventory.filter((product) => product.stock === 0).length;
-  const lowStock = inventory.filter(
-    (product) => product.stock > 0 && product.stock < LOW_STOCK_THRESHOLD,
+export function computeStockStats(
+  inventory: Product[],
+  lowStockThreshold = LOW_STOCK_THRESHOLD,
+): StockStatsSummary {
+  const outOfStock = inventory.filter(
+    (product) => product.stock === 0,
   ).length;
-  const totalItems = inventory.reduce((sum, product) => sum + product.stock, 0);
+
+  const lowStock = inventory.filter(
+    (product) =>
+      product.stock > 0 &&
+      product.stock <= lowStockThreshold,
+  ).length;
+
+  const totalItems = inventory.reduce(
+    (sum, product) => sum + product.stock,
+    0,
+  );
 
   return {
     outOfStock,

@@ -18,6 +18,7 @@ import ProductImagePicker from "@/components/stock/ProductImagePicker";
 import { styledIcon } from "@/components/StyledIcon";
 import { useProductForm } from "@/hooks/useProductForm";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import type { Product, ProductFormValues } from "@/types/product";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
@@ -33,6 +34,37 @@ type EditProductSheetProps = {
   ) => Promise<void>;
 };
 
+function createSkuPreview(
+  settings: ReturnType<typeof useTerminalSettings>["settings"],
+): string | null {
+  if (!settings) return null;
+
+  const prefix = settings.skuPrefix;
+  const digits = Number(settings.skuDigits);
+  const sequence = "#".repeat(digits);
+
+  const year = settings.skuIncludeYear
+    ? `${new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+    }).format(new Date())}-`
+    : "";
+
+  switch (settings.skuFormat) {
+    case "prefix-sequence":
+      return `${prefix}-${year}${sequence}`;
+
+    case "sequence-only":
+      return `${year}${sequence}`;
+
+    case "prefix-part-sequence":
+      return `${prefix}-${year}PART-${sequence}`;
+
+    default:
+      return null;
+  }
+}
+
 export default function EditProductSheet({
   product,
   visible,
@@ -41,14 +73,25 @@ export default function EditProductSheet({
   onSave,
 }: EditProductSheetProps) {
   const { width } = useWindowDimensions();
-  const { isDark, placeholder, selection, onAccentSpinner, sheetBackground } =
-    useThemeColors();
+
+  const {
+    isDark,
+    placeholder,
+    selection,
+    onAccentSpinner,
+    sheetBackground,
+  } = useThemeColors();
+
+  const { settings, status: settingsStatus } = useTerminalSettings();
 
   const isPresented = visible || product !== null;
   const isCreating = visible && product === null;
 
   const form = useProductForm(product, isPresented);
+
   const [saving, setSaving] = useState(false);
+
+  const skuPreview = createSkuPreview(settings);
 
   const handleClose = () => {
     if (saving) return;
@@ -59,6 +102,7 @@ export default function EditProductSheet({
     if (!isPresented || saving) return;
 
     const values = form.validate();
+
     if (!values) return;
 
     setSaving(true);
@@ -113,6 +157,7 @@ export default function EditProductSheet({
                   <Text className="font-inter-semibold text-lg text-ctp-text">
                     Product details
                   </Text>
+
                   <Text className="mt-1 font-inter-regular text-xs text-ctp-subtext0">
                     Enter the product details and optionally add an image.
                   </Text>
@@ -151,6 +196,37 @@ export default function EditProductSheet({
                   onChangeNewCategory={form.changeNewCategory}
                   onAddCategory={form.addCategory}
                 />
+
+                {/* SKU */}
+                <View className="mt-5 rounded-xl border border-ctp-surface1 bg-ctp-base p-3">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="font-inter-semibold text-sm text-ctp-text">
+                      Product SKU
+                    </Text>
+
+                    <Text className="font-inter-medium text-[10px] uppercase tracking-wide text-ctp-subtext0">
+                      {isCreating ? "Automatic" : "Assigned"}
+                    </Text>
+                  </View>
+
+                  <Text className="mt-2 font-inter-semibold text-base tracking-wider text-ctp-blue">
+                    {isCreating
+                      ? skuPreview ?? "Waiting for SKU configuration..."
+                      : product?.sku ?? "No SKU assigned"}
+                  </Text>
+
+                  <Text className="mt-2 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                    {isCreating
+                      ? "The backend assigns the next available SKU when you create this product. The preview shows its configured format, not the actual sequence number."
+                      : "The existing SKU is retained when editing this product."}
+                  </Text>
+
+                  {isCreating && settingsStatus !== "synced" && (
+                    <Text className="mt-2 font-inter-medium text-[11px] text-ctp-yellow">
+                      Using {settingsStatus === "offline" ? "cached" : "default"} SKU configuration.
+                    </Text>
+                  )}
+                </View>
               </View>
 
               <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">

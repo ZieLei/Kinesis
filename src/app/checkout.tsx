@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -18,6 +17,7 @@ import GCashLogo from "@/assets/images/gcash-seeklogo-2.svg";
 
 import { styledIcon } from "@/components/StyledIcon";
 import { useCart } from "@/app/context/CartContext";
+import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { createSale, fetchSale } from "@/lib/salesApi";
 import type {
   CheckoutRequest,
@@ -27,12 +27,6 @@ import type {
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledBanknote = styledIcon(Banknote);
-
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 
 function createTransactionCode() {
   const randomPart = Math.random()
@@ -44,13 +38,102 @@ function createTransactionCode() {
   return `KNS-${Date.now().toString(36).toUpperCase()}-${randomPart}`;
 }
 
+function money(
+  amount: number,
+  currencySymbol: string,
+  currencyPlacement: "before" | "after",
+  decimalPrecision: string,
+) {
+  const formatted = amount.toLocaleString("en-PH", {
+    minimumFractionDigits: Number(decimalPrecision),
+    maximumFractionDigits: Number(decimalPrecision),
+  });
+
+  return currencyPlacement === "before"
+    ? `${currencySymbol}${formatted}`
+    : `${formatted} ${currencySymbol}`;
+}
+
+/**
+ * Calculate tax in integer cents to keep the preview aligned
+ * with the backend's Decimal ROUND_HALF_UP calculation.
+ */
+function calculateTaxCents(
+  subtotalCents: number,
+  taxRate: string,
+): number {
+  const rateHundredths = Math.round(Number(taxRate) * 100);
+
+  if (!Number.isFinite(rateHundredths) || rateHundredths < 0) {
+    return 0;
+  }
+
+  return Math.floor(
+    (subtotalCents * rateHundredths + 5000) / 10000,
+  );
+}
+
+function roundCashCents(
+  amountCents: number,
+  rounding: string,
+): number {
+  const increments: Record<string, number> = {
+    "0.01": 1,
+    "0.05": 5,
+    "0.10": 10,
+    "1.00": 100,
+  };
+
+  const increment = increments[rounding] ?? 1;
+
+  return (
+    Math.floor((amountCents + increment / 2) / increment) *
+    increment
+  );
+}
+
 export default function Checkout() {
   const { items, total, clearCart } = useCart();
   const { colorScheme } = useColorScheme();
+
+  const {
+    settings,
+    status: settingsStatus,
+    error: settingsError,
+    refreshSettings,
+  } = useTerminalSettings();
+
   const isDark = colorScheme === "dark";
+
+  const settingsReady =
+    settings !== null && settingsStatus === "synced";
+
+  const currencySymbol = settings?.currencySymbol ?? "₱";
+  const currencyPlacement = settings?.currencyPlacement ?? "before";
+  const decimalPrecision = settings?.decimalPrecision ?? "2";
+
+  const subtotalCents = Math.round(total * 100);
+
+  const taxCents = settings
+    ? calculateTaxCents(subtotalCents, settings.taxRate)
+    : 0;
+
+  const unroundedTotalCents = subtotalCents + taxCents;
+
+  const cashTotalCents =
+    settings && settingsStatus === "synced"
+      ? roundCashCents(
+        unroundedTotalCents,
+        settings.cashRounding,
+      )
+      : unroundedTotalCents;
+
+  const estimatedTotalCents =
+    unroundedTotalCents;
 
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>("cash");
+
   const [amountReceived, setAmountReceived] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [gcashVerified, setGcashVerified] = useState(false);
@@ -60,14 +143,40 @@ export default function Checkout() {
   const [transactionCode] = useState(createTransactionCode);
 
   const parsedReceived =
-    amountReceived.trim() === "" ? Number.NaN : Number(amountReceived);
+    amountReceived.trim() === ""
+      ? Number.NaN
+      : Number(amountReceived);
 
-  const validReceived = Number.isFinite(parsedReceived);
-  const received = validReceived ? parsedReceived : 0;
-  const change = Math.max(0, received - total);
+  const validReceived =
+    Number.isFinite(parsedReceived) && parsedReceived >= 0;
+
+  const receivedCents = validReceived
+    ? Math.round(parsedReceived * 100)
+    : 0;
+
+  const requiredCashCents = cashTotalCents;
+
+  const changeCents = Math.max(
+    0,
+    receivedCents - requiredCashCents,
+  );
+
   const hasEnoughCash =
     validReceived &&
-    Math.round(received * 100) >= Math.round(total * 100);
+    receivedCents >= requiredCashCents;
+
+  const amountDueCents =
+    paymentMethod === "cash"
+      ? cashTotalCents
+      : estimatedTotalCents;
+
+  const formatMoney = (cents: number) =>
+    money(
+      cents / 100,
+      currencySymbol,
+      currencyPlacement,
+      decimalPrecision,
+    );
 
   const updatePaymentMethod = (method: PaymentMethod) => {
     if (submitting) return;
@@ -92,12 +201,22 @@ export default function Checkout() {
     setError("");
     setRequestFailed(false);
 
+    if (!settingsReady) {
+      setError(
+        "Connect to the Kinesis server and synchronize POS settings before completing a sale.",
+      );
+      return;
+    }
+
     if (items.length === 0) {
       setError("Your cart is empty. Add products before checking out.");
       return;
     }
 
-    if (paymentMethod === "cash" && !hasEnoughCash) {
+    if (
+      paymentMethod === "cash" &&
+      !hasEnoughCash
+    ) {
       setError("Amount received must be at least the amount due.");
       return;
     }
@@ -123,8 +242,14 @@ export default function Checkout() {
         quantity: item.quantity,
       })),
       ...(paymentMethod === "cash"
-        ? { amount_tendered: Number(received.toFixed(2)) }
-        : { reference_number: referenceNumber.trim() }),
+        ? {
+          amount_tendered: Number(receivedCents / 100).toFixed(2)
+            ? receivedCents / 100
+            : 0,
+        }
+        : {
+          reference_number: referenceNumber.trim(),
+        }),
     };
 
     setSubmitting(true);
@@ -148,6 +273,7 @@ export default function Checkout() {
           ? requestError.message
           : "The sale could not be completed. Check your connection and retry.",
       );
+
       setRequestFailed(true);
     } finally {
       setSubmitting(false);
@@ -181,6 +307,34 @@ export default function Checkout() {
           contentContainerStyle={{ paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Settings connection status */}
+          {!settingsReady && (
+            <View className="mb-5 rounded-lg border border-ctp-yellow/30 bg-ctp-yellow/10 p-3">
+              <Text className="font-inter-semibold text-sm text-ctp-yellow">
+                {settingsStatus === "loading"
+                  ? "Synchronizing POS settings"
+                  : settingsStatus === "offline"
+                    ? "Settings are cached but not confirmed"
+                    : "POS settings unavailable"}
+              </Text>
+
+              <Text className="mt-1 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                {settingsError ??
+                  "Connect to the Kinesis server to retrieve the current pricing configuration."}
+              </Text>
+
+              <Pressable
+                onPress={() => void refreshSettings()}
+                disabled={settingsStatus === "loading"}
+                className="mt-3 self-start rounded-md border border-ctp-surface1 px-3 py-2"
+              >
+                <Text className="font-inter-semibold text-xs text-ctp-text">
+                  Retry synchronization
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           {/* Amount due */}
           <View className="mb-8 py-4">
             <Text className="font-inter-semibold text-ctp-subtext0">
@@ -188,11 +342,53 @@ export default function Checkout() {
             </Text>
 
             <Text className="font-inter-bold text-3xl text-ctp-text">
-              {money(total)}
+              {formatMoney(amountDueCents)}
             </Text>
 
             <Text className="mt-1 font-inter-regular text-sm text-ctp-subtext0">
               {items.reduce((sum, item) => sum + item.quantity, 0)} items
+            </Text>
+
+            {/* Pricing breakdown */}
+            <View className="mt-5 gap-2">
+              <View className="flex-row justify-between">
+                <Text className="font-inter-regular text-sm text-ctp-subtext0">
+                  Subtotal
+                </Text>
+
+                <Text className="font-inter-medium text-sm text-ctp-text">
+                  {formatMoney(subtotalCents)}
+                </Text>
+              </View>
+
+              <View className="flex-row justify-between">
+                <Text className="font-inter-regular text-sm text-ctp-subtext0">
+                  Tax ({settings?.taxRate ?? "0"}%)
+                </Text>
+
+                <Text className="font-inter-medium text-sm text-ctp-text">
+                  {formatMoney(taxCents)}
+                </Text>
+              </View>
+
+              {paymentMethod === "cash" &&
+                cashTotalCents !== unroundedTotalCents && (
+                  <View className="flex-row justify-between">
+                    <Text className="font-inter-regular text-sm text-ctp-subtext0">
+                      Cash rounding
+                    </Text>
+
+                    <Text className="font-inter-medium text-sm text-ctp-text">
+                      {formatMoney(
+                        cashTotalCents - unroundedTotalCents,
+                      )}
+                    </Text>
+                  </View>
+                )}
+            </View>
+
+            <Text className="mt-3 font-inter-regular text-xs text-ctp-subtext0">
+              Final totals are calculated and validated by the server.
             </Text>
           </View>
 
@@ -270,7 +466,7 @@ export default function Checkout() {
                 </Text>
 
                 <Text className="font-inter-bold text-2xl text-ctp-text">
-                  {money(change)}
+                  {formatMoney(changeCents)}
                 </Text>
               </View>
             </View>
@@ -282,7 +478,7 @@ export default function Checkout() {
                 </Text>
 
                 <Text className="font-inter-bold text-2xl text-ctp-text">
-                  {money(total)}
+                  {formatMoney(estimatedTotalCents)}
                 </Text>
               </View>
 
@@ -291,6 +487,7 @@ export default function Checkout() {
                   <Text className="text-center font-inter-medium text-sm text-ctp-subtext0">
                     GCash payment QR
                   </Text>
+
                   <Text className="mt-1 text-center text-xs text-ctp-subtext0">
                     Payment QR integration is not configured yet.
                   </Text>
@@ -356,8 +553,12 @@ export default function Checkout() {
 
           <Pressable
             onPress={handleCompleteSale}
-            disabled={submitting || items.length === 0}
-            className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting || items.length === 0
+            disabled={
+              submitting ||
+              items.length === 0 ||
+              !settingsReady
+            }
+            className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting || items.length === 0 || !settingsReady
                 ? "bg-ctp-blue/50"
                 : "bg-ctp-blue"
               }`}
@@ -374,13 +575,11 @@ export default function Checkout() {
                 ? "Saving Sale..."
                 : requestFailed
                   ? "Retry Checkout"
-                  : "Complete Sale"}
+                  : !settingsReady
+                    ? "Waiting for Settings"
+                    : "Complete Sale"}
             </Text>
           </Pressable>
-
-          <Text className="mt-3 text-center text-xs leading-5 text-ctp-subtext0">
-            Prices, stock, and the final total are validated by the server.
-          </Text>
         </ScrollView>
       </View>
     </SafeAreaView>

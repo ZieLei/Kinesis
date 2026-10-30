@@ -1,4 +1,3 @@
-
 import { useCallback, useMemo } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -7,7 +6,9 @@ import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
 
 import { styledIcon } from "@/components/StyledIcon";
-import { useDashboardData, LOW_STOCK_THRESHOLD } from "@/hooks/useDashboardData";
+import { useDashboardData } from "@/hooks/useDashboardData";
+import { LOW_STOCK_THRESHOLD } from "@/lib/products";
+import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 
 import SunIcon from "lucide-react-native/icons/sun";
 import MoonIcon from "lucide-react-native/icons/moon";
@@ -111,6 +112,16 @@ export default function Dashboard() {
 
   const { data, loading, error, loadDashboard } = useDashboardData();
 
+  // Read the low-stock threshold synchronized with the backend.
+  const { settings } = useTerminalSettings();
+
+  const configuredThreshold = Number(settings?.lowStockThreshold);
+
+  const lowStockThreshold =
+    Number.isInteger(configuredThreshold) && configuredThreshold >= 0
+      ? configuredThreshold
+      : LOW_STOCK_THRESHOLD;
+
   // Reload dashboard data whenever this screen regains focus.
   useFocusEffect(
     useCallback(() => {
@@ -132,7 +143,7 @@ export default function Dashboard() {
     const lowStockCount = data.products.filter(
       (product) =>
         product.stock > 0 &&
-        product.stock <= LOW_STOCK_THRESHOLD,
+        product.stock <= lowStockThreshold,
     ).length;
 
     const outOfStockCount = data.products.filter(
@@ -163,7 +174,7 @@ export default function Dashboard() {
       recentTransactions: data.recentTransactions.items,
       updatedDate: formatDate(new Date()),
     };
-  }, [data]);
+  }, [data, lowStockThreshold]);
 
   const statCards = [
     {
@@ -175,7 +186,10 @@ export default function Dashboard() {
             ? "…"
             : "—",
       icon: Package,
-      subtitle: `1–${LOW_STOCK_THRESHOLD} units remaining`,
+      subtitle:
+        lowStockThreshold === 0
+          ? "No low-stock range"
+          : `1–${lowStockThreshold} units remaining`,
       change: null as string | null,
     },
     {
@@ -328,7 +342,8 @@ export default function Dashboard() {
             </Text>
 
             <View className="flex-row items-center">
-              {stats?.todayChange !== null && stats?.todayChange !== undefined ? (
+              {stats?.todayChange !== null &&
+                stats?.todayChange !== undefined ? (
                 <Text
                   className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark ? "bg-ctp-surface2/30" : "bg-white"
                     } ${stats.todayChange.startsWith("-")
@@ -341,8 +356,8 @@ export default function Dashboard() {
               ) : (
                 <Text
                   className={`rounded-full px-2 py-1 text-xs font-inter-semibold ${isDark
-                    ? "bg-[#DCE0E8] text-[#4C4F69]"
-                    : "bg-white/15 text-white"
+                      ? "bg-[#DCE0E8] text-[#4C4F69]"
+                      : "bg-white/15 text-white"
                     }`}
                 >
                   N/A
@@ -427,8 +442,8 @@ export default function Dashboard() {
                   {card.change !== null ? (
                     <Text
                       className={`rounded-full px-2 py-1 text-xs font-inter-bold ${card.change.startsWith("-")
-                        ? "bg-ctp-red/15 text-ctp-red"
-                        : "bg-ctp-green/15 text-ctp-green"
+                          ? "bg-ctp-red/15 text-ctp-red"
+                          : "bg-ctp-green/15 text-ctp-green"
                         }`}
                     >
                       {card.change}

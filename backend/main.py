@@ -27,6 +27,10 @@ from services_routes import router as services_router
 from terminal_routes import router as terminal_router
 from console_routes import router as console_router
 from database_routes import router as database_router
+from settings_routes import router as settings_router
+from sku_generator import generate_product_sku
+from logging_config import initialize_application_logging
+from contextlib import asynccontextmanager
 
 
 logger = logging.getLogger(__name__)
@@ -44,14 +48,23 @@ IMAGE_FORMATS = {
     b"RIFF": (".webp", "image/webp"),
 }
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_application_logging()
+    yield
+
+
 app = FastAPI(
     title="Kinesis API",
     version="1.3.0",
     description=(
-        "Inventory, services, checkout, reporting, and terminal "
+        "Inventory, services, checkout, reporting, settings, and terminal "
         "management API for the Kinesis point-of-sale system."
     ),
+    lifespan=lifespan,
 )
+
 
 origins = [
     "http://localhost:5173",
@@ -73,6 +86,7 @@ app.include_router(services_router)
 app.include_router(terminal_router)
 app.include_router(console_router)
 app.include_router(database_router)
+app.include_router(settings_router)
 
 
 # -------------------------
@@ -325,12 +339,18 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     tags=["Products"],
 )
 def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
+    # Keep manually supplied SKUs. Otherwise, generate one using the
+    # current database-backed SKU configuration.
+    product_sku = (
+        product_data.sku if product_data.sku is not None else generate_product_sku(db)
+    )
+
     product = Product(
         name=product_data.name,
         category=product_data.category,
         price=product_data.price,
         stock=product_data.stock,
-        sku=product_data.sku,
+        sku=product_sku,
         how_much_sold=product_data.howMuchSold,
     )
 

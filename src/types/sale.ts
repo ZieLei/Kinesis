@@ -1,5 +1,3 @@
-
-
 export type PaymentMethod = "cash" | "gcash";
 
 export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
@@ -28,6 +26,19 @@ export type SaleItemRecord = {
   line_total: number;
 };
 
+export type ReceiptSettingsSnapshot = {
+  currencySymbol?: string;
+  currencyPlacement?: "before" | "after";
+  decimalPrecision?: string;
+  taxRate?: string;
+  cashRounding?: string;
+  receiptHeader?: string;
+  receiptFooter?: string;
+  receiptNotes?: string;
+  digitalReceipts?: boolean;
+  receiptOutput?: "bluetooth" | "sms" | "qr";
+};
+
 export type SaleRecord = {
   id: number;
   transaction_code: string;
@@ -35,9 +46,12 @@ export type SaleRecord = {
   reference_number: string | null;
   status: string;
   subtotal: number;
+  tax_amount: number;
+  rounding_adjustment: number;
   total: number;
   amount_tendered: number;
   change_due: number;
+  settings_snapshot: ReceiptSettingsSnapshot;
   created_at: string;
   items: SaleItemRecord[];
 };

@@ -31,6 +31,17 @@ export type SettingsState = {
   consoleBufferLines: string;
 };
 
+export type SettingsApiResponse = {
+  settings: SettingsState;
+  version: number;
+  updated_at: string;
+};
+
+export type SettingsUpdateRequest = {
+  expected_version: number;
+  settings: SettingsState;
+};
+
 export type UpdateSetting = <K extends keyof SettingsState>(
   key: K,
   value: SettingsState[K],

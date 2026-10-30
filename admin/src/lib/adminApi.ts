@@ -8,8 +8,34 @@ import type {
   SalesListResponse,
   SalesReportResponse,
 } from "../types/admin";
+import type {
+  SettingsApiResponse,
+  SettingsState,
+  SettingsUpdateRequest,
+} from "../types/settings";
 
 const PRODUCT_PAGE_SIZE = 100;
+const ADMIN_TOKEN_KEY = "kinesis-admin-api-token";
+
+function getAdminHeaders(): Headers {
+  let token: string | null = null;
+
+  try {
+    token = window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  } catch {
+    throw new Error("The browser could not access the admin session.");
+  }
+
+  if (!token) {
+    throw new Error(
+      "Admin authentication is missing. Sign in to the Kinesis admin panel again.",
+    );
+  }
+
+  return new Headers({
+    "X-Admin-Token": token,
+  });
+}
 
 export function fetchApiHealth(
   signal?: AbortSignal,
@@ -86,4 +112,34 @@ export function fetchRecentSales(
     `/api/sales?${params.toString()}`,
     { signal },
   );
+}
+
+// --------------------------------------------------
+// Application settings
+// --------------------------------------------------
+
+export function fetchAdminSettings(
+  signal?: AbortSignal,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>("/api/admin/settings", {
+    method: "GET",
+    headers: getAdminHeaders(),
+    signal,
+  });
+}
+
+export function saveAdminSettings(
+  settings: SettingsState,
+  expectedVersion: number,
+): Promise<SettingsApiResponse> {
+  const payload: SettingsUpdateRequest = {
+    expected_version: expectedVersion,
+    settings,
+  };
+
+  return apiRequest<SettingsApiResponse>("/api/admin/settings", {
+    method: "PUT",
+    headers: getAdminHeaders(),
+    body: JSON.stringify(payload),
+  });
 }

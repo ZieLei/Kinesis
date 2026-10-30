@@ -13,6 +13,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -25,97 +26,50 @@ def utc_now() -> datetime:
 class Product(Base):
     __tablename__ = "products"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        index=True,
-    )
-    sku: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-        unique=True,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    sku: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
-    category: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        index=True,
-    )
-    price: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        nullable=False,
-    )
-    stock: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-    )
-    how_much_sold: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-    )
-    image_path: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-    )
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    how_much_sold: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class Service(Base):
     __tablename__ = "services"
 
     __table_args__ = (
-        CheckConstraint(
-            "price >= 0",
-            name="ck_services_price_nonnegative",
-        ),
+        CheckConstraint("price >= 0", name="ck_services_price_nonnegative"),
     )
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-    )
-    name: Mapped[str] = mapped_column(
-        String(80),
-        nullable=False,
-        index=True,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     description: Mapped[str] = mapped_column(
         String(300),
         nullable=False,
         default="",
         server_default="",
     )
-    price: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        nullable=False,
-    )
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
 
 class Sale(Base):
     __tablename__ = "sales"
 
     __table_args__ = (
+        CheckConstraint("subtotal >= 0", name="ck_sales_subtotal_nonnegative"),
         CheckConstraint(
-            "subtotal >= 0",
-            name="ck_sales_subtotal_nonnegative",
+            "tax_amount >= 0",
+            name="ck_sales_tax_amount_nonnegative",
         ),
-        CheckConstraint(
-            "total >= 0",
-            name="ck_sales_total_nonnegative",
-        ),
+        CheckConstraint("total >= 0", name="ck_sales_total_nonnegative"),
         CheckConstraint(
             "amount_tendered >= total",
             name="ck_sales_amount_tendered_covers_total",
         ),
-        CheckConstraint(
-            "change_due >= 0",
-            name="ck_sales_change_nonnegative",
-        ),
-        UniqueConstraint(
-            "reference_number",
-            name="sales_reference_number_key",
-        ),
+        CheckConstraint("change_due >= 0", name="ck_sales_change_nonnegative"),
+        UniqueConstraint("reference_number", name="sales_reference_number_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -125,10 +79,7 @@ class Sale(Base):
         unique=True,
         index=True,
     )
-    payment_method: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-    )
+    payment_method: Mapped[str] = mapped_column(String(32), nullable=False)
     reference_number: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
@@ -140,14 +91,14 @@ class Sale(Base):
         server_default="completed",
         index=True,
     )
-    subtotal: Mapped[Decimal] = mapped_column(
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
     )
-    total: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-    )
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     amount_tendered: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
@@ -157,6 +108,16 @@ class Sale(Base):
         nullable=False,
         default=Decimal("0.00"),
     )
+
+    # Settings used when this transaction was completed.
+    # Historical receipts must not depend on the current settings.
+    settings_snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -176,10 +137,7 @@ class SaleItem(Base):
     __tablename__ = "sale_items"
 
     __table_args__ = (
-        CheckConstraint(
-            "quantity > 0",
-            name="ck_sale_items_quantity_positive",
-        ),
+        CheckConstraint("quantity > 0", name="ck_sale_items_quantity_positive"),
         CheckConstraint(
             "unit_price >= 0",
             name="ck_sale_items_unit_price_nonnegative",
@@ -201,69 +159,31 @@ class SaleItem(Base):
         nullable=True,
         index=True,
     )
-    product_name: Mapped[str] = mapped_column(
-        String(150),
-        nullable=False,
-    )
-    sku: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-    )
-    category: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-    )
-    unit_price: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        nullable=False,
-    )
-    quantity: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-    )
-    line_total: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False,
-    )
+    product_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
-    sale: Mapped["Sale"] = relationship(
-        back_populates="items",
-    )
+    sale: Mapped["Sale"] = relationship(back_populates="items")
 
 
 class Terminal(Base):
     __tablename__ = "terminals"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     device_id: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         unique=True,
         index=True,
     )
-    name: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-    )
-    device_type: Mapped[str] = mapped_column(
-        String(60),
-        nullable=False,
-    )
-    platform: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-    )
-    app_version: Mapped[str | None] = mapped_column(
-        String(50),
-        nullable=True,
-    )
-    ip_address: Mapped[str | None] = mapped_column(
-        String(45),
-        nullable=True,
-    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    device_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    app_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     session_token_hash: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -328,23 +248,14 @@ class TerminalCommand(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     terminal_id: Mapped[int] = mapped_column(
         ForeignKey("terminals.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    command_type: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-    )
-    payload: Mapped[str | None] = mapped_column(
-        String(250),
-        nullable=True,
-    )
+    command_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[str | None] = mapped_column(String(250), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -366,4 +277,48 @@ class TerminalCommand(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class AppSettings(Base):
+    """
+    Stores the single global Kinesis application settings document.
+
+    The database constraint enforces one permitted record with ID 1.
+    """
+
+    __tablename__ = "app_settings"
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_app_settings_singleton"),
+        CheckConstraint(
+            "version >= 1",
+            name="ck_app_settings_version_positive",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        default=1,
+        server_default=text("1"),
+    )
+    settings: Mapped[dict[str, object]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=func.now(),
     )
