@@ -1,3 +1,4 @@
+
 import {
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+
 import {
   Activity,
   CheckCircle2,
@@ -23,11 +25,28 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
+
 import { API_BASE_URL } from "../lib/api";
 
-type LogLevel = "INFO" | "SUCCESS" | "WARN" | "ERROR" | "DEBUG" | "COMMAND";
-type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
-type LogFilter = "ALL" | LogLevel;
+
+type LogLevel =
+  | "INFO"
+  | "SUCCESS"
+  | "WARN"
+  | "ERROR"
+  | "DEBUG"
+  | "COMMAND";
+
+type ConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
+
+type LogFilter =
+  | "ALL"
+  | LogLevel;
+
 
 type ConsoleLog = {
   id: string;
@@ -35,6 +54,7 @@ type ConsoleLog = {
   level: LogLevel;
   message: string;
 };
+
 
 type ServerMessage =
   | {
@@ -59,8 +79,9 @@ type ServerMessage =
     message?: string;
   };
 
-const TOKEN_STORAGE_KEY = "kinesis-admin-api-token";
+
 const MAX_LOG_ENTRIES = 2000;
+
 
 const LOG_FILTERS: LogFilter[] = [
   "ALL",
@@ -72,16 +93,43 @@ const LOG_FILTERS: LogFilter[] = [
   "COMMAND",
 ];
 
+
 const COMMAND_EXAMPLES = [
-  { command: "help", description: "List supported commands" },
-  { command: "status", description: "Check API status" },
-  { command: "db check", description: "Check database connectivity" },
-  { command: "inventory summary", description: "Summarize inventory" },
-  { command: "terminals list", description: "List registered terminals" },
-  { command: "sales today", description: "Summarize today's sales" },
+  {
+    command: "help",
+    description: "List supported commands",
+  },
+  {
+    command: "status",
+    description: "Check API status",
+  },
+  {
+    command: "db check",
+    description: "Check database connectivity",
+  },
+  {
+    command: "inventory summary",
+    description: "Summarize inventory",
+  },
+  {
+    command: "terminals list",
+    description: "List registered terminals",
+  },
+  {
+    command: "sales today",
+    description: "Summarize today's sales",
+  },
 ];
 
-function normalizeLevel(value?: string): LogLevel {
+
+// --------------------------------------------------
+// Formatting helpers
+// --------------------------------------------------
+
+
+function normalizeLevel(
+  value?: string,
+): LogLevel {
   const level = value?.toUpperCase();
 
   if (
@@ -98,127 +146,207 @@ function normalizeLevel(value?: string): LogLevel {
   return "INFO";
 }
 
-function formatTimestamp(timestamp: string): string {
+
+function formatTimestamp(
+  timestamp: string,
+): string {
   const date = new Date(timestamp);
 
   if (Number.isNaN(date.getTime())) {
     return timestamp;
   }
 
-  return date.toLocaleTimeString("en-PH", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  return date.toLocaleTimeString(
+    "en-PH",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    },
+  );
 }
 
+
 function getWebSocketUrl(): string {
-  const url = new URL("/api/console/ws", API_BASE_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(
+    "/api/console/ws",
+    API_BASE_URL,
+  );
+
+  url.protocol =
+    url.protocol === "https:"
+      ? "wss:"
+      : "ws:";
+
   url.search = "";
   url.hash = "";
 
   return url.toString();
 }
 
-function getLevelStyle(level: LogLevel): string {
+
+// --------------------------------------------------
+// Log styling
+// --------------------------------------------------
+
+
+function getLevelStyle(
+  level: LogLevel,
+): string {
   switch (level) {
     case "SUCCESS":
       return "text-[#a6e3a1]";
+
     case "WARN":
       return "text-[#f9e2af]";
+
     case "ERROR":
       return "text-[#f38ba8]";
+
     case "DEBUG":
       return "text-[#9399b2]";
+
     case "COMMAND":
       return "text-[#89b4fa]";
+
     case "INFO":
     default:
       return "text-[#cdd6f4]";
   }
 }
 
-function getLevelBadgeStyle(level: LogFilter): string {
+
+function getLevelBadgeStyle(
+  level: LogFilter,
+): string {
   switch (level) {
     case "SUCCESS":
       return "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]";
+
     case "WARN":
       return "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]";
+
     case "ERROR":
       return "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]";
+
     case "DEBUG":
       return "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#9399b2]";
+
     case "COMMAND":
       return "border-[#89b4fa]/30 bg-[#89b4fa]/10 text-[#89b4fa]";
+
     case "INFO":
       return "border-[#cdd6f4]/20 bg-[#cdd6f4]/5 text-[#cdd6f4]";
+
     case "ALL":
     default:
       return "border-[#585b70] bg-[#313244] text-[#cdd6f4]";
   }
 }
 
+
+// --------------------------------------------------
+// Operational Console
+// --------------------------------------------------
+
+
 export default function Console() {
-  const [token, setToken] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
-  });
-
   const [connection, setConnection] =
     useState<ConnectionState>("disconnected");
-  const [logs, setLogs] = useState<ConsoleLog[]>([]);
-  const [command, setCommand] = useState("");
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [filter, setFilter] = useState<LogFilter>("ALL");
-  const [search, setSearch] = useState("");
-  const [paused, setPaused] = useState(false);
-  const [showCommands, setShowCommands] = useState(false);
 
-  const socketRef = useRef<WebSocket | null>(null);
+  const [logs, setLogs] =
+    useState<ConsoleLog[]>([]);
+
+  const [command, setCommand] =
+    useState("");
+
+  const [commandHistory, setCommandHistory] =
+    useState<string[]>([]);
+
+  const [historyIndex, setHistoryIndex] =
+    useState(-1);
+
+  const [filter, setFilter] =
+    useState<LogFilter>("ALL");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [paused, setPaused] =
+    useState(false);
+
+  const [showCommands, setShowCommands] =
+    useState(false);
+
+
+  const socketRef =
+    useRef<WebSocket | null>(null);
+
   const generationRef = useRef(0);
+
   const authenticatedRef = useRef(false);
+
   const pausedRef = useRef(paused);
-  const logContainerRef = useRef<HTMLDivElement | null>(null);
-  const commandInputRef = useRef<HTMLInputElement | null>(null);
+
+  const logContainerRef =
+    useRef<HTMLDivElement | null>(null);
+
+  const commandInputRef =
+    useRef<HTMLInputElement | null>(null);
+
+
+  // --------------------------------------------------
+  // Keep pause state synchronized
+  // --------------------------------------------------
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
 
+
+  // --------------------------------------------------
+  // Append log
+  // --------------------------------------------------
+
   const appendLog = useCallback(
-    (level: LogLevel, message: string, timestamp?: string) => {
+    (
+      level: LogLevel,
+      message: string,
+      timestamp?: string,
+    ) => {
       const entry: ConsoleLog = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        timestamp: timestamp || new Date().toISOString(),
+        id: (
+          `${Date.now()}-` +
+          `${Math.random().toString(36).slice(2, 9)}`
+        ),
+        timestamp:
+          timestamp || new Date().toISOString(),
         level,
         message,
       };
 
-      setLogs((current) => [...current, entry].slice(-MAX_LOG_ENTRIES));
+      setLogs((current) =>
+        [...current, entry].slice(-MAX_LOG_ENTRIES),
+      );
     },
     [],
   );
 
-  const connect = useCallback(() => {
-    if (!token) {
-      setConnection("error");
-      appendLog(
-        "ERROR",
-        "Admin token not found. Enter it in Terminal Management first, then check the session token here.",
-      );
-      return;
-    }
 
+  // --------------------------------------------------
+  // WebSocket connection
+  // --------------------------------------------------
+
+  const connect = useCallback(() => {
     generationRef.current += 1;
+
     const generation = generationRef.current;
+
     authenticatedRef.current = false;
 
+
+    // Close previous connection.
     const previousSocket = socketRef.current;
 
     if (previousSocket) {
@@ -235,26 +363,39 @@ export default function Console() {
       }
     }
 
+
     socketRef.current = null;
+
     setConnection("connecting");
+
 
     let socket: WebSocket;
 
     try {
-      socket = new WebSocket(getWebSocketUrl());
+      socket = new WebSocket(
+        getWebSocketUrl(),
+      );
     } catch (error) {
       setConnection("error");
+
       appendLog(
         "ERROR",
         error instanceof Error
           ? `Could not create WebSocket: ${error.message}`
           : "Could not create the WebSocket connection.",
       );
+
       return;
     }
 
+
     socketRef.current = socket;
-    appendLog("INFO", "Connecting to the Kinesis backend console...");
+
+    appendLog(
+      "INFO",
+      "Connecting to the Kinesis backend console...",
+    );
+
 
     socket.onopen = () => {
       if (generation !== generationRef.current) {
@@ -262,17 +403,18 @@ export default function Console() {
         return;
       }
 
-      try {
-        socket.send(JSON.stringify({ type: "auth", token }));
-        appendLog("INFO", "Connection opened. Authenticating...");
-      } catch {
-        setConnection("error");
-        appendLog("ERROR", "Could not send the authentication message.");
-        socket.close();
-      }
+      // The browser automatically includes the HttpOnly session cookie.
+      // The server authenticates the WebSocket handshake itself.
+      appendLog(
+        "INFO",
+        "Connection opened. Waiting for server authentication...",
+      );
     };
 
-    socket.onmessage = (event: MessageEvent<string>) => {
+
+    socket.onmessage = (
+      event: MessageEvent<string>,
+    ) => {
       if (generation !== generationRef.current) {
         return;
       }
@@ -280,11 +422,18 @@ export default function Console() {
       let data: ServerMessage;
 
       try {
-        data = JSON.parse(event.data) as ServerMessage;
+        data = JSON.parse(
+          event.data,
+        ) as ServerMessage;
       } catch {
-        appendLog("WARN", "Received an unreadable message from the server.");
+        appendLog(
+          "WARN",
+          "Received an unreadable message from the server.",
+        );
+
         return;
       }
+
 
       switch (data.type) {
         case "log": {
@@ -297,20 +446,32 @@ export default function Console() {
             data.log?.message || "",
             data.log?.timestamp,
           );
+
           break;
         }
+
 
         case "result": {
-          const output = data.output?.trim() || "(No output)";
+          const output =
+            data.output?.trim() || "(No output)";
+
           appendLog(
             "SUCCESS",
-            `${data.command ? `$ ${data.command}\n` : ""}${output}`,
+            (
+              `${data.command ? `$ ${data.command}\n` : ""}` +
+              output
+            ),
           );
+
           break;
         }
 
+
         case "error": {
-          appendLog("ERROR", data.message || "The server reported an error.");
+          appendLog(
+            "ERROR",
+            data.message || "The server reported an error.",
+          );
 
           if (!authenticatedRef.current) {
             setConnection("error");
@@ -319,21 +480,31 @@ export default function Console() {
           break;
         }
 
+
         case "status": {
           authenticatedRef.current = true;
+
           setConnection("connected");
+
           appendLog(
             "SUCCESS",
-            data.message || "Authenticated with the Kinesis backend.",
+            data.message ||
+            "Authenticated with the Kinesis backend.",
           );
+
           break;
         }
 
+
         default: {
-          appendLog("DEBUG", "Received an unrecognized server message.");
+          appendLog(
+            "DEBUG",
+            "Received an unrecognized server message.",
+          );
         }
       }
     };
+
 
     socket.onerror = () => {
       if (generation === generationRef.current) {
@@ -341,38 +512,53 @@ export default function Console() {
       }
     };
 
-    socket.onclose = () => {
+
+    socket.onclose = (event) => {
       if (generation !== generationRef.current) {
         return;
       }
 
       socketRef.current = null;
-      setConnection(authenticatedRef.current ? "disconnected" : "error");
 
-      appendLog(
-        authenticatedRef.current ? "WARN" : "ERROR",
-        authenticatedRef.current
-          ? "The console connection closed. Reconnect to continue."
-          : "The console connection closed before authentication completed. Check the admin token and backend logs.",
-      );
+      const wasAuthenticated =
+        authenticatedRef.current;
 
       authenticatedRef.current = false;
+
+      setConnection(
+        wasAuthenticated
+          ? "disconnected"
+          : "error",
+      );
+
+
+      appendLog(
+        wasAuthenticated ? "WARN" : "ERROR",
+        wasAuthenticated
+          ? "The console connection closed. Reconnect to continue."
+          : (
+            `The console connection closed before authentication completed. ` +
+            `WebSocket close code: ${event.code}.`
+          ),
+      );
     };
-  }, [appendLog, token]);
+  }, [appendLog]);
+
+
+  // --------------------------------------------------
+  // Connect on mount
+  // --------------------------------------------------
 
   useEffect(() => {
-    if (!token) {
-      setConnection("error");
-      return;
-    }
-
     connect();
 
     return () => {
       generationRef.current += 1;
+
       authenticatedRef.current = false;
 
       const socket = socketRef.current;
+
       socketRef.current = null;
 
       if (socket) {
@@ -389,13 +575,21 @@ export default function Console() {
         }
       }
     };
-  }, [connect, token]);
+  }, [connect]);
+
+
+  // --------------------------------------------------
+  // Filter logs
+  // --------------------------------------------------
 
   const filteredLogs = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return logs.filter((entry) => {
-      const matchesLevel = filter === "ALL" || entry.level === filter;
+      const matchesLevel =
+        filter === "ALL" ||
+        entry.level === filter;
+
       const matchesSearch =
         !query ||
         entry.message.toLowerCase().includes(query) ||
@@ -405,8 +599,11 @@ export default function Console() {
     });
   }, [filter, logs, search]);
 
-  // Scroll only the console output panel. Avoid scrollIntoView(), which
-  // can also move the page or other ancestor containers.
+
+  // --------------------------------------------------
+  // Scroll only the console output panel
+  // --------------------------------------------------
+
   useEffect(() => {
     if (paused) {
       return;
@@ -415,23 +612,19 @@ export default function Console() {
     const container = logContainerRef.current;
 
     if (container) {
-      container.scrollTop = container.scrollHeight;
+      container.scrollTop =
+        container.scrollHeight;
     }
   }, [filteredLogs, paused]);
 
-  const refreshSessionToken = useCallback(() => {
-    const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
-    setToken(storedToken);
 
-    if (!storedToken) {
-      appendLog(
-        "WARN",
-        "No admin token was found. Open Terminal Management, enter your admin token, then return to this console.",
-      );
-    }
-  }, [appendLog]);
+  // --------------------------------------------------
+  // Diagnostic command submission
+  // --------------------------------------------------
 
-  const handleCommandSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleCommandSubmit = (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
 
     const trimmedCommand = command.trim();
@@ -451,8 +644,10 @@ export default function Console() {
         "WARN",
         "The console is not connected. Reconnect before running a command.",
       );
+
       return;
     }
+
 
     try {
       socket.send(
@@ -462,11 +657,16 @@ export default function Console() {
         }),
       );
 
-      appendLog("COMMAND", `$ ${trimmedCommand}`);
+      appendLog(
+        "COMMAND",
+        `$ ${trimmedCommand}`,
+      );
 
       setCommandHistory((current) =>
         [
-          ...current.filter((item) => item !== trimmedCommand),
+          ...current.filter(
+            (item) => item !== trimmedCommand,
+          ),
           trimmedCommand,
         ].slice(-100),
       );
@@ -474,11 +674,19 @@ export default function Console() {
       setHistoryIndex(-1);
       setCommand("");
     } catch {
-      appendLog("ERROR", "Could not send the command to the backend.");
+      appendLog(
+        "ERROR",
+        "Could not send the command to the backend.",
+      );
     }
 
     commandInputRef.current?.focus();
   };
+
+
+  // --------------------------------------------------
+  // Command history navigation
+  // --------------------------------------------------
 
   const handleCommandKeyDown = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -496,8 +704,12 @@ export default function Console() {
           : Math.max(0, historyIndex - 1);
 
       setHistoryIndex(nextIndex);
-      setCommand(commandHistory[nextIndex]);
+
+      setCommand(
+        commandHistory[nextIndex],
+      );
     }
+
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -513,40 +725,71 @@ export default function Console() {
         setCommand("");
       } else {
         setHistoryIndex(nextIndex);
-        setCommand(commandHistory[nextIndex]);
+
+        setCommand(
+          commandHistory[nextIndex],
+        );
       }
     }
   };
+
+
+  // --------------------------------------------------
+  // Clear logs
+  // --------------------------------------------------
 
   const clearLogs = () => {
     setLogs([]);
   };
 
+
+  // --------------------------------------------------
+  // Export logs
+  // --------------------------------------------------
+
   const exportLogs = () => {
     const content = logs
       .map(
         (entry) =>
-          `[${formatTimestamp(entry.timestamp)}] [${entry.level}] ${entry.message}`,
+        (
+          `[${formatTimestamp(entry.timestamp)}] ` +
+          `[${entry.level}] ${entry.message}`
+        ),
       )
       .join("\n");
 
-    const blob = new Blob([content], {
-      type: "text/plain;charset=utf-8",
-    });
+    const blob = new Blob(
+      [content],
+      {
+        type: "text/plain;charset=utf-8",
+      },
+    );
 
     const url = URL.createObjectURL(blob);
+
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = `kinesis-console-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.log`;
+
+    link.download = (
+      `kinesis-console-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.log`
+    );
 
     document.body.appendChild(link);
+
     link.click();
+
     link.remove();
+
     URL.revokeObjectURL(url);
   };
+
+
+  // --------------------------------------------------
+  // Connection status styling
+  // --------------------------------------------------
 
   const statusConfig: Record<
     ConnectionState,
@@ -556,32 +799,45 @@ export default function Console() {
       label: "Connecting",
       color: "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]",
     },
+
     connected: {
       label: "Connected",
       color: "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]",
     },
+
     disconnected: {
       label: "Disconnected",
       color: "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#bac2de]",
     },
+
     error: {
       label: "Connection error",
       color: "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]",
     },
   };
 
+
+  // --------------------------------------------------
+  // Render
+  // --------------------------------------------------
+
   return (
     <div className="min-w-0 space-y-5 font-line-seed text-[#cdd6f4]">
+      {/* Header */}
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div className="flex items-start gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-[#89b4fa]/20 bg-[#89b4fa]/10">
-            <TerminalIcon size={22} className="text-[#89b4fa]" />
+            <TerminalIcon
+              size={22}
+              className="text-[#89b4fa]"
+            />
           </div>
 
           <div>
             <h1 className="text-xl font-semibold tracking-tight">
               Operational Console
             </h1>
+
             <p className="mt-1 max-w-xl text-sm leading-6 text-[#a6adc8]">
               Inspect backend health, inventory, sales, and registered
               terminals through approved diagnostic commands.
@@ -595,14 +851,20 @@ export default function Console() {
           {connection === "connected" ? (
             <Wifi size={14} />
           ) : connection === "connecting" ? (
-            <RefreshCw size={14} className="animate-spin" />
+            <RefreshCw
+              size={14}
+              className="animate-spin"
+            />
           ) : (
             <WifiOff size={14} />
           )}
+
           {statusConfig[connection].label}
         </div>
       </header>
 
+
+      {/* Connection information */}
       <section className="rounded-xl border border-[#313244] bg-[#1e1e2e] p-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="flex items-start gap-3">
@@ -628,60 +890,69 @@ export default function Console() {
                 {connection === "connected"
                   ? "Authenticated with the backend"
                   : connection === "connecting"
-                    ? "Opening secure console session"
+                    ? "Establishing secure console session"
                     : "Console session is not active"}
               </p>
+
               <p className="mt-1 text-xs leading-5 text-[#a6adc8]">
                 {connection === "connected"
                   ? "You can run the supported diagnostic commands below."
-                  : token
-                    ? "Check the backend terminal output if the connection keeps failing."
-                    : "Enter the admin token in Terminal Management, then return here and check the session token."}
+                  : connection === "connecting"
+                    ? "The server is validating your administrator session."
+                    : "Reconnect to establish a new console connection. Your administrator login session is managed by Kinesis."}
               </p>
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap gap-2">
-            {!token && (
-              <button
-                type="button"
-                onClick={refreshSessionToken}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#45475a] px-3 py-2 text-xs font-medium text-[#cdd6f4] transition hover:bg-[#313244]"
-              >
-                Check session token
-              </button>
-            )}
 
+          <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
               onClick={connect}
-              disabled={!token || connection === "connecting"}
+              disabled={connection === "connecting"}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <RefreshCw
                 size={14}
-                className={connection === "connecting" ? "animate-spin" : ""}
+                className={
+                  connection === "connecting"
+                    ? "animate-spin"
+                    : ""
+                }
               />
+
               Reconnect
             </button>
           </div>
         </div>
       </section>
 
+
+      {/* Backend output */}
       <section className="overflow-hidden rounded-xl border border-[#313244] bg-[#181825]">
         <div className="flex flex-col justify-between gap-3 border-b border-[#313244] px-4 py-3 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2">
-            <Activity size={16} className="text-[#89b4fa]" />
-            <h2 className="text-sm font-semibold">Backend output</h2>
+            <Activity
+              size={16}
+              className="text-[#89b4fa]"
+            />
+
+            <h2 className="text-sm font-semibold">
+              Backend output
+            </h2>
+
             <span className="rounded-md bg-[#313244] px-2 py-0.5 text-[11px] tabular-nums text-[#bac2de]">
               {filteredLogs.length.toLocaleString()} entries
             </span>
           </div>
 
+
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setPaused((current) => !current)}
+              onClick={() =>
+                setPaused((current) => !current)
+              }
               title={
                 paused
                   ? "Resume incoming log display"
@@ -692,9 +963,17 @@ export default function Console() {
                   : "border-[#45475a] text-[#bac2de] hover:bg-[#313244]"
                 }`}
             >
-              {paused ? <Play size={13} /> : <Pause size={13} />}
-              {paused ? "Resume logs" : "Pause logs"}
+              {paused ? (
+                <Play size={13} />
+              ) : (
+                <Pause size={13} />
+              )}
+
+              {paused
+                ? "Resume logs"
+                : "Pause logs"}
             </button>
+
 
             <button
               type="button"
@@ -705,6 +984,7 @@ export default function Console() {
               <Download size={13} />
               Export
             </button>
+
 
             <button
               type="button"
@@ -718,6 +998,8 @@ export default function Console() {
           </div>
         </div>
 
+
+        {/* Filters */}
         <div className="flex flex-col gap-3 border-b border-[#313244] px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             {LOG_FILTERS.map((item) => (
@@ -735,16 +1017,24 @@ export default function Console() {
             ))}
           </div>
 
+
           <div className="flex items-center gap-2 rounded-lg border border-[#313244] bg-[#1e1e2e] px-3">
-            <Activity size={14} className="shrink-0 text-[#9399b2]" />
+            <Activity
+              size={14}
+              className="shrink-0 text-[#9399b2]"
+            />
+
             <input
               type="text"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               placeholder="Filter messages..."
               aria-label="Filter console messages"
               className="min-w-0 flex-1 bg-transparent py-2.5 text-xs text-[#cdd6f4] outline-none placeholder:text-[#6c7086]"
             />
+
             {search && (
               <button
                 type="button"
@@ -758,6 +1048,8 @@ export default function Console() {
           </div>
         </div>
 
+
+        {/* Output panel */}
         <div
           ref={logContainerRef}
           className="h-[340px] overflow-auto bg-[#11111b] px-3 py-3 font-mono text-xs leading-5 sm:h-[420px] sm:px-4"
@@ -766,12 +1058,17 @@ export default function Console() {
         >
           {filteredLogs.length === 0 ? (
             <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-2 text-center">
-              <TerminalIcon size={25} className="text-[#45475a]" />
+              <TerminalIcon
+                size={25}
+                className="text-[#45475a]"
+              />
+
               <p className="text-[#a6adc8]">
                 {logs.length === 0
                   ? "No console output yet."
                   : "No entries match your filters."}
               </p>
+
               <p className="text-[11px] text-[#6c7086]">
                 {logs.length === 0
                   ? "Connect to the backend or run help to get started."
@@ -788,11 +1085,13 @@ export default function Console() {
                   <span className="whitespace-nowrap text-[#6c7086]">
                     {formatTimestamp(entry.timestamp)}
                   </span>
+
                   <span
                     className={`font-semibold ${getLevelStyle(entry.level)}`}
                   >
                     {entry.level}
                   </span>
+
                   <pre
                     className={`min-w-0 whitespace-pre-wrap break-words font-mono ${getLevelStyle(entry.level)}`}
                   >
@@ -804,6 +1103,7 @@ export default function Console() {
           )}
         </div>
 
+
         {paused && (
           <div className="border-t border-[#45475a] bg-[#f9e2af]/5 px-4 py-2 text-[11px] text-[#f9e2af]">
             Incoming backend log messages are hidden until you resume logs.
@@ -811,6 +1111,8 @@ export default function Console() {
           </div>
         )}
 
+
+        {/* Diagnostic command input */}
         <form
           onSubmit={handleCommandSubmit}
           className="border-t border-[#313244] bg-[#1e1e2e] p-3 sm:p-4"
@@ -825,21 +1127,27 @@ export default function Console() {
 
             <button
               type="button"
-              onClick={() => setShowCommands((current) => !current)}
+              onClick={() =>
+                setShowCommands((current) => !current)
+              }
               className="text-[11px] text-[#89b4fa] transition hover:text-[#b4befe]"
             >
-              {showCommands ? "Hide commands" : "Supported commands"}
+              {showCommands
+                ? "Hide commands"
+                : "Supported commands"}
             </button>
           </div>
 
+
           {showCommands && (
-            <div className="mb-3 grid grid-cols-1 gap-1.5 rounded-lg border border-[#313244] bg-[#181825] p-2 sm:grid-cols-2">
+            <div className="mb-3 grid grid-cols-1 gap-1.5 rounded-lg border border-[#313244] bg-[#181825] p-2">
               {COMMAND_EXAMPLES.map((item) => (
                 <button
                   type="button"
                   key={item.command}
                   onClick={() => {
                     setCommand(item.command);
+
                     commandInputRef.current?.focus();
                   }}
                   className="flex min-w-0 flex-col items-start rounded-md px-2.5 py-2 text-left transition hover:bg-[#313244]"
@@ -847,6 +1155,7 @@ export default function Console() {
                   <code className="text-xs text-[#89b4fa]">
                     {item.command}
                   </code>
+
                   <span className="mt-1 text-[11px] text-[#9399b2]">
                     {item.description}
                   </span>
@@ -854,6 +1163,7 @@ export default function Console() {
               ))}
             </div>
           )}
+
 
           <div className="flex items-center gap-2 rounded-lg border border-[#45475a] bg-[#11111b] px-3 focus-within:border-[#89b4fa]/60">
             <span className="select-none font-mono text-sm text-[#a6e3a1]">
@@ -880,14 +1190,21 @@ export default function Console() {
 
             <button
               type="submit"
-              disabled={connection !== "connected" || !command.trim()}
+              disabled={
+                connection !== "connected" ||
+                !command.trim()
+              }
               aria-label="Run diagnostic command"
               className="inline-flex items-center gap-2 rounded-md bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={13} />
-              <span className="hidden sm:inline">Run</span>
+
+              <span className="hidden sm:inline">
+                Run
+              </span>
             </button>
           </div>
+
 
           <p className="mt-2 text-[10px] leading-5 text-[#6c7086]">
             Commands are restricted by the backend allowlist. This console

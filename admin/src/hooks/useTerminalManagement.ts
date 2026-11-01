@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchAdminTerminals,
@@ -12,12 +12,16 @@ import type {
   TerminalListResponse,
 } from "../types/terminal";
 
+
 function getErrorMessage(
   error: unknown,
   fallback: string,
 ): string {
-  return error instanceof Error ? error.message : fallback;
+  return error instanceof Error
+    ? error.message
+    : fallback;
 }
+
 
 function mergeConnectionMetrics(
   terminals: TerminalListResponse,
@@ -30,20 +34,24 @@ function mergeConnectionMetrics(
     ]),
   );
 
-  const items: ManagedTerminal[] = terminals.items.map((terminal) => {
-    const metric = metricsByTerminal.get(terminal.id);
+  const items: ManagedTerminal[] = terminals.items.map(
+    (terminal) => {
+      const metric = metricsByTerminal.get(terminal.id);
 
-    return {
-      ...terminal,
-      websocket_connected: metric?.websocket_connected ?? false,
-      latency_ms: metric?.latency_ms ?? null,
-      latency_updated_at: metric?.latency_updated_at ?? null,
-      connection_health:
-        metric?.connection_health ?? "Unavailable",
-      consecutive_ping_timeouts:
-        metric?.consecutive_ping_timeouts ?? 0,
-    };
-  });
+      return {
+        ...terminal,
+        websocket_connected:
+          metric?.websocket_connected ?? false,
+        latency_ms: metric?.latency_ms ?? null,
+        latency_updated_at:
+          metric?.latency_updated_at ?? null,
+        connection_health:
+          metric?.connection_health ?? "Unavailable",
+        consecutive_ping_timeouts:
+          metric?.consecutive_ping_timeouts ?? 0,
+      };
+    },
+  );
 
   return {
     ...terminals,
@@ -51,8 +59,8 @@ function mergeConnectionMetrics(
   };
 }
 
+
 export function useTerminalManagement(
-  token: string | null,
   search = "",
 ) {
   const [data, setData] =
@@ -64,32 +72,22 @@ export function useTerminalManagement(
   const [error, setError] = useState("");
   const [metricsError, setMetricsError] = useState("");
 
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] =
+    useState<Date | null>(null);
+
   const [metricsUpdatedAt, setMetricsUpdatedAt] =
     useState<string | null>(null);
 
   const [refreshKey, setRefreshKey] = useState(0);
 
+
   // --------------------------------------------------
-  // Terminal list
+  // Load terminal information
   // --------------------------------------------------
 
   useEffect(() => {
-    if (!token) {
-      setData(null);
-      setLoading(false);
-      setRefreshing(false);
-      setError("");
-      setMetricsError("");
-      setLastUpdated(null);
-      setMetricsUpdatedAt(null);
-      return;
-    }
-
-    // Preserve the non-null type inside asynchronous callbacks.
-    const activeToken: string = token;
-
     const controller = new AbortController();
+
     let cancelled = false;
 
     setLoading(true);
@@ -97,124 +95,131 @@ export function useTerminalManagement(
     setError("");
     setMetricsError("");
 
-    const timeout = setTimeout(() => {
-      async function loadTerminals() {
-        try {
-          const terminals = await fetchAdminTerminals(
-            activeToken,
-            search,
-            controller.signal,
-          );
-
-          if (cancelled) return;
-
-          let result = terminals;
-
-          try {
-            const metrics = await fetchTerminalConnectionMetrics(
-              activeToken,
-              controller.signal,
-            );
-
-            if (cancelled) return;
-
-            result = mergeConnectionMetrics(
-              terminals,
-              metrics,
-            );
-
-            setMetricsUpdatedAt(metrics.measured_at);
-            setMetricsError("");
-          } catch (metricsFetchError) {
-            if (cancelled) return;
-
-            setMetricsError(
-              getErrorMessage(
-                metricsFetchError,
-                "Connection metrics could not be loaded.",
-              ),
-            );
-
-            result = mergeConnectionMetrics(
-              terminals,
-              {
-                items: [],
-                measured_at: "",
-              },
-            );
-          }
-
-          if (cancelled) return;
-
-          setData(result);
-          setLastUpdated(new Date());
-        } catch (fetchError) {
-          if (cancelled) return;
-
-          setError(
-            getErrorMessage(
-              fetchError,
-              "Could not load terminal information.",
-            ),
-          );
-        } finally {
-          if (!cancelled) {
-            setLoading(false);
-            setRefreshing(false);
-          }
-        }
-      }
-
+    const timeout = window.setTimeout(() => {
       void loadTerminals();
     }, 250);
 
+
+    async function loadTerminals() {
+      try {
+        const terminals = await fetchAdminTerminals(
+          search,
+          controller.signal,
+        );
+
+        if (cancelled) return;
+
+        let result = terminals;
+
+        try {
+          const metrics =
+            await fetchTerminalConnectionMetrics(
+              controller.signal,
+            );
+
+          if (cancelled) return;
+
+          result = mergeConnectionMetrics(
+            terminals,
+            metrics,
+          );
+
+          setMetricsUpdatedAt(metrics.measured_at);
+          setMetricsError("");
+        } catch (metricsFetchError) {
+          if (cancelled) return;
+
+          setMetricsError(
+            getErrorMessage(
+              metricsFetchError,
+              "Connection metrics could not be loaded.",
+            ),
+          );
+
+          result = mergeConnectionMetrics(
+            terminals,
+            {
+              items: [],
+              measured_at: "",
+            },
+          );
+        }
+
+        if (cancelled) return;
+
+        setData(result);
+        setLastUpdated(new Date());
+      } catch (fetchError) {
+        if (cancelled) return;
+
+        setError(
+          getErrorMessage(
+            fetchError,
+            "Could not load terminal information.",
+          ),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    }
+
+
     return () => {
       cancelled = true;
-      clearTimeout(timeout);
+
+      window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [token, search, refreshKey]);
+  }, [search, refreshKey]);
+
 
   // --------------------------------------------------
   // Live connection metric polling
   // --------------------------------------------------
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    // Preserve the non-null type inside the polling callback.
-    const activeToken: string = token;
-
     let cancelled = false;
     let running = false;
 
-    const controller = new AbortController();
+    let activeController: AbortController | null = null;
+
 
     async function pollMetrics() {
       if (cancelled || running) return;
 
       running = true;
 
+      const controller = new AbortController();
+
+      activeController = controller;
+
       try {
-        const metrics = await fetchTerminalConnectionMetrics(
-          activeToken,
-          controller.signal,
-        );
+        const metrics =
+          await fetchTerminalConnectionMetrics(
+            controller.signal,
+          );
 
         if (cancelled) return;
 
         setData((current) => {
           if (!current) return current;
 
-          return mergeConnectionMetrics(current, metrics);
+          return mergeConnectionMetrics(
+            current,
+            metrics,
+          );
         });
 
         setMetricsUpdatedAt(metrics.measured_at);
         setMetricsError("");
       } catch (pollError) {
-        if (!cancelled && !controller.signal.aborted) {
+        if (
+          !cancelled &&
+          !controller.signal.aborted
+        ) {
           setMetricsError(
             getErrorMessage(
               pollError,
@@ -224,23 +229,36 @@ export function useTerminalManagement(
         }
       } finally {
         running = false;
+
+        if (activeController === controller) {
+          activeController = null;
+        }
       }
     }
 
-    const interval = setInterval(() => {
+
+    const interval = window.setInterval(() => {
       void pollMetrics();
-    }, 5_000);
+    }, 5000);
+
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
-      controller.abort();
-    };
-  }, [token]);
 
-  const refresh = () => {
+      window.clearInterval(interval);
+      activeController?.abort();
+    };
+  }, []);
+
+
+  // --------------------------------------------------
+  // Manual refresh
+  // --------------------------------------------------
+
+  const refresh = useCallback(() => {
     setRefreshKey((current) => current + 1);
-  };
+  }, []);
+
 
   return {
     data,

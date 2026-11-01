@@ -1,72 +1,86 @@
 import asyncio
-import hashlib
 import logging
 import re
-import secrets
 import threading
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from pydantic import SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from fastapi import (
+    APIRouter,
+    WebSocket,
+    WebSocketDisconnect,
+)
+
 from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
+
+from admin_models import AdminSession
+from auth.config import auth_settings
+from auth.security import hash_secret
+from auth.sessions import resolve_admin_session
 
 from database import SessionLocal, engine
 from models import Product, Sale, Terminal
+from terminal_routes import (
+    heartbeat_cutoff,
+    is_terminal_connected,
+    settings as terminal_settings,
+)
 
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Console"])
+router = APIRouter(
+    tags=["Console"],
+)
 
 REPORT_TIMEZONE = ZoneInfo("Asia/Manila")
+
 MAX_COMMAND_LENGTH = 200
 MAX_LOG_MESSAGE_LENGTH = 2000
 MAX_SUBSCRIBER_QUEUE_SIZE = 300
+
 COMMAND_COOLDOWN_SECONDS = 0.5
-AUTH_TIMEOUT_SECONDS = 10
+
+SESSION_CHECK_INTERVAL_SECONDS = 15
 
 
-class ConsoleSettings(BaseSettings):
-    admin_api_token: SecretStr | None = None
-    admin_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    terminal_heartbeat_timeout_seconds: int = 90
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_prefix="KINESIS_",
-        extra="ignore",
-    )
+# --------------------------------------------------
+# Console configuration
+# --------------------------------------------------
 
 
-settings = ConsoleSettings()
+def allowed_origins() -> frozenset[str]:
+    return auth_settings.allowed_origins
 
 
-def allowed_origins() -> set[str]:
-    return {
-        origin.strip().rstrip("/")
-        for origin in settings.admin_allowed_origins.split(",")
-        if origin.strip()
-    }
+# --------------------------------------------------
+# Log sanitization
+# --------------------------------------------------
 
 
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|passwd|token|secret|api[_-]?key|authorization)"
     r"(\s*[:=]\s*)([^,\s;]+)"
 )
+
 _BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 
 
 def sanitize_log_message(message: str) -> str:
-    """Reduce the chance of exposing credentials in console log output."""
-    message = _SECRET_ASSIGNMENT.sub(r"\1\2[REDACTED]", message)
-    message = _BEARER_TOKEN.sub("Bearer [REDACTED]", message)
+    """Reduce the chance of exposing credentials in console output."""
+
+    message = _SECRET_ASSIGNMENT.sub(
+        r"\1\2[REDACTED]",
+        message,
+    )
+
+    message = _BEARER_TOKEN.sub(
+        "Bearer [REDACTED]",
+        message,
+    )
 
     if len(message) > MAX_LOG_MESSAGE_LENGTH:
         message = message[:MAX_LOG_MESSAGE_LENGTH] + "… [truncated]"
@@ -74,19 +88,27 @@ def sanitize_log_message(message: str) -> str:
     return message
 
 
+# --------------------------------------------------
+# WebSocket subscriber management
+# --------------------------------------------------
+
+
 def enqueue_latest(
     queue: asyncio.Queue[dict[str, Any]],
     payload: dict[str, Any],
 ) -> None:
-    """Keep the newest events when a browser cannot consume logs quickly."""
+    """Keep the newest log events when a client consumes logs slowly."""
+
     if queue.full():
         try:
             queue.get_nowait()
+
         except asyncio.QueueEmpty:
             pass
 
     try:
         queue.put_nowait(payload)
+
     except asyncio.QueueFull:
         pass
 
@@ -97,22 +119,31 @@ Subscriber = tuple[
 ]
 
 _subscribers: set[Subscriber] = set()
+
 _subscribers_lock = threading.Lock()
 
 
 class ConsoleLogHandler(logging.Handler):
-    """Fan application log records out to authenticated console clients."""
+    """Send application log records to authenticated console clients."""
 
-    def emit(self, record: logging.LogRecord) -> None:
+    def emit(
+        self,
+        record: logging.LogRecord,
+    ) -> None:
         try:
-            message = sanitize_log_message(record.getMessage())
+            message = sanitize_log_message(
+                record.getMessage(),
+            )
 
             if record.levelno >= logging.ERROR:
                 level = "ERROR"
+
             elif record.levelno >= logging.WARNING:
                 level = "WARN"
+
             elif record.levelno <= logging.DEBUG:
                 level = "DEBUG"
+
             else:
                 level = "INFO"
 
@@ -138,12 +169,11 @@ class ConsoleLogHandler(logging.Handler):
                         queue,
                         payload,
                     )
+
                 except RuntimeError:
-                    # The connection's event loop has already closed.
                     continue
 
         except Exception:
-            # Logging handlers must never break the application request.
             self.handleError(record)
 
 
@@ -155,8 +185,7 @@ root_logger = logging.getLogger()
 if not any(isinstance(handler, ConsoleLogHandler) for handler in root_logger.handlers):
     root_logger.addHandler(console_log_handler)
 
-# Ensure application INFO messages can reach the console. This affects only
-# the named application loggers, not the global root logger's level.
+
 for logger_name in (
     "main",
     "sales_routes",
@@ -184,11 +213,13 @@ Only these read-only diagnostics are supported. Shell commands and arbitrary
 SQL execution are not available through the browser console."""
 
 
-def database_check(db: Session) -> str:
-    db.execute(select(1)).scalar_one()
+def database_check(db) -> str:
+    db.execute(
+        select(1),
+    ).scalar_one()
 
     return (
-        f"Database query successful.\n"
+        "Database query successful.\n"
         f"Engine: {engine.dialect.name}\n"
         f"Database driver: {engine.dialect.driver}"
     )
@@ -196,9 +227,11 @@ def database_check(db: Session) -> str:
 
 def run_diagnostic_command(command: str) -> str:
     """
-    Execute a supported, read-only diagnostic.
-    Never interpret user input as Python, SQL, or a shell command.
+    Execute a supported read-only diagnostic.
+
+    User input is never interpreted as Python, SQL, or shell commands.
     """
+
     normalized = " ".join(command.strip().lower().split())
 
     if normalized == "help":
@@ -206,15 +239,15 @@ def run_diagnostic_command(command: str) -> str:
 
     with SessionLocal() as db:
         if normalized in {"status", "health"}:
-            db.execute(select(1)).scalar_one()
+            db.execute(
+                select(1),
+            ).scalar_one()
 
             product_count = db.scalar(select(func.count(Product.id))) or 0
 
             terminal_count = db.scalar(select(func.count(Terminal.id))) or 0
 
-            cutoff = datetime.now(timezone.utc) - timedelta(
-                seconds=settings.terminal_heartbeat_timeout_seconds
-            )
+            cutoff = heartbeat_cutoff()
 
             connected_count = (
                 db.scalar(
@@ -233,7 +266,9 @@ def run_diagnostic_command(command: str) -> str:
                 f"Database engine: {engine.dialect.name}\n"
                 f"Products: {int(product_count)}\n"
                 f"Registered terminals: {int(terminal_count)}\n"
-                f"Recently connected terminals: {int(connected_count)}"
+                f"Recently connected terminals: {int(connected_count)}\n"
+                "Heartbeat timeout: "
+                f"{terminal_settings.terminal_heartbeat_timeout_seconds} seconds"
             )
 
         if normalized == "db check":
@@ -270,9 +305,6 @@ def run_diagnostic_command(command: str) -> str:
 
         if normalized == "terminals list":
             now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(
-                seconds=settings.terminal_heartbeat_timeout_seconds
-            )
 
             terminals = db.scalars(
                 select(Terminal)
@@ -286,10 +318,15 @@ def run_diagnostic_command(command: str) -> str:
             if not terminals:
                 return "No terminals have registered yet."
 
-            lines = ["Registered terminals (latest 20):"]
+            lines = [
+                "Registered terminals (latest 20):",
+            ]
 
             for terminal in terminals:
-                connected = terminal.is_enabled and terminal.last_seen_at >= cutoff
+                connected = is_terminal_connected(
+                    terminal,
+                    now,
+                )
 
                 state = (
                     "CONNECTED"
@@ -309,11 +346,13 @@ def run_diagnostic_command(command: str) -> str:
 
         if normalized == "sales today":
             now_local = datetime.now(REPORT_TIMEZONE)
+
             local_start = datetime.combine(
                 now_local.date(),
                 time.min,
                 tzinfo=REPORT_TIMEZONE,
             )
+
             local_end = local_start + timedelta(days=1)
 
             start_utc = local_start.astimezone(timezone.utc)
@@ -345,7 +384,145 @@ def run_diagnostic_command(command: str) -> str:
     )
 
 
-async def send_error(websocket: WebSocket, message: str) -> None:
+# --------------------------------------------------
+# Session authentication
+# --------------------------------------------------
+
+
+def get_websocket_username(
+    token: str,
+) -> str | None:
+    """
+    Resolve an administrator session and return its username.
+
+    The username is copied while the database session is still open.
+    This avoids returning an ORM object that may become detached or
+    expired after resolve_admin_session commits a session touch.
+    """
+
+    if not token or len(token) > 256:
+        return None
+
+    with SessionLocal() as db:
+        session_record = resolve_admin_session(
+            db,
+            token,
+        )
+
+        if session_record is None:
+            return None
+
+        return session_record.admin_user.username
+
+
+def console_session_is_valid(
+    token: str,
+) -> bool:
+    """
+    Recheck session validity without extending idle expiration.
+
+    This allows logout, administrative revocation, and expiration
+    to terminate an existing Console WebSocket.
+    """
+
+    if not token or len(token) > 256:
+        return False
+
+    token_hash = hash_secret(token)
+    now = datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        session_record = db.scalar(
+            select(AdminSession)
+            .options(
+                joinedload(AdminSession.admin_user),
+            )
+            .where(
+                AdminSession.session_token_hash == token_hash,
+            )
+        )
+
+        if session_record is None:
+            return False
+
+        if session_record.revoked_at is not None:
+            return False
+
+        if (
+            session_record.idle_expires_at <= now
+            or session_record.absolute_expires_at <= now
+        ):
+            return False
+
+        if not session_record.admin_user.is_active:
+            return False
+
+        return True
+
+
+def touch_console_session(
+    token: str,
+) -> bool:
+    """
+    Extend idle expiration when an administrator actively submits
+    a diagnostic command through the Console.
+    """
+
+    if not token:
+        return False
+
+    with SessionLocal() as db:
+        session_record = resolve_admin_session(
+            db,
+            token,
+        )
+
+        return session_record is not None
+
+
+async def monitor_admin_session(
+    websocket: WebSocket,
+    token: str,
+) -> None:
+    """
+    Periodically detect expired and revoked administrator sessions.
+
+    A Console connection is not allowed to remain authenticated
+    indefinitely after the browser session expires.
+    """
+
+    while True:
+        await asyncio.sleep(
+            SESSION_CHECK_INTERVAL_SECONDS,
+        )
+
+        valid = await asyncio.to_thread(
+            console_session_is_valid,
+            token,
+        )
+
+        if not valid:
+            try:
+                await websocket.close(
+                    code=4401,
+                    reason="Administrator session expired or revoked.",
+                )
+
+            except Exception:
+                pass
+
+            return
+
+
+# --------------------------------------------------
+# WebSocket messaging
+# --------------------------------------------------
+
+
+async def send_error(
+    websocket: WebSocket,
+    message: str,
+) -> None:
     await websocket.send_json(
         {
             "type": "error",
@@ -360,18 +537,27 @@ async def stream_logs(
 ) -> None:
     while True:
         payload = await queue.get()
+
         await websocket.send_json(payload)
 
 
-async def receive_commands(websocket: WebSocket) -> None:
+async def receive_commands(
+    websocket: WebSocket,
+    session_token: str,
+) -> None:
     loop = asyncio.get_running_loop()
+
     last_command_time = 0.0
 
     while True:
         incoming = await websocket.receive_json()
 
         if not isinstance(incoming, dict):
-            await send_error(websocket, "Expected a JSON object.")
+            await send_error(
+                websocket,
+                "Expected a JSON object.",
+            )
+
             continue
 
         if incoming.get("type") != "command":
@@ -379,12 +565,17 @@ async def receive_commands(websocket: WebSocket) -> None:
                 websocket,
                 "Unsupported message type. Send a diagnostic command.",
             )
+
             continue
 
         command = incoming.get("command")
 
         if not isinstance(command, str) or not command.strip():
-            await send_error(websocket, "Enter a diagnostic command.")
+            await send_error(
+                websocket,
+                "Enter a diagnostic command.",
+            )
+
             continue
 
         if len(command) > MAX_COMMAND_LENGTH:
@@ -392,7 +583,22 @@ async def receive_commands(websocket: WebSocket) -> None:
                 websocket,
                 f"Commands must be {MAX_COMMAND_LENGTH} characters or fewer.",
             )
+
             continue
+
+        # User interaction renews the administrator's idle session.
+        session_valid = await asyncio.to_thread(
+            touch_console_session,
+            session_token,
+        )
+
+        if not session_valid:
+            await websocket.close(
+                code=4401,
+                reason="Administrator session expired or revoked.",
+            )
+
+            return
 
         current_time = loop.time()
 
@@ -401,6 +607,7 @@ async def receive_commands(websocket: WebSocket) -> None:
                 websocket,
                 "Please wait before running another command.",
             )
+
             continue
 
         last_command_time = current_time
@@ -420,21 +627,17 @@ async def receive_commands(websocket: WebSocket) -> None:
             )
 
         except ValueError as exc:
-            await send_error(websocket, str(exc))
-
-        except SQLAlchemyError:
-            logger.exception("Console diagnostic database query failed.")
             await send_error(
                 websocket,
-                "The diagnostic failed while querying the database. "
-                "Check the backend logs for details.",
+                str(exc),
             )
 
         except Exception:
-            logger.exception("Console diagnostic failed unexpectedly.")
+            logger.exception("Console diagnostic failed.")
+
             await send_error(
                 websocket,
-                "The diagnostic failed unexpectedly. Check backend logs.",
+                "The diagnostic failed. Check the backend logs.",
             )
 
 
@@ -444,94 +647,118 @@ async def receive_commands(websocket: WebSocket) -> None:
 
 
 @router.websocket("/api/console/ws")
-async def console_websocket(websocket: WebSocket) -> None:
+async def console_websocket(
+    websocket: WebSocket,
+) -> None:
     origin = websocket.headers.get("origin")
 
-    # The browser console is intended to be accessed from an explicitly
-    # configured admin origin. WebSocket connections aren't protected by
-    # FastAPI's regular CORS middleware.
+    # WebSocket connections are not protected by FastAPI's normal
+    # CORS middleware. Explicitly validate the browser origin.
     if not origin or origin.rstrip("/") not in allowed_origins():
         await websocket.close(
             code=1008,
             reason="Admin origin is not allowed.",
         )
+
+        return
+
+    # Browser WebSocket handshakes automatically include same-origin
+    # cookies. No authentication JSON message is required.
+    session_token = websocket.cookies.get(
+        auth_settings.admin_cookie_name,
+    )
+
+    if not session_token:
+        await websocket.close(
+            code=4401,
+            reason="Administrator authentication is required.",
+        )
+
+        return
+
+    try:
+        username = await asyncio.to_thread(
+            get_websocket_username,
+            session_token,
+        )
+
+    except Exception:
+        logger.exception("Console administrator session lookup failed.")
+
+        await websocket.close(
+            code=1011,
+            reason="Authentication service unavailable.",
+        )
+
+        return
+
+    if username is None:
+        await websocket.close(
+            code=4401,
+            reason="Administrator session is invalid.",
+        )
+
         return
 
     await websocket.accept()
 
-    configured_token = settings.admin_api_token
-
-    if configured_token is None or not configured_token.get_secret_value().strip():
-        await send_error(
-            websocket,
-            "Admin API authentication is not configured on the server.",
-        )
-        await websocket.close(code=1011)
-        return
-
-    try:
-        auth_message = await asyncio.wait_for(
-            websocket.receive_json(),
-            timeout=AUTH_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        await websocket.close(
-            code=1008,
-            reason="Authentication timed out.",
-        )
-        return
-    except WebSocketDisconnect:
-        return
-    except Exception:
-        await websocket.close(
-            code=1008,
-            reason="Invalid authentication message.",
-        )
-        return
-
-    if not isinstance(auth_message, dict) or auth_message.get("type") != "auth":
-        await send_error(websocket, "Authenticate before using the console.")
-        await websocket.close(code=1008)
-        return
-
-    supplied_token = auth_message.get("token")
-
-    if (
-        not isinstance(supplied_token, str)
-        or not supplied_token
-        or not secrets.compare_digest(
-            supplied_token,
-            configured_token.get_secret_value(),
-        )
-    ):
-        await send_error(websocket, "Admin authentication failed.")
-        await websocket.close(code=1008)
-        return
-
     loop = asyncio.get_running_loop()
+
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
-        maxsize=MAX_SUBSCRIBER_QUEUE_SIZE
+        maxsize=MAX_SUBSCRIBER_QUEUE_SIZE,
     )
-    subscriber: Subscriber = (loop, queue)
+
+    subscriber: Subscriber = (
+        loop,
+        queue,
+    )
 
     with _subscribers_lock:
         _subscribers.add(subscriber)
+
+    logger.info(
+        "Administrator %s connected to the operational console.",
+        username,
+    )
 
     try:
         await websocket.send_json(
             {
                 "type": "status",
                 "message": (
-                    "Authenticated. The console streams backend logs and accepts "
+                    f"Authenticated as {username}. "
+                    "The console streams backend logs and accepts "
                     "read-only diagnostic commands. Type 'help' for commands."
                 ),
             }
         )
 
-        sender_task = asyncio.create_task(stream_logs(websocket, queue))
-        receiver_task = asyncio.create_task(receive_commands(websocket))
+        sender_task = asyncio.create_task(
+            stream_logs(
+                websocket,
+                queue,
+            )
+        )
 
-        tasks = {sender_task, receiver_task}
+        receiver_task = asyncio.create_task(
+            receive_commands(
+                websocket,
+                session_token,
+            )
+        )
+
+        session_task = asyncio.create_task(
+            monitor_admin_session(
+                websocket,
+                session_token,
+            )
+        )
+
+        tasks = {
+            sender_task,
+            receiver_task,
+            session_task,
+        }
 
         try:
             done, pending = await asyncio.wait(
@@ -542,7 +769,10 @@ async def console_websocket(websocket: WebSocket) -> None:
             for task in pending:
                 task.cancel()
 
-            await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(
+                *pending,
+                return_exceptions=True,
+            )
 
             for task in done:
                 exception = task.exception()
@@ -555,17 +785,28 @@ async def console_websocket(websocket: WebSocket) -> None:
                 if not task.done():
                     task.cancel()
 
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(
+                *tasks,
+                return_exceptions=True,
+            )
 
     except WebSocketDisconnect:
         pass
+
     except Exception:
         logger.exception("Console WebSocket terminated unexpectedly.")
+
     finally:
         with _subscribers_lock:
             _subscribers.discard(subscriber)
 
+        logger.info(
+            "Administrator %s disconnected from the operational console.",
+            username,
+        )
+
         try:
             await websocket.close()
+
         except Exception:
             pass

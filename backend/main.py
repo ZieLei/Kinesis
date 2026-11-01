@@ -37,6 +37,8 @@ from database_routes import router as database_router
 from settings_routes import router as settings_router
 from sku_generator import generate_product_sku
 from logging_config import initialize_application_logging
+from auth.integration import install_admin_authentication
+from auth.config import auth_settings
 
 
 logger = logging.getLogger(__name__)
@@ -78,20 +80,34 @@ app = FastAPI(
 # --------------------------------------------------
 
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:8081",
-    "http://127.0.0.1:8081",
-]
+origins = set(auth_settings.allowed_origins)
+
+# Expo web development origins are retained only in development.
+# Native mobile requests do not rely on browser CORS.
+if auth_settings.environment == "development":
+    origins.update(
+        {
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
+        }
+    )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=sorted(origins),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
     allow_headers=["*"],
 )
+
+install_admin_authentication(app)
 
 
 # --------------------------------------------------

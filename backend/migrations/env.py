@@ -4,7 +4,9 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from database import Base, DATABASE_URL
-import models  # noqa: F401 — registers every model with Base.metadata
+
+import models  # noqa: F401 — existing application models
+import admin_models  # noqa: F401 — administrator authentication models
 
 
 config = context.config
@@ -12,11 +14,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     """Run migrations without creating a database connection."""
+
     context.configure(
         url=DATABASE_URL.render_as_string(hide_password=False),
         target_metadata=target_metadata,
@@ -31,6 +35,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations using a live database connection."""
+
     connectable = engine_from_config(
         {
             "sqlalchemy.url": DATABASE_URL.render_as_string(

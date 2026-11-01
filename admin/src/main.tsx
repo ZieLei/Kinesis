@@ -1,10 +1,23 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
 
-createRoot(document.getElementById('root')!).render(
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+
+import "./index.css";
+
+import { AuthProvider } from "./auth/AuthProvider";
+import AdminApplication from "./auth/AdminApplication";
+
+
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error("Could not find the application root element.");
+}
+
+createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <AuthProvider>
+      <AdminApplication />
+    </AuthProvider>
   </StrictMode>,
-)
+);

@@ -2,6 +2,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal
 
 from fastapi import (
@@ -25,12 +26,17 @@ from models import Terminal, TerminalCommand
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["Terminals"])
+router = APIRouter(
+    prefix="/api",
+    tags=["Terminals"],
+)
+
+BACKEND_DIRECTORY = Path(__file__).resolve().parent
 
 
 class TerminalSettings(BaseSettings):
-    admin_api_token: SecretStr | None = None
     terminal_enrollment_key: SecretStr | None = None
+
     terminal_heartbeat_timeout_seconds: int = Field(
         default=90,
         ge=15,
@@ -38,7 +44,7 @@ class TerminalSettings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BACKEND_DIRECTORY / ".env",
         env_file_encoding="utf-8",
         env_prefix="KINESIS_",
         extra="ignore",
@@ -59,12 +65,32 @@ class TerminalRegistrationRequest(BaseModel):
         max_length=64,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
-    name: str = Field(min_length=1, max_length=100)
-    device_type: str = Field(min_length=1, max_length=60)
-    platform: str = Field(min_length=1, max_length=32)
-    app_version: str | None = Field(default=None, max_length=50)
 
-    @field_validator("name", "device_type", "platform")
+    name: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    device_type: str = Field(
+        min_length=1,
+        max_length=60,
+    )
+
+    platform: str = Field(
+        min_length=1,
+        max_length=32,
+    )
+
+    app_version: str | None = Field(
+        default=None,
+        max_length=50,
+    )
+
+    @field_validator(
+        "name",
+        "device_type",
+        "platform",
+    )
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         value = value.strip()
@@ -76,7 +102,10 @@ class TerminalRegistrationRequest(BaseModel):
 
     @field_validator("app_version")
     @classmethod
-    def normalize_app_version(cls, value: str | None) -> str | None:
+    def normalize_app_version(
+        cls,
+        value: str | None,
+    ) -> str | None:
         if value is None:
             return None
 
@@ -84,11 +113,17 @@ class TerminalRegistrationRequest(BaseModel):
 
 
 class TerminalHeartbeatRequest(BaseModel):
-    app_version: str | None = Field(default=None, max_length=50)
+    app_version: str | None = Field(
+        default=None,
+        max_length=50,
+    )
 
     @field_validator("app_version")
     @classmethod
-    def normalize_app_version(cls, value: str | None) -> str | None:
+    def normalize_app_version(
+        cls,
+        value: str | None,
+    ) -> str | None:
         if value is None:
             return None
 
@@ -97,11 +132,18 @@ class TerminalHeartbeatRequest(BaseModel):
 
 class TerminalCommandAcknowledgement(BaseModel):
     status: Literal["acknowledged", "failed"]
-    result_message: str | None = Field(default=None, max_length=300)
+
+    result_message: str | None = Field(
+        default=None,
+        max_length=300,
+    )
 
     @field_validator("result_message")
     @classmethod
-    def normalize_result_message(cls, value: str | None) -> str | None:
+    def normalize_result_message(
+        cls,
+        value: str | None,
+    ) -> str | None:
         if value is None:
             return None
 
@@ -113,7 +155,10 @@ class TerminalMaintenanceUpdate(BaseModel):
 
 
 class TerminalBroadcastRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=250)
+    message: str = Field(
+        min_length=1,
+        max_length=250,
+    )
 
     @field_validator("message")
     @classmethod
@@ -131,29 +176,22 @@ class TerminalBroadcastRequest(BaseModel):
 # --------------------------------------------------
 
 
-def require_admin_token(
-    x_admin_token: str | None = Header(
-        default=None,
-        alias="X-Admin-Token",
-    ),
-) -> None:
-    configured_token = settings.admin_api_token
+def require_admin_token() -> None:
+    """
+    Compatibility dependency for existing administrator-only routes.
 
-    if configured_token is None or not configured_token.get_secret_value():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin API authentication is not configured on the server.",
-        )
+    The application replaces this dependency with
+    require_admin_session during startup.
 
-    if not x_admin_token or not secrets.compare_digest(
-        x_admin_token,
-        configured_token.get_secret_value(),
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="A valid admin token is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    This function deliberately does not accept an administrator
+    API token. If the authentication integration is not installed,
+    administrator-only routes fail closed.
+    """
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Administrator browser authentication is required.",
+    )
 
 
 def require_enrollment_key(
@@ -187,6 +225,12 @@ def require_terminal(
     ),
     db: Session = Depends(get_db),
 ) -> Terminal:
+    """
+    Authenticate a registered POS terminal using its Bearer credential.
+
+    Terminal tokens are stored in PostgreSQL as SHA-256 digests.
+    """
+
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -196,14 +240,21 @@ def require_terminal(
 
     scheme, separator, raw_token = authorization.partition(" ")
 
-    if not separator or scheme.lower() != "bearer" or not raw_token.strip():
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not raw_token.strip()
+        or len(raw_token.strip()) > 256
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Use a valid Bearer token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+    token_hash = hashlib.sha256(
+        raw_token.strip().encode("utf-8"),
+    ).hexdigest()
 
     terminal = db.scalar(
         select(Terminal).where(
@@ -227,28 +278,27 @@ def require_terminal(
 
 
 def require_admin_or_terminal(
-    x_admin_token: str | None = Header(
-        default=None,
-        alias="X-Admin-Token",
-    ),
     authorization: str | None = Header(
         default=None,
         alias="Authorization",
     ),
     db: Session = Depends(get_db),
-) -> str | Terminal:
+) -> Terminal:
     """
-    Authenticate an administrator or an enabled POS terminal.
+    Compatibility dependency for routes accepting either an administrator
+    or a POS terminal.
 
-    Admin credentials take precedence when X-Admin-Token is supplied.
-    An invalid admin token must never fall back to terminal authentication.
+    The application replaces this dependency with
+    require_admin_session_or_terminal during startup.
+
+    Outside that integration, this fallback accepts terminal credentials
+    only. It never accepts a legacy administrator API token.
     """
 
-    if x_admin_token is not None:
-        require_admin_token(x_admin_token)
-        return "admin"
-
-    return require_terminal(authorization, db)
+    return require_terminal(
+        authorization,
+        db,
+    )
 
 
 def require_writable_terminal(
@@ -257,13 +307,17 @@ def require_writable_terminal(
     """
     Require an enabled terminal that is not in maintenance mode.
 
-    Use this dependency for POS operations that modify server data.
+    This remains terminal-only. Administrator browser sessions do not
+    bypass the POS terminal's maintenance restrictions.
     """
 
     if terminal.maintenance_mode:
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
-            detail="This terminal is in maintenance mode. POS modifications are temporarily unavailable.",
+            detail=(
+                "This terminal is in maintenance mode. "
+                "POS modifications are temporarily unavailable."
+            ),
         )
 
     return terminal
@@ -284,7 +338,10 @@ def heartbeat_cutoff() -> datetime:
     )
 
 
-def is_terminal_connected(terminal: Terminal, now: datetime) -> bool:
+def is_terminal_connected(
+    terminal: Terminal,
+    now: datetime,
+) -> bool:
     cutoff = now - timedelta(
         seconds=settings.terminal_heartbeat_timeout_seconds,
     )
@@ -296,7 +353,10 @@ def get_terminal_or_404(
     db: Session,
     terminal_id: int,
 ) -> Terminal:
-    terminal = db.get(Terminal, terminal_id)
+    terminal = db.get(
+        Terminal,
+        terminal_id,
+    )
 
     if terminal is None:
         raise HTTPException(
@@ -340,12 +400,12 @@ def terminal_admin_response(
         ),
         "is_enabled": terminal.is_enabled,
         "maintenance_mode": terminal.maintenance_mode,
-        # Signal strength is intentionally omitted: the backend cannot
-        # accurately infer a phone's Wi-Fi signal strength.
     }
 
 
-def terminal_command_response(command: TerminalCommand) -> dict:
+def terminal_command_response(
+    command: TerminalCommand,
+) -> dict:
     return {
         "id": command.id,
         "command_type": command.command_type,
@@ -391,9 +451,11 @@ def register_terminal(
         )
 
     raw_token = secrets.token_urlsafe(32)
+
     token_hash = hashlib.sha256(
         raw_token.encode("utf-8"),
     ).hexdigest()
+
     now = utc_now()
 
     terminal = Terminal(
@@ -419,6 +481,7 @@ def register_terminal(
 
     except IntegrityError as exc:
         db.rollback()
+
         logger.warning("Terminal registration conflicted with an existing record.")
 
         raise HTTPException(
@@ -428,6 +491,7 @@ def register_terminal(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Terminal registration failed.")
 
         raise HTTPException(
@@ -488,6 +552,7 @@ def terminal_heartbeat(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Terminal heartbeat failed.")
 
         raise HTTPException(
@@ -562,6 +627,7 @@ def acknowledge_terminal_command(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Terminal command acknowledgement failed.")
 
         raise HTTPException(
@@ -583,9 +649,19 @@ def acknowledge_terminal_command(
 
 @router.get("/admin/terminals")
 def list_admin_terminals(
-    search: str | None = Query(default=None, max_length=150),
-    limit: int = Query(default=100, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(
+        default=None,
+        max_length=150,
+    ),
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     _authorized: None = Depends(require_admin_token),
     db: Session = Depends(get_db),
 ):
@@ -595,6 +671,7 @@ def list_admin_terminals(
         term = (
             search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
+
         pattern = f"%{term}%"
 
         conditions.append(
@@ -612,7 +689,10 @@ def list_admin_terminals(
     terminals = db.scalars(
         select(Terminal)
         .where(*conditions)
-        .order_by(Terminal.last_seen_at.desc(), Terminal.id.desc())
+        .order_by(
+            Terminal.last_seen_at.desc(),
+            Terminal.id.desc(),
+        )
         .offset(offset)
         .limit(limit)
     ).all()
@@ -667,7 +747,10 @@ def request_terminal_sync(
     _authorized: None = Depends(require_admin_token),
     db: Session = Depends(get_db),
 ):
-    terminal = get_terminal_or_404(db, terminal_id)
+    terminal = get_terminal_or_404(
+        db,
+        terminal_id,
+    )
 
     if not is_terminal_connected(terminal, utc_now()):
         raise HTTPException(
@@ -689,6 +772,7 @@ def request_terminal_sync(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not queue a terminal sync command.")
 
         raise HTTPException(
@@ -716,7 +800,11 @@ def set_terminal_maintenance(
     _authorized: None = Depends(require_admin_token),
     db: Session = Depends(get_db),
 ):
-    terminal = get_terminal_or_404(db, terminal_id)
+    terminal = get_terminal_or_404(
+        db,
+        terminal_id,
+    )
+
     terminal.maintenance_mode = update.maintenance_mode
     terminal.updated_at = utc_now()
 
@@ -725,6 +813,7 @@ def set_terminal_maintenance(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not update terminal maintenance mode.")
 
         raise HTTPException(
@@ -787,6 +876,7 @@ def broadcast_to_terminals(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not queue the terminal broadcast.")
 
         raise HTTPException(
@@ -813,7 +903,11 @@ def disconnect_terminal(
     _authorized: None = Depends(require_admin_token),
     db: Session = Depends(get_db),
 ):
-    terminal = get_terminal_or_404(db, terminal_id)
+    terminal = get_terminal_or_404(
+        db,
+        terminal_id,
+    )
+
     now = utc_now()
 
     terminal.is_enabled = False
@@ -837,6 +931,7 @@ def disconnect_terminal(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not disable terminal.")
 
         raise HTTPException(
@@ -864,7 +959,11 @@ def enable_terminal(
     _authorized: None = Depends(require_admin_token),
     db: Session = Depends(get_db),
 ):
-    terminal = get_terminal_or_404(db, terminal_id)
+    terminal = get_terminal_or_404(
+        db,
+        terminal_id,
+    )
+
     terminal.is_enabled = True
     terminal.updated_at = utc_now()
 
@@ -873,6 +972,7 @@ def enable_terminal(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not re-enable terminal.")
 
         raise HTTPException(

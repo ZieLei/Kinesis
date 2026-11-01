@@ -1,5 +1,6 @@
 
 import { useEffect, useState, type FormEvent } from "react";
+
 import {
   Activity,
   Wifi,
@@ -15,19 +16,19 @@ import {
   Search,
   CircleCheck,
   CircleAlert,
-  Clock,
   Signal,
   X,
   Check,
   Wrench,
   Users,
   Server,
-  KeyRound,
   Gauge,
 } from "lucide-react";
+
 import type { LucideIcon } from "lucide-react";
 
 import { useTerminalManagement } from "../hooks/useTerminalManagement";
+
 import {
   broadcastToTerminals,
   disableTerminal,
@@ -41,19 +42,23 @@ import type {
   TerminalConnectionHealth,
 } from "../types/terminal";
 
+
 type Notice = {
   message: string;
   error: boolean;
 };
 
-const TOKEN_STORAGE_KEY = "kinesis-admin-api-token";
 
 const statusStyles = {
   Connected: "bg-ctp-green/10 text-ctp-green",
   Disconnected: "bg-ctp-red/10 text-ctp-red",
 } as const;
 
-const healthStyles: Record<TerminalConnectionHealth, string> = {
+
+const healthStyles: Record<
+  TerminalConnectionHealth,
+  string
+> = {
   Healthy: "bg-ctp-green/10 text-ctp-green",
   Degraded: "bg-ctp-yellow/10 text-ctp-yellow",
   Poor: "bg-ctp-red/10 text-ctp-red",
@@ -61,7 +66,11 @@ const healthStyles: Record<TerminalConnectionHealth, string> = {
   Measuring: "bg-ctp-blue/10 text-ctp-blue",
 };
 
-const healthDotStyles: Record<TerminalConnectionHealth, string> = {
+
+const healthDotStyles: Record<
+  TerminalConnectionHealth,
+  string
+> = {
   Healthy: "bg-ctp-green",
   Degraded: "bg-ctp-yellow",
   Poor: "bg-ctp-red",
@@ -69,38 +78,34 @@ const healthDotStyles: Record<TerminalConnectionHealth, string> = {
   Measuring: "bg-ctp-blue",
 };
 
-function readStoredToken(): string {
-  try {
-    return sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
 
-/**
- * Backend timestamps are expected to be UTC.
- *
- * If a timestamp already includes a timezone, preserve it.
- * If it has no timezone suffix, explicitly interpret it as UTC.
- */
-function parseDateTime(value: string | null): Date | null {
+// --------------------------------------------------
+// Date helpers
+// --------------------------------------------------
+
+
+function parseDateTime(
+  value: string | null,
+): Date | null {
   if (!value) return null;
 
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
-  const normalizedValue = hasTimezone ? value : `${value}Z`;
+  const hasTimezone =
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+
+  const normalizedValue = hasTimezone
+    ? value
+    : `${value}Z`;
+
   const date = new Date(normalizedValue);
 
-  if (Number.isNaN(date.getTime())) return null;
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
 
   return date;
 }
 
-/**
- * A terminal is considered connected only when:
- * - It is enabled.
- * - It has a valid last heartbeat.
- * - Its heartbeat is still within the configured timeout.
- */
+
 function isHeartbeatFresh(
   lastSeenAt: string | null,
   timeoutSeconds: number,
@@ -112,19 +117,99 @@ function isHeartbeatFresh(
 
   const age = now - lastSeen.getTime();
 
-  // Allow a small amount of clock difference between the browser and server.
   const allowedFutureSkew = 30_000;
-  const timeoutMs = Math.max(1, timeoutSeconds) * 1000;
 
-  return age >= -allowedFutureSkew && age <= timeoutMs;
+  const timeoutMs =
+    Math.max(1, timeoutSeconds) * 1000;
+
+  return (
+    age >= -allowedFutureSkew &&
+    age <= timeoutMs
+  );
 }
+
+
+function formatDateTime(
+  value: string | null,
+): string {
+  const date = parseDateTime(value);
+
+  if (!date) {
+    return value ? "Unknown" : "Never";
+  }
+
+  return date.toLocaleString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+
+function formatRelativeTime(
+  value: string | null,
+  now: number,
+): string {
+  const date = parseDateTime(value);
+
+  if (!date) {
+    return value ? "Unknown" : "Never";
+  }
+
+  const difference = Math.max(
+    0,
+    now - date.getTime(),
+  );
+
+  const seconds = Math.floor(difference / 1000);
+
+  if (seconds < 10) return "Just now";
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours} hr ago`;
+  }
+
+  return `${Math.floor(hours / 24)} day(s) ago`;
+}
+
+
+function formatLatency(
+  latency: number | null,
+): string {
+  if (latency === null) return "—";
+
+  if (!Number.isFinite(latency)) {
+    return "Unknown";
+  }
+
+  return `${Math.round(latency)} ms`;
+}
+
+
+// --------------------------------------------------
+// Status badges
+// --------------------------------------------------
+
 
 function StatusBadge({
   connected,
 }: {
   connected: boolean;
 }) {
-  const status = connected ? "Connected" : "Disconnected";
+  const status = connected
+    ? "Connected"
+    : "Disconnected";
 
   return (
     <span
@@ -134,10 +219,12 @@ function StatusBadge({
         className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-ctp-green" : "bg-ctp-red"
           }`}
       />
+
       {status.toUpperCase()}
     </span>
   );
 }
+
 
 function HealthBadge({
   health,
@@ -148,11 +235,15 @@ function HealthBadge({
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${healthStyles[health]}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${healthDotStyles[health]}`} />
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${healthDotStyles[health]}`}
+      />
+
       {health.toUpperCase()}
     </span>
   );
 }
+
 
 function WebSocketBadge({
   connected,
@@ -161,14 +252,27 @@ function WebSocketBadge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-line-seed text-xs font-semibold ${connected ? "text-ctp-green" : "text-ctp-overlay1"
+      className={`inline-flex items-center gap-1.5 font-line-seed text-xs font-semibold ${connected
+        ? "text-ctp-green"
+        : "text-ctp-overlay1"
         }`}
     >
-      {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+      {connected ? (
+        <Wifi size={13} />
+      ) : (
+        <WifiOff size={13} />
+      )}
+
       {connected ? "Connected" : "Disconnected"}
     </span>
   );
 }
+
+
+// --------------------------------------------------
+// Shared components
+// --------------------------------------------------
+
 
 function StatCard({
   label,
@@ -208,6 +312,7 @@ function StatCard({
   );
 }
 
+
 function StatusMessage({
   notice,
 }: {
@@ -217,8 +322,8 @@ function StatusMessage({
     <div
       role="status"
       className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${notice.error
-          ? "border-ctp-red/20 bg-ctp-red/5"
-          : "border-ctp-green/20 bg-ctp-green/5"
+        ? "border-ctp-red/20 bg-ctp-red/5"
+        : "border-ctp-green/20 bg-ctp-green/5"
         }`}
     >
       {notice.error ? (
@@ -240,56 +345,48 @@ function StatusMessage({
   );
 }
 
-function formatDateTime(value: string | null): string {
-  const date = parseDateTime(value);
 
-  if (!date) return value ? "Unknown" : "Never";
+function TerminalDetail({
+  label,
+  value,
+  secondary,
+  title,
+}: {
+  label: string;
+  value: string;
+  secondary?: string;
+  title?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="font-line-seed text-[10px] text-ctp-subtext0">
+        {label}
+      </p>
 
-  return date.toLocaleString("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+      <p
+        className="mt-1 break-all font-line-seed text-xs text-ctp-text"
+        title={title}
+      >
+        {value}
+      </p>
+
+      {secondary && (
+        <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+          {secondary}
+        </p>
+      )}
+    </div>
+  );
 }
 
-function formatRelativeTime(
-  value: string | null,
-  now: number,
-): string {
-  const date = parseDateTime(value);
 
-  if (!date) return value ? "Unknown" : "Never";
+// --------------------------------------------------
+// Terminal card
+// --------------------------------------------------
 
-  const difference = Math.max(0, now - date.getTime());
-  const seconds = Math.floor(difference / 1000);
-
-  if (seconds < 10) return "Just now";
-  if (seconds < 60) return `${seconds}s ago`;
-
-  const minutes = Math.floor(seconds / 60);
-
-  if (minutes < 60) return `${minutes} min ago`;
-
-  const hours = Math.floor(minutes / 60);
-
-  if (hours < 24) return `${hours} hr ago`;
-
-  return `${Math.floor(hours / 24)} day(s) ago`;
-}
-
-function formatLatency(latency: number | null): string {
-  if (latency === null) return "—";
-
-  if (!Number.isFinite(latency)) return "Unknown";
-
-  return `${Math.round(latency)} ms`;
-}
 
 function TerminalRow({
   terminal,
-  token,
   now,
   heartbeatTimeoutSeconds,
   notice,
@@ -302,7 +399,6 @@ function TerminalRow({
   onEnable,
 }: {
   terminal: ManagedTerminal;
-  token: string;
   now: number;
   heartbeatTimeoutSeconds: number;
   notice?: Notice;
@@ -325,11 +421,14 @@ function TerminalRow({
   const disabled = !terminal.is_enabled;
   const busy = busyAction !== null;
 
-  const tablet = /tablet|monitor/i.test(terminal.device_type);
+  const tablet =
+    /tablet|monitor/i.test(terminal.device_type);
+
   const latency = terminal.latency_ms;
 
   const actionClass =
     "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+
 
   return (
     <article className="p-3 transition-colors hover:bg-ctp-surface0/20">
@@ -337,11 +436,15 @@ function TerminalRow({
         <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${connected
-                ? "bg-ctp-blue/10 text-ctp-blue"
-                : "bg-ctp-surface0 text-ctp-overlay1"
+              ? "bg-ctp-blue/10 text-ctp-blue"
+              : "bg-ctp-surface0 text-ctp-overlay1"
               }`}
           >
-            {tablet ? <Monitor size={18} /> : <Smartphone size={18} />}
+            {tablet ? (
+              <Monitor size={18} />
+            ) : (
+              <Smartphone size={18} />
+            )}
           </div>
 
           <div className="min-w-0 flex-1">
@@ -352,7 +455,9 @@ function TerminalRow({
 
               <StatusBadge connected={connected} />
 
-              <HealthBadge health={terminal.connection_health} />
+              <HealthBadge
+                health={terminal.connection_health}
+              />
 
               {terminal.maintenance_mode && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-line-seed text-[10px] font-bold text-ctp-yellow">
@@ -374,6 +479,7 @@ function TerminalRow({
               {terminal.device_type}
               <span className="px-1">·</span>
               {terminal.platform}
+
               {terminal.app_version && (
                 <>
                   <span className="px-1">·</span>
@@ -388,11 +494,13 @@ function TerminalRow({
           </div>
         </div>
 
+
+        {/* Terminal actions */}
         <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
           <button
             type="button"
             onClick={() => void onSync(terminal)}
-            disabled={!connected || disabled || busy || !token}
+            disabled={!connected || disabled || busy}
             className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-blue/50 hover:text-ctp-blue`}
             title={
               connected
@@ -402,7 +510,11 @@ function TerminalRow({
           >
             <RefreshCw
               size={13}
-              className={busyAction === "sync" ? "animate-spin" : ""}
+              className={
+                busyAction === "sync"
+                  ? "animate-spin"
+                  : ""
+              }
             />
             Sync
           </button>
@@ -410,10 +522,10 @@ function TerminalRow({
           <button
             type="button"
             onClick={() => void onMaintenance(terminal)}
-            disabled={disabled || busy || !token}
+            disabled={disabled || busy}
             className={`${actionClass} ${terminal.maintenance_mode
-                ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
-                : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
+              ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+              : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
               }`}
           >
             {terminal.maintenance_mode ? (
@@ -422,14 +534,17 @@ function TerminalRow({
               <Lock size={13} />
             )}
 
-            {terminal.maintenance_mode ? "End maintenance" : "Maintenance"}
+            {terminal.maintenance_mode
+              ? "End maintenance"
+              : "Maintenance"}
           </button>
+
 
           {disabled ? (
             <button
               type="button"
               onClick={() => void onEnable(terminal)}
-              disabled={busy || !token}
+              disabled={busy}
               className={`${actionClass} border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10`}
             >
               <Check size={13} />
@@ -469,7 +584,7 @@ function TerminalRow({
             <button
               type="button"
               onClick={() => onConfirmDisable(true)}
-              disabled={busy || !token}
+              disabled={busy}
               className={`${actionClass} border-ctp-red/20 bg-ctp-red/5 text-ctp-red hover:bg-ctp-red/10`}
             >
               <LogOut size={13} />
@@ -479,36 +594,27 @@ function TerminalRow({
         </div>
       </div>
 
+
       {/* Terminal connection and activity details */}
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-3 sm:grid-cols-3 xl:grid-cols-7">
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            IP address
-          </p>
+        <TerminalDetail
+          label="IP address"
+          value={terminal.ip_address ?? "Not reported"}
+        />
 
-          <p className="mt-1 break-all font-mono text-xs text-ctp-text">
-            {terminal.ip_address ?? "Not reported"}
-          </p>
-        </div>
-
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            HTTP heartbeat
-          </p>
-
-          <p
-            className="mt-1 font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.last_seen_at)}
-          >
-            {formatRelativeTime(terminal.last_seen_at, now)}
-          </p>
-
-          <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
-            {connected
+        <TerminalDetail
+          label="HTTP heartbeat"
+          value={formatRelativeTime(
+            terminal.last_seen_at,
+            now,
+          )}
+          secondary={
+            connected
               ? "Within timeout"
-              : "Expired or unavailable"}
-          </p>
-        </div>
+              : "Expired or unavailable"
+          }
+          title={formatDateTime(terminal.last_seen_at)}
+        />
 
         <div className="min-w-0">
           <p className="font-line-seed text-[10px] text-ctp-subtext0">
@@ -516,7 +622,9 @@ function TerminalRow({
           </p>
 
           <div className="mt-1">
-            <WebSocketBadge connected={terminal.websocket_connected} />
+            <WebSocketBadge
+              connected={terminal.websocket_connected}
+            />
           </div>
 
           {terminal.consecutive_ping_timeouts > 0 && (
@@ -533,12 +641,12 @@ function TerminalRow({
 
           <p
             className={`mt-1 font-line-seed text-sm font-bold ${latency === null
-                ? "text-ctp-overlay1"
-                : latency <= 100
-                  ? "text-ctp-green"
-                  : latency <= 300
-                    ? "text-ctp-yellow"
-                    : "text-ctp-red"
+              ? "text-ctp-overlay1"
+              : latency <= 100
+                ? "text-ctp-green"
+                : latency <= 300
+                  ? "text-ctp-yellow"
+                  : "text-ctp-red"
               }`}
           >
             {terminal.websocket_connected
@@ -549,44 +657,35 @@ function TerminalRow({
           </p>
         </div>
 
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            Last measurement
-          </p>
+        <TerminalDetail
+          label="Last measurement"
+          value={formatRelativeTime(
+            terminal.latency_updated_at,
+            now,
+          )}
+          title={formatDateTime(
+            terminal.latency_updated_at,
+          )}
+        />
 
-          <p
-            className="mt-1 font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.latency_updated_at)}
-          >
-            {formatRelativeTime(terminal.latency_updated_at, now)}
-          </p>
-        </div>
+        <TerminalDetail
+          label="Last successful sync"
+          value={formatRelativeTime(
+            terminal.last_sync_at,
+            now,
+          )}
+          title={formatDateTime(terminal.last_sync_at)}
+        />
 
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            Last successful sync
-          </p>
-
-          <p
-            className="mt-1 font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.last_sync_at)}
-          >
-            {formatRelativeTime(terminal.last_sync_at, now)}
-          </p>
-        </div>
-
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            First registered
-          </p>
-
-          <p
-            className="mt-1 font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.first_seen_at)}
-          >
-            {formatDateTime(terminal.first_seen_at)}
-          </p>
-        </div>
+        <TerminalDetail
+          label="First registered"
+          value={formatDateTime(
+            terminal.first_seen_at,
+          )}
+          title={formatDateTime(
+            terminal.first_seen_at,
+          )}
+        />
       </div>
 
       {notice && <StatusMessage notice={notice} />}
@@ -594,28 +693,33 @@ function TerminalRow({
   );
 }
 
+
+// --------------------------------------------------
+// Main page
+// --------------------------------------------------
+
+
 export default function Terminals() {
-  const [token, setToken] = useState(readStoredToken);
-  const [tokenInput, setTokenInput] = useState(readStoredToken);
   const [search, setSearch] = useState("");
   const [broadcast, setBroadcast] = useState("");
 
   const [broadcastNotice, setBroadcastNotice] =
     useState<Notice | null>(null);
 
-  const [tokenNotice, setTokenNotice] = useState("");
-  const [confirmDisable, setConfirmDisable] = useState<number | null>(null);
+  const [confirmDisable, setConfirmDisable] =
+    useState<number | null>(null);
 
-  const [notices, setNotices] = useState<Record<number, Notice>>({});
+  const [notices, setNotices] =
+    useState<Record<number, Notice>>({});
 
-  const [busyActions, setBusyActions] = useState<
-    Record<number, string | null>
-  >({});
+  const [busyActions, setBusyActions] =
+    useState<Record<number, string | null>>({});
 
-  const [broadcastBusy, setBroadcastBusy] = useState(false);
+  const [broadcastBusy, setBroadcastBusy] =
+    useState(false);
 
-  // Keep heartbeat freshness current without requiring a manual API refresh.
   const [now, setNow] = useState(() => Date.now());
+
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -624,6 +728,7 @@ export default function Terminals() {
 
     return () => window.clearInterval(interval);
   }, []);
+
 
   const {
     data,
@@ -634,7 +739,8 @@ export default function Terminals() {
     lastUpdated,
     metricsUpdatedAt,
     refresh,
-  } = useTerminalManagement(token, search);
+  } = useTerminalManagement(search);
+
 
   const terminals = data?.items ?? [];
 
@@ -643,9 +749,11 @@ export default function Terminals() {
     data?.heartbeat_timeout_seconds ?? 30,
   );
 
-  // Derive online status from heartbeat freshness, not the server's last
-  // stored status value. The same calculation is used by the row badges,
-  // summary cards, sync controls, and broadcast recipient count.
+
+  // --------------------------------------------------
+  // Derived terminal metrics
+  // --------------------------------------------------
+
   const connectedCount = terminals.filter(
     (terminal) =>
       terminal.is_enabled &&
@@ -667,6 +775,7 @@ export default function Terminals() {
     (terminal) => terminal.maintenance_mode,
   ).length;
 
+
   const measuredLatencies = terminals
     .filter(
       (terminal) =>
@@ -675,25 +784,33 @@ export default function Terminals() {
     )
     .map((terminal) => terminal.latency_ms as number);
 
+
   const averageLatency =
     measuredLatencies.length > 0
       ? Math.round(
-        measuredLatencies.reduce((sum, value) => sum + value, 0) /
-        measuredLatencies.length,
+        measuredLatencies.reduce(
+          (sum, value) => sum + value,
+          0,
+        ) / measuredLatencies.length,
       )
       : null;
 
+
   const healthyCount = terminals.filter(
-    (terminal) => terminal.connection_health === "Healthy",
+    (terminal) =>
+      terminal.connection_health === "Healthy",
   ).length;
 
   const degradedCount = terminals.filter(
-    (terminal) => terminal.connection_health === "Degraded",
+    (terminal) =>
+      terminal.connection_health === "Degraded",
   ).length;
 
   const poorCount = terminals.filter(
-    (terminal) => terminal.connection_health === "Poor",
+    (terminal) =>
+      terminal.connection_health === "Poor",
   ).length;
+
 
   const networkStatus = !data
     ? loading
@@ -703,72 +820,55 @@ export default function Terminals() {
       ? "Online"
       : "Offline";
 
+
   const healthColor = !data
     ? "text-ctp-subtext0"
     : connectedCount === 0
       ? "text-ctp-yellow"
       : "text-ctp-green";
 
+
   const inputClass =
     "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-line-seed text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+
 
   const actionClass =
     "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
-  function saveTerminalNotice(id: number, notice: Notice) {
+
+  // --------------------------------------------------
+  // Notice and busy-state helpers
+  // --------------------------------------------------
+
+  function saveTerminalNotice(
+    id: number,
+    notice: Notice,
+  ) {
     setNotices((current) => ({
       ...current,
       [id]: notice,
     }));
   }
 
-  function setBusy(id: number, action: string | null) {
+
+  function setBusy(
+    id: number,
+    action: string | null,
+  ) {
     setBusyActions((current) => ({
       ...current,
       [id]: action,
     }));
   }
 
-  function connectAdmin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
 
-    const nextToken = tokenInput.trim();
+  // --------------------------------------------------
+  // Terminal actions
+  // --------------------------------------------------
 
-    if (!nextToken) {
-      setTokenNotice("Enter the admin API token.");
-      return;
-    }
-
-    try {
-      sessionStorage.setItem(TOKEN_STORAGE_KEY, nextToken);
-    } catch {
-      // Keep the token in React state if session storage is unavailable.
-    }
-
-    setNotices({});
-    setTokenNotice("");
-    setToken(nextToken);
-  }
-
-  function disconnectAdmin() {
-    try {
-      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-    } catch {
-      // The application can still clear its in-memory token.
-    }
-
-    setToken("");
-    setTokenInput("");
-    setTokenNotice("");
-    setNotices({});
-    setBroadcast("");
-    setBroadcastNotice(null);
-    setConfirmDisable(null);
-  }
-
-  async function handleSync(terminal: ManagedTerminal) {
-    if (!token) return;
-
+  async function handleSync(
+    terminal: ManagedTerminal,
+  ) {
     setBusy(terminal.id, "sync");
 
     saveTerminalNotice(terminal.id, {
@@ -777,7 +877,9 @@ export default function Terminals() {
     });
 
     try {
-      const response = await requestTerminalSync(token, terminal.id);
+      const response = await requestTerminalSync(
+        terminal.id,
+      );
 
       saveTerminalNotice(terminal.id, {
         message: response.message,
@@ -798,16 +900,16 @@ export default function Terminals() {
     }
   }
 
-  async function handleMaintenance(terminal: ManagedTerminal) {
-    if (!token) return;
 
+  async function handleMaintenance(
+    terminal: ManagedTerminal,
+  ) {
     const nextValue = !terminal.maintenance_mode;
 
     setBusy(terminal.id, "maintenance");
 
     try {
       const response = await updateTerminalMaintenance(
-        token,
         terminal.id,
         nextValue,
       );
@@ -831,13 +933,16 @@ export default function Terminals() {
     }
   }
 
-  async function handleDisable(terminal: ManagedTerminal) {
-    if (!token) return;
 
+  async function handleDisable(
+    terminal: ManagedTerminal,
+  ) {
     setBusy(terminal.id, "disable");
 
     try {
-      const response = await disableTerminal(token, terminal.id);
+      const response = await disableTerminal(
+        terminal.id,
+      );
 
       saveTerminalNotice(terminal.id, {
         message: response.message,
@@ -859,13 +964,16 @@ export default function Terminals() {
     }
   }
 
-  async function handleEnable(terminal: ManagedTerminal) {
-    if (!token) return;
 
+  async function handleEnable(
+    terminal: ManagedTerminal,
+  ) {
     setBusy(terminal.id, "enable");
 
     try {
-      const response = await enableTerminal(token, terminal.id);
+      const response = await enableTerminal(
+        terminal.id,
+      );
 
       saveTerminalNotice(terminal.id, {
         message: response.message,
@@ -886,17 +994,15 @@ export default function Terminals() {
     }
   }
 
-  async function sendBroadcast(event: FormEvent<HTMLFormElement>) {
+
+  // --------------------------------------------------
+  // Broadcast
+  // --------------------------------------------------
+
+  async function sendBroadcast(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
-
-    if (!token) {
-      setBroadcastNotice({
-        message: "Connect to the admin API first.",
-        error: true,
-      });
-
-      return;
-    }
 
     if (!broadcast.trim()) {
       setBroadcastNotice({
@@ -921,7 +1027,6 @@ export default function Terminals() {
 
     try {
       const response = await broadcastToTerminals(
-        token,
         broadcast.trim(),
       );
 
@@ -948,7 +1053,10 @@ export default function Terminals() {
     }
   }
 
-  const apiConnected = Boolean(token) && !error && data !== null;
+
+  // --------------------------------------------------
+  // Render
+  // --------------------------------------------------
 
   return (
     <div className="flex flex-col gap-4 font-line-seed">
@@ -964,96 +1072,15 @@ export default function Terminals() {
           </p>
         </div>
 
-        <div
-          className={`inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 ${apiConnected
-              ? "border-ctp-green/20 bg-ctp-green/5"
-              : "border-ctp-yellow/20 bg-ctp-yellow/5"
-            }`}
-        >
-          <span
-            className={`h-2 w-2 rounded-full ${apiConnected ? "bg-ctp-green" : "bg-ctp-yellow"
-              }`}
-          />
+        <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
+          <span className="h-2 w-2 rounded-full bg-ctp-green" />
 
-          <span
-            className={`text-xs font-semibold ${apiConnected ? "text-ctp-green" : "text-ctp-yellow"
-              }`}
-          >
-            {apiConnected ? "Admin API connected" : "Admin API not connected"}
+          <span className="text-xs font-semibold text-ctp-green">
+            Admin session authenticated
           </span>
         </div>
       </header>
 
-      {/* Admin API authentication */}
-      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-        <div className="mb-3 flex items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
-            <KeyRound size={18} />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-ctp-text">
-              Admin API access
-            </h2>
-
-            <p className="text-xs text-ctp-subtext0">
-              Authenticate with the token configured on your FastAPI server.
-            </p>
-          </div>
-
-          {token && (
-            <button
-              type="button"
-              onClick={disconnectAdmin}
-              className={`${actionClass} border-ctp-surface1 text-ctp-subtext1 hover:text-ctp-red`}
-            >
-              <LogOut size={13} />
-              Clear token
-            </button>
-          )}
-        </div>
-
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={connectAdmin}
-        >
-          <input
-            type="password"
-            value={tokenInput}
-            onChange={(event) => {
-              setTokenInput(event.target.value);
-              setTokenNotice("");
-            }}
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="Admin API token"
-            placeholder="Enter KINESIS_ADMIN_API_TOKEN"
-            className={`${inputClass} flex-1`}
-          />
-
-          <button
-            type="submit"
-            disabled={!tokenInput.trim()}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Check size={14} />
-            Connect
-          </button>
-        </form>
-
-        {tokenNotice && (
-          <p role="alert" className="mt-2 text-xs text-ctp-red">
-            {tokenNotice}
-          </p>
-        )}
-
-        {!token && (
-          <p className="mt-2 text-[11px] leading-relaxed text-ctp-subtext0">
-            The token is held for this browser tab session. It is not included
-            in the production bundle.
-          </p>
-        )}
-      </section>
 
       {/* Summary */}
       <section
@@ -1062,7 +1089,11 @@ export default function Terminals() {
       >
         <StatCard
           label="Connected terminals"
-          value={data ? `${connectedCount} / ${totalCount}` : "—"}
+          value={
+            data
+              ? `${connectedCount} / ${totalCount}`
+              : "—"
+          }
           description="Devices with fresh HTTP heartbeats"
           icon={Smartphone}
           color="bg-ctp-blue/10 text-ctp-blue"
@@ -1076,7 +1107,11 @@ export default function Terminals() {
               ? `Heartbeat timeout: ${heartbeatTimeoutSeconds}s`
               : "Waiting for API data"
           }
-          icon={connectedCount > 0 ? Wifi : WifiOff}
+          icon={
+            connectedCount > 0
+              ? Wifi
+              : WifiOff
+          }
           color={
             connectedCount > 0
               ? "bg-ctp-green/10 text-ctp-green"
@@ -1113,6 +1148,7 @@ export default function Terminals() {
         />
       </section>
 
+
       {/* Network overview */}
       <section className="rounded-lg border border-ctp-surface0 bg-ctp-base">
         <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1134,15 +1170,16 @@ export default function Terminals() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-6">
             <div>
-              <p className="text-[11px] text-ctp-subtext0">API endpoint</p>
+              <p className="text-[11px] text-ctp-subtext0">
+                API endpoint
+              </p>
 
               <p className="mt-1 break-all font-mono text-xs font-semibold text-ctp-text">
-                {import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ||
-                  "http://127.0.0.1:8000"}
+                {window.location.origin}
               </p>
 
               <p className="mt-1 text-[10px] text-ctp-subtext0">
-                FastAPI server
+                Same-origin FastAPI proxy
               </p>
             </div>
 
@@ -1152,13 +1189,17 @@ export default function Terminals() {
               </p>
 
               <p className={`mt-1 text-sm font-bold ${healthColor}`}>
-                {data ? networkStatus : loading ? "Checking…" : "Unknown"}
+                {data
+                  ? networkStatus
+                  : loading
+                    ? "Checking…"
+                    : "Unknown"}
               </p>
 
               <p className="mt-1 text-[10px] text-ctp-subtext0">
                 {data
                   ? `${heartbeatTimeoutSeconds}s timeout`
-                  : "Awaiting authentication"}
+                  : "Awaiting API data"}
               </p>
             </div>
 
@@ -1183,7 +1224,10 @@ export default function Terminals() {
 
               <p className="mt-1 text-[10px] text-ctp-subtext0">
                 {metricsUpdatedAt
-                  ? `Metrics refreshed ${formatRelativeTime(metricsUpdatedAt, now)}`
+                  ? `Metrics refreshed ${formatRelativeTime(
+                    metricsUpdatedAt,
+                    now,
+                  )}`
                   : "Waiting for measurements"}
               </p>
             </div>
@@ -1191,8 +1235,9 @@ export default function Terminals() {
         </div>
       </section>
 
+
       {/* Metrics error */}
-      {token && metricsError && (
+      {metricsError && (
         <div
           role="status"
           className="flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3"
@@ -1214,8 +1259,9 @@ export default function Terminals() {
         </div>
       )}
 
+
       {/* API error */}
-      {token && error && (
+      {error && (
         <div
           role="alert"
           className="flex items-start gap-2 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-3"
@@ -1244,6 +1290,7 @@ export default function Terminals() {
           </button>
         </div>
       )}
+
 
       {/* Broadcast */}
       <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
@@ -1282,7 +1329,6 @@ export default function Terminals() {
           <button
             type="submit"
             disabled={
-              !token ||
               connectedCount === 0 ||
               broadcastBusy ||
               !broadcast.trim()
@@ -1290,7 +1336,10 @@ export default function Terminals() {
             className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Send size={14} />
-            {broadcastBusy ? "Queuing…" : "Queue broadcast"}
+
+            {broadcastBusy
+              ? "Queuing…"
+              : "Queue broadcast"}
           </button>
         </form>
 
@@ -1314,6 +1363,7 @@ export default function Terminals() {
           displays it and acknowledges it.
         </p>
       </section>
+
 
       {/* Terminal list */}
       <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
@@ -1340,7 +1390,6 @@ export default function Terminals() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search name, ID, IP…"
-                disabled={!token}
                 className={`${inputClass} w-full py-2 pl-9 pr-9`}
               />
 
@@ -1359,13 +1408,15 @@ export default function Terminals() {
             <button
               type="button"
               onClick={refresh}
-              disabled={!token || refreshing}
+              disabled={refreshing}
               title="Refresh terminal list"
               className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-blue/50 hover:text-ctp-blue`}
             >
               <RefreshCw
                 size={14}
-                className={refreshing ? "animate-spin" : ""}
+                className={
+                  refreshing ? "animate-spin" : ""
+                }
               />
 
               Refresh
@@ -1382,36 +1433,28 @@ export default function Terminals() {
 
           <span
             className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${connectedCount > 0
-                ? "text-ctp-green"
-                : "text-ctp-red"
+              ? "text-ctp-green"
+              : "text-ctp-red"
               }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${connectedCount > 0
-                  ? "bg-ctp-green"
-                  : "bg-ctp-red"
+                ? "bg-ctp-green"
+                : "bg-ctp-red"
                 }`}
             />
+
             {connectedCount} heartbeat-connected
           </span>
         </div>
 
-        {!token ? (
-          <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-            <KeyRound size={24} className="mb-2 text-ctp-overlay1" />
 
-            <p className="text-sm font-semibold text-ctp-text">
-              Admin authentication required
-            </p>
-
-            <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
-              Enter the admin API token above to load and manage registered
-              terminals.
-            </p>
-          </div>
-        ) : loading && !data ? (
+        {loading && !data ? (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-ctp-subtext0">
-            <RefreshCw size={15} className="animate-spin" />
+            <RefreshCw
+              size={15}
+              className="animate-spin"
+            />
             Loading terminals…
           </div>
         ) : terminals.length > 0 ? (
@@ -1420,14 +1463,21 @@ export default function Terminals() {
               <TerminalRow
                 key={terminal.id}
                 terminal={terminal}
-                token={token}
                 now={now}
-                heartbeatTimeoutSeconds={heartbeatTimeoutSeconds}
+                heartbeatTimeoutSeconds={
+                  heartbeatTimeoutSeconds
+                }
                 notice={notices[terminal.id]}
-                confirmDisable={confirmDisable === terminal.id}
-                busyAction={busyActions[terminal.id] ?? null}
+                confirmDisable={
+                  confirmDisable === terminal.id
+                }
+                busyAction={
+                  busyActions[terminal.id] ?? null
+                }
                 onConfirmDisable={(confirm) =>
-                  setConfirmDisable(confirm ? terminal.id : null)
+                  setConfirmDisable(
+                    confirm ? terminal.id : null,
+                  )
                 }
                 onSync={handleSync}
                 onMaintenance={handleMaintenance}
@@ -1438,16 +1488,25 @@ export default function Terminals() {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-            <Search size={24} className="mb-2 text-ctp-overlay1" />
+            <Search
+              size={24}
+              className="mb-2 text-ctp-overlay1"
+            />
 
             <p className="text-sm font-semibold text-ctp-text">
-              {search ? "No matching terminals" : "No terminals registered"}
+              {error
+                ? "Terminal information unavailable"
+                : search
+                  ? "No matching terminals"
+                  : "No terminals registered"}
             </p>
 
             <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
-              {search
-                ? "Try another name, device ID, platform, or IP address."
-                : "Once the Expo app registers a device successfully, it will appear here."}
+              {error
+                ? "The terminal list could not be retrieved from the backend."
+                : search
+                  ? "Try another name, device ID, platform, or IP address."
+                  : "Once the Expo app registers a device successfully, it will appear here."}
             </p>
 
             {search && (
@@ -1462,11 +1521,12 @@ export default function Terminals() {
           </div>
         )}
 
+
         {data && lastUpdated && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 px-3 py-2">
             <p className="text-[10px] text-ctp-subtext0">
               Terminal list fetched{" "}
-              {new Date(lastUpdated).toLocaleTimeString("en-PH", {
+              {lastUpdated.toLocaleTimeString("en-PH", {
                 hour: "numeric",
                 minute: "2-digit",
                 second: "2-digit",
@@ -1475,16 +1535,23 @@ export default function Terminals() {
 
             <p className="text-[10px] text-ctp-subtext0">
               {metricsUpdatedAt
-                ? `Metrics checked ${formatRelativeTime(metricsUpdatedAt, now)}`
+                ? `Metrics checked ${formatRelativeTime(
+                  metricsUpdatedAt,
+                  now,
+                )}`
                 : "Metrics not yet available"}
             </p>
           </div>
         )}
       </section>
 
+
       {/* Technical note */}
       <footer className="flex items-start gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-        <Server size={15} className="mt-0.5 shrink-0 text-ctp-overlay1" />
+        <Server
+          size={15}
+          className="mt-0.5 shrink-0 text-ctp-overlay1"
+        />
 
         <p className="text-[11px] leading-relaxed text-ctp-subtext0">
           Heartbeat connectivity is calculated from the age of each
@@ -1492,8 +1559,8 @@ export default function Terminals() {
           WebSocket status is tracked independently. Ping measures WebSocket
           round-trip time, not Wi-Fi signal strength. Connection metrics are
           collected by the FastAPI process and refreshed independently from
-          terminal details. Sync and broadcasts remain queued until the mobile
-          terminal processes and acknowledges them.
+          terminal details. Sync and broadcasts remain queued until the
+          mobile terminal processes and acknowledges them.
         </p>
       </footer>
     </div>
