@@ -1,3 +1,4 @@
+
 import { apiRequest, API_BASE_URL } from "@/lib/api";
 
 export type TerminalRegistrationRequest = {
@@ -17,6 +18,13 @@ export type TerminalRegistrationResponse = {
   heartbeat_interval_seconds: number;
 };
 
+export type TerminalCommand = {
+  id: number;
+  command_type: "sync" | "broadcast";
+  payload: string | null;
+  created_at: string;
+};
+
 export type TerminalHeartbeatResponse = {
   terminal_id: number;
   device_id: string;
@@ -24,12 +32,13 @@ export type TerminalHeartbeatResponse = {
   heartbeat_interval_seconds: number;
   is_enabled: boolean;
   maintenance_mode: boolean;
-  commands: Array<{
-    id: number;
-    command_type: "sync" | "broadcast";
-    payload: string | null;
-    created_at: string;
-  }>;
+  commands: TerminalCommand[];
+};
+
+export type TerminalCommandAcknowledgementResponse = {
+  command_id: number;
+  status: "acknowledged" | "failed";
+  completed_at: string;
 };
 
 export type TerminalPOSSettings = {
@@ -73,6 +82,7 @@ export type TerminalSettingsSocketMessage =
   }
   | {
     type: "ping";
+    ping_id: string;
   };
 
 export function registerTerminal(
@@ -109,6 +119,27 @@ export function sendTerminalHeartbeat(
   );
 }
 
+export function acknowledgeTerminalCommand(
+  sessionToken: string,
+  commandId: number,
+  commandStatus: "acknowledged" | "failed",
+  resultMessage: string | null = null,
+): Promise<TerminalCommandAcknowledgementResponse> {
+  return apiRequest<TerminalCommandAcknowledgementResponse>(
+    `/api/terminals/commands/${commandId}/ack`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+      body: JSON.stringify({
+        status: commandStatus,
+        result_message: resultMessage,
+      }),
+    },
+  );
+}
+
 export function fetchTerminalSettings(
   sessionToken: string,
   signal?: AbortSignal,
@@ -136,8 +167,6 @@ export function connectTerminalSettingsSocket(
     `${websocketBaseUrl}/api/terminals/ws`,
   );
 
-  // Authenticate through the first WebSocket message.
-  // The session token is not placed in the URL.
   socket.onopen = () => {
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(

@@ -22,6 +22,8 @@ import Console from "./views/Console.tsx";
 import Database from "./views/Database.tsx";
 import Settings from "./views/Settings.tsx";
 
+import { API_BASE_URL, apiRequest } from "./lib/api";
+
 const tabs = [
   "Overview",
   "Terminals",
@@ -33,6 +35,13 @@ const tabs = [
 type Tab = (typeof tabs)[number];
 type Theme = "light" | "dark";
 type ServerAction = "restart" | "shutdown";
+type BackendStatus = "checking" | "connected" | "disconnected";
+type BackendHealthResponse = {
+  status: string;
+  database: string;
+  message: string;
+};
+
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
@@ -61,9 +70,83 @@ export default function Dashboard() {
   const [notice, setNotice] = useState("");
   const [compactHeader, setCompactHeader] = useState(false);
 
+  const [backendStatus, setBackendStatus] =
+    useState<BackendStatus>("checking");
+
   const menuRef = useRef<HTMLDivElement>(null);
   const floatingMenuRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+
+  // Check whether FastAPI and PostgreSQL are operational.
+  useEffect(() => {
+    let cancelled = false;
+    let requestInFlight = false;
+    let activeController: AbortController | null = null;
+
+    const checkBackend = async () => {
+      if (requestInFlight || cancelled) return;
+
+      requestInFlight = true;
+
+      const controller = new AbortController();
+      activeController = controller;
+
+      let timedOut = false;
+
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 4000);
+
+      try {
+        const health = await apiRequest<BackendHealthResponse>(
+          "/api/health",
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+
+        // Both the API and PostgreSQL must report healthy.
+        if (
+          health.status !== "online" ||
+          health.database !== "online"
+        ) {
+          throw new Error("Backend or database is unavailable.");
+        }
+
+        if (!cancelled) {
+          setBackendStatus("connected");
+        }
+      } catch {
+        if (!cancelled && (!controller.signal.aborted || timedOut)) {
+          setBackendStatus("disconnected");
+        }
+      } finally {
+        window.clearTimeout(timeout);
+
+        requestInFlight = false;
+
+        if (activeController === controller) {
+          activeController = null;
+        }
+      }
+    };
+
+    void checkBackend();
+
+    const interval = window.setInterval(() => {
+      void checkBackend();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+
+      window.clearInterval(interval);
+      activeController?.abort();
+    };
+  }, []);
 
   // Show the compact floating bar after the main header scrolls out of view.
   useEffect(() => {
@@ -360,6 +443,29 @@ export default function Dashboard() {
     </div>
   );
 
+  const backendStatusStyles: Record<
+    BackendStatus,
+    { label: string; dot: string; text: string }
+  > = {
+    checking: {
+      label: "Checking backend",
+      dot: "bg-ctp-yellow animate-pulse",
+      text: "text-ctp-yellow",
+    },
+    connected: {
+      label: "Backend connected",
+      dot: "bg-ctp-green",
+      text: "text-ctp-green",
+    },
+    disconnected: {
+      label: "Backend offline",
+      dot: "bg-ctp-red",
+      text: "text-ctp-red",
+    },
+  };
+
+  const currentBackendStatus = backendStatusStyles[backendStatus];
+
   return (
     <div className="min-h-screen bg-ctp-base p-5 text-ctp-text transition-colors duration-200 sm:p-8 lg:p-10">
       {/* Compact floating navigation */}
@@ -443,9 +549,16 @@ export default function Dashboard() {
             </span>
           )}
 
-          <span className="flex items-center gap-1.5 rounded-md border border-ctp-surface1 bg-ctp-mantle px-2.5 py-1 text-xs text-ctp-subtext0">
-            <span className="h-1.5 w-1.5 rounded-full bg-ctp-yellow" />
-            Backend not connected
+          <span
+            role="status"
+            aria-live="polite"
+            title={`Health endpoint: ${API_BASE_URL}/api/health`}
+            className={`flex items-center gap-1.5 rounded-md border border-ctp-surface1 bg-ctp-mantle px-2.5 py-1 text-xs ${currentBackendStatus.text}`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${currentBackendStatus.dot}`}
+            />
+            {currentBackendStatus.label}
           </span>
         </div>
       </div>

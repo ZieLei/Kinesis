@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Service
+from terminal_routes import require_admin_or_terminal, require_writable_terminal
 
 
 logger = logging.getLogger(__name__)
@@ -50,11 +51,17 @@ def service_response(service: Service) -> dict:
     }
 
 
+# --------------------------------------------------
+# List and search services
+# --------------------------------------------------
+
+
 @router.get("", summary="List and search services")
 def get_services(
     search: str | None = Query(default=None, max_length=150),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     conditions = []
@@ -90,6 +97,11 @@ def get_services(
     }
 
 
+# --------------------------------------------------
+# Create a service
+# --------------------------------------------------
+
+
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -97,6 +109,7 @@ def get_services(
 )
 def create_service(
     service_data: ServiceCreate,
+    _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
     service = Service(
@@ -109,11 +122,12 @@ def create_service(
         db.add(service)
         db.commit()
         db.refresh(service)
+
         return service_response(service)
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not create service")
+        logger.exception("Could not create service.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

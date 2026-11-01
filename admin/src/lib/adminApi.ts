@@ -1,3 +1,4 @@
+
 import { apiRequest } from "./api";
 import type {
   ApiHealth,
@@ -57,7 +58,10 @@ export async function fetchAllProducts(
 
     const page = await apiRequest<ProductListResponse>(
       `/api/products?${params.toString()}`,
-      { signal },
+      {
+        headers: getAdminHeaders(),
+        signal,
+      },
     );
 
     if (!Array.isArray(page.items)) {
@@ -82,7 +86,10 @@ export function fetchSalesReport(
 
   return apiRequest<SalesReportResponse>(
     `/api/reports/sales?${params.toString()}`,
-    { signal },
+    {
+      headers: getAdminHeaders(),
+      signal,
+    },
   );
 }
 
@@ -94,7 +101,10 @@ export function fetchProductSalesReport(
 
   return apiRequest<ProductSalesReport>(
     `/api/reports/products?${params.toString()}`,
-    { signal },
+    {
+      headers: getAdminHeaders(),
+      signal,
+    },
   );
 }
 
@@ -110,7 +120,10 @@ export function fetchRecentSales(
 
   return apiRequest<SalesListResponse>(
     `/api/sales?${params.toString()}`,
-    { signal },
+    {
+      headers: getAdminHeaders(),
+      signal,
+    },
   );
 }
 

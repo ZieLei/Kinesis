@@ -1,85 +1,44 @@
 
+import { useEffect, useMemo } from "react";
 
-import { useCallback, useEffect, useState } from "react";
-
-import * as servicesApi from "@/lib/serviceApi";
-import type { Service, ServiceCreate } from "@/types/service";
+import { useCatalog } from "@/app/context/CatalogContext";
 
 export function useServices(searchQuery: string) {
-  const [services, setServices] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
+  const {
+    services,
+    servicesLoading,
+    servicesCreating,
+    servicesLoadError,
+    fetchServices,
+    refreshServices,
+    addService,
+  } = useCatalog();
 
+  // Load services when the Services screen first mounts.
   useEffect(() => {
-    const controller = new AbortController();
+    void fetchServices();
+  }, [fetchServices]);
 
-    setLoading(true);
-    setLoadError("");
+  const filteredServices = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
 
-    // Debounce search input to avoid sending a request on every keystroke.
-    const timeout = setTimeout(() => {
-      void servicesApi
-        .fetchAllServices(searchQuery, controller.signal)
-        .then((result) => {
-          if (!controller.signal.aborted) {
-            setServices(result);
-          }
-        })
-        .catch((error: unknown) => {
-          if (controller.signal.aborted) return;
+    if (!query) {
+      return services;
+    }
 
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "Failed to load services.",
-          );
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) {
-            setLoading(false);
-          }
-        });
-    }, 250);
-
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [searchQuery, reloadKey]);
-
-  const refreshServices = useCallback(() => {
-    setReloadKey((current) => current + 1);
-  }, []);
-
-  const addService = useCallback(
-    async (values: ServiceCreate): Promise<Service> => {
-      setCreating(true);
-
-      try {
-        const created = await servicesApi.createService(values);
-
-        setServices((current) => [
-          created,
-          ...current.filter((service) => service.id !== created.id),
-        ]);
-
-        setReloadKey((current) => current + 1);
-
-        return created;
-      } finally {
-        setCreating(false);
-      }
-    },
-    [],
-  );
+    return services.filter((service) => {
+      return (
+        service.name.toLowerCase().includes(query) ||
+        service.description.toLowerCase().includes(query)
+      );
+    });
+  }, [services, searchQuery]);
 
   return {
-    services,
-    loading,
-    creating,
-    loadError,
+    services: filteredServices,
+    loading: servicesLoading,
+    creating: servicesCreating,
+    loadError: servicesLoadError,
     refreshServices,
     addService,
   };

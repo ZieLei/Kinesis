@@ -1,4 +1,12 @@
+
 export type TerminalStatus = "Connected" | "Disconnected";
+
+export type TerminalConnectionHealth =
+  | "Healthy"
+  | "Degraded"
+  | "Poor"
+  | "Unavailable"
+  | "Measuring";
 
 export type ManagedTerminal = {
   id: number;
@@ -15,6 +23,12 @@ export type ManagedTerminal = {
   status: TerminalStatus;
   is_enabled: boolean;
   maintenance_mode: boolean;
+
+  websocket_connected: boolean;
+  latency_ms: number | null;
+  latency_updated_at: string | null;
+  connection_health: TerminalConnectionHealth;
+  consecutive_ping_timeouts: number;
 };
 
 export type TerminalListResponse = {
@@ -27,6 +41,20 @@ export type TerminalListResponse = {
   disconnected_count: number;
   maintenance_count: number;
   heartbeat_timeout_seconds: number;
+};
+
+export type TerminalConnectionMetric = {
+  terminal_id: number;
+  websocket_connected: boolean;
+  latency_ms: number | null;
+  latency_updated_at: string | null;
+  connection_health: TerminalConnectionHealth;
+  consecutive_ping_timeouts: number;
+};
+
+export type TerminalConnectionMetricsResponse = {
+  items: TerminalConnectionMetric[];
+  measured_at: string;
 };
 
 export type TerminalActionResponse = {

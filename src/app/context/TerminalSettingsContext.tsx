@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useCallback,
@@ -99,8 +100,8 @@ export function TerminalSettingsProvider({
         return;
       }
 
-      // Do not silently lose a refresh request if another request
-      // is already running. Queue one follow-up refresh.
+      // Queue one follow-up refresh rather than losing requests
+      // while another settings request is running.
       if (refreshing.current) {
         refreshQueued.current = true;
         return;
@@ -164,9 +165,13 @@ export function TerminalSettingsProvider({
 
   useEffect(() => {
     if (!sessionToken) {
+      setSettings(null);
+      setVersion(null);
+      setUpdatedAt(null);
       setStatus("not-connected");
       setError(null);
       refreshQueued.current = false;
+
       return;
     }
 
@@ -241,6 +246,7 @@ export function TerminalSettingsProvider({
             console.warn(
               "[Terminal Settings] Received an invalid WebSocket message.",
             );
+
             return;
           }
 
@@ -251,8 +257,7 @@ export function TerminalSettingsProvider({
               "[Terminal Settings] Realtime connection authenticated.",
             );
 
-            // Fetch once after every successful connection.
-            // This also recovers changes made while the phone was offline.
+            // Recover changes made while the terminal was offline.
             void refreshSettings();
 
             return;
@@ -265,14 +270,21 @@ export function TerminalSettingsProvider({
             );
 
             void refreshSettings();
+
             return;
           }
 
           if (message.type === "ping") {
-            if (socket.readyState === WebSocket.OPEN) {
+            // Echo the exact ping identifier so the server can
+            // measure this terminal's round-trip latency.
+            if (
+              socket.readyState === WebSocket.OPEN &&
+              message.ping_id
+            ) {
               socket.send(
                 JSON.stringify({
                   type: "pong",
+                  ping_id: message.ping_id,
                 }),
               );
             }
@@ -291,9 +303,15 @@ export function TerminalSettingsProvider({
           }
         };
 
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (activeSocket === socket) {
             activeSocket = null;
+          }
+
+          if (event.code === 4403) {
+            console.warn(
+              "[Terminal Settings] Server closed the disabled terminal connection.",
+            );
           }
 
           scheduleReconnect();
@@ -312,7 +330,6 @@ export function TerminalSettingsProvider({
       setStatus("loading");
       setError(null);
 
-      // Load the previous successful response before contacting the server.
       try {
         const cached = await SecureStore.getItemAsync(
           SETTINGS_CACHE_KEY,
@@ -344,17 +361,14 @@ export function TerminalSettingsProvider({
 
     void initializeSettings();
 
-    // Establish the realtime connection.
     connectSocket();
 
-    // Keep the existing 60-second HTTP fallback.
     const interval = setInterval(() => {
       if (!cancelled && AppState.currentState === "active") {
         void refreshSettings();
       }
     }, SETTINGS_REFRESH_INTERVAL_MS);
 
-    // Refresh immediately when the app returns to the foreground.
     const subscription = AppState.addEventListener(
       "change",
       (nextState) => {
@@ -364,7 +378,6 @@ export function TerminalSettingsProvider({
 
         void refreshSettings();
 
-        // Reconnect immediately if the socket closed while backgrounded.
         if (
           !activeSocket ||
           activeSocket.readyState === WebSocket.CLOSED
@@ -391,7 +404,7 @@ export function TerminalSettingsProvider({
         try {
           activeSocket.close();
         } catch {
-          // The provider is already being cleaned up.
+          // Provider is already being cleaned up.
         }
 
         activeSocket = null;

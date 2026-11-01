@@ -215,13 +215,55 @@ def require_terminal(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Terminal credentials are invalid.",
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not terminal.is_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This terminal has been disabled by an administrator.",
+        )
+
+    return terminal
+
+
+def require_admin_or_terminal(
+    x_admin_token: str | None = Header(
+        default=None,
+        alias="X-Admin-Token",
+    ),
+    authorization: str | None = Header(
+        default=None,
+        alias="Authorization",
+    ),
+    db: Session = Depends(get_db),
+) -> str | Terminal:
+    """
+    Authenticate an administrator or an enabled POS terminal.
+
+    Admin credentials take precedence when X-Admin-Token is supplied.
+    An invalid admin token must never fall back to terminal authentication.
+    """
+
+    if x_admin_token is not None:
+        require_admin_token(x_admin_token)
+        return "admin"
+
+    return require_terminal(authorization, db)
+
+
+def require_writable_terminal(
+    terminal: Terminal = Depends(require_terminal),
+) -> Terminal:
+    """
+    Require an enabled terminal that is not in maintenance mode.
+
+    Use this dependency for POS operations that modify server data.
+    """
+
+    if terminal.maintenance_mode:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="This terminal is in maintenance mode. POS modifications are temporarily unavailable.",
         )
 
     return terminal

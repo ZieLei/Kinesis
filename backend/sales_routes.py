@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
 from models import AppSettings, Product, Sale, SaleItem
+from terminal_routes import require_admin_or_terminal, require_writable_terminal
 
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,6 @@ def get_checkout_settings(
 
     try:
         tax_rate = Decimal(str(stored_settings.get("taxRate", "0")))
-
         cash_rounding = Decimal(str(stored_settings.get("cashRounding", "0.01")))
 
     except (InvalidOperation, ValueError, TypeError) as exc:
@@ -333,7 +333,6 @@ def checkout_matches_sale(
         return False
 
     stored_items = {(item.product_id, item.quantity) for item in sale.items}
-
     requested_items = {(item.product_id, item.quantity) for item in request.items}
 
     if stored_items != requested_items:
@@ -354,6 +353,7 @@ def checkout_matches_sale(
 def list_sales(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     total = db.scalar(select(func.count(Sale.id))) or 0
@@ -389,6 +389,7 @@ def list_sales(
 @router.post("/sales", tags=["Sales"])
 def create_sale(
     checkout: CheckoutCreate,
+    _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
     existing = get_sale_by_code(db, checkout.transaction_code)
@@ -476,7 +477,6 @@ def create_sale(
                 )
 
             unit_price = Decimal(product.price).quantize(CENT)
-
             line_total = (unit_price * item.quantity).quantize(CENT)
 
             subtotal += line_total
@@ -484,9 +484,7 @@ def create_sale(
             calculated_items.append((item, product, unit_price, line_total))
 
         subtotal = subtotal.quantize(CENT)
-
         tax_amount = calculate_tax(subtotal, tax_rate)
-
         unrounded_total = (subtotal + tax_amount).quantize(CENT)
 
         if checkout.payment_method == "cash":
@@ -504,7 +502,6 @@ def create_sale(
                 )
 
             amount_tendered = amount_tendered.quantize(CENT)
-
             change_due = (amount_tendered - total).quantize(CENT)
 
         else:
@@ -612,6 +609,7 @@ def create_sale(
 @router.get("/sales/{transaction_code}", tags=["Sales"])
 def get_sale(
     transaction_code: str,
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     sale = get_sale_by_code(
@@ -831,6 +829,7 @@ def build_series(
 def get_sales_report(
     period: ReportPeriod = Query(default="monthly"),
     report_date: date | None = Query(default=None, alias="date"),
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
@@ -879,6 +878,7 @@ def get_sales_report(
 @router.get("/reports/products", tags=["Reports"])
 def get_product_report(
     limit: int = Query(default=5, ge=1, le=100),
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     completed_sale = Sale.status == "completed"

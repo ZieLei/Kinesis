@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Activity,
   Wifi,
@@ -22,6 +23,7 @@ import {
   Users,
   Server,
   KeyRound,
+  Gauge,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -33,7 +35,11 @@ import {
   requestTerminalSync,
   updateTerminalMaintenance,
 } from "../lib/terminalApi";
-import type { ManagedTerminal } from "../types/terminal";
+
+import type {
+  ManagedTerminal,
+  TerminalConnectionHealth,
+} from "../types/terminal";
 
 type Notice = {
   message: string;
@@ -47,6 +53,22 @@ const statusStyles = {
   Disconnected: "bg-ctp-red/10 text-ctp-red",
 } as const;
 
+const healthStyles: Record<TerminalConnectionHealth, string> = {
+  Healthy: "bg-ctp-green/10 text-ctp-green",
+  Degraded: "bg-ctp-yellow/10 text-ctp-yellow",
+  Poor: "bg-ctp-red/10 text-ctp-red",
+  Unavailable: "bg-ctp-surface0 text-ctp-overlay1",
+  Measuring: "bg-ctp-blue/10 text-ctp-blue",
+};
+
+const healthDotStyles: Record<TerminalConnectionHealth, string> = {
+  Healthy: "bg-ctp-green",
+  Degraded: "bg-ctp-yellow",
+  Poor: "bg-ctp-red",
+  Unavailable: "bg-ctp-overlay1",
+  Measuring: "bg-ctp-blue",
+};
+
 function readStoredToken(): string {
   try {
     return sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
@@ -55,20 +77,95 @@ function readStoredToken(): string {
   }
 }
 
+/**
+ * Backend timestamps are expected to be UTC.
+ *
+ * If a timestamp already includes a timezone, preserve it.
+ * If it has no timezone suffix, explicitly interpret it as UTC.
+ */
+function parseDateTime(value: string | null): Date | null {
+  if (!value) return null;
+
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const normalizedValue = hasTimezone ? value : `${value}Z`;
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+/**
+ * A terminal is considered connected only when:
+ * - It is enabled.
+ * - It has a valid last heartbeat.
+ * - Its heartbeat is still within the configured timeout.
+ */
+function isHeartbeatFresh(
+  lastSeenAt: string | null,
+  timeoutSeconds: number,
+  now: number,
+): boolean {
+  const lastSeen = parseDateTime(lastSeenAt);
+
+  if (!lastSeen) return false;
+
+  const age = now - lastSeen.getTime();
+
+  // Allow a small amount of clock difference between the browser and server.
+  const allowedFutureSkew = 30_000;
+  const timeoutMs = Math.max(1, timeoutSeconds) * 1000;
+
+  return age >= -allowedFutureSkew && age <= timeoutMs;
+}
+
 function StatusBadge({
-  status,
+  connected,
 }: {
-  status: ManagedTerminal["status"];
+  connected: boolean;
 }) {
+  const status = connected ? "Connected" : "Disconnected";
+
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${statusStyles[status]}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${status === "Connected" ? "bg-ctp-green" : "bg-ctp-red"
+        className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-ctp-green" : "bg-ctp-red"
           }`}
       />
       {status.toUpperCase()}
+    </span>
+  );
+}
+
+function HealthBadge({
+  health,
+}: {
+  health: TerminalConnectionHealth;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${healthStyles[health]}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${healthDotStyles[health]}`} />
+      {health.toUpperCase()}
+    </span>
+  );
+}
+
+function WebSocketBadge({
+  connected,
+}: {
+  connected: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 font-line-seed text-xs font-semibold ${connected ? "text-ctp-green" : "text-ctp-overlay1"
+        }`}
+    >
+      {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+      {connected ? "Connected" : "Disconnected"}
     </span>
   );
 }
@@ -98,9 +195,11 @@ function StatCard({
         <p className="font-line-seed text-xs font-medium text-ctp-subtext0">
           {label}
         </p>
+
         <p className="mt-0.5 font-line-seed text-xl font-bold leading-tight text-ctp-text">
           {value}
         </p>
+
         <p className="mt-1 truncate font-line-seed text-[11px] text-ctp-subtext0">
           {description}
         </p>
@@ -118,8 +217,8 @@ function StatusMessage({
     <div
       role="status"
       className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${notice.error
-        ? "border-ctp-red/20 bg-ctp-red/5"
-        : "border-ctp-green/20 bg-ctp-green/5"
+          ? "border-ctp-red/20 bg-ctp-red/5"
+          : "border-ctp-green/20 bg-ctp-green/5"
         }`}
     >
       {notice.error ? (
@@ -142,11 +241,9 @@ function StatusMessage({
 }
 
 function formatDateTime(value: string | null): string {
-  if (!value) return "Never";
+  const date = parseDateTime(value);
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "Unknown";
+  if (!date) return value ? "Unknown" : "Never";
 
   return date.toLocaleString("en-PH", {
     month: "short",
@@ -154,18 +251,18 @@ function formatDateTime(value: string | null): string {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    second: undefined,
   });
 }
 
-function formatRelativeTime(value: string | null): string {
-  if (!value) return "Never";
+function formatRelativeTime(
+  value: string | null,
+  now: number,
+): string {
+  const date = parseDateTime(value);
 
-  const timestamp = new Date(value).getTime();
+  if (!date) return value ? "Unknown" : "Never";
 
-  if (!Number.isFinite(timestamp)) return "Unknown";
-
-  const difference = Math.max(0, Date.now() - timestamp);
+  const difference = Math.max(0, now - date.getTime());
   const seconds = Math.floor(difference / 1000);
 
   if (seconds < 10) return "Just now";
@@ -182,9 +279,19 @@ function formatRelativeTime(value: string | null): string {
   return `${Math.floor(hours / 24)} day(s) ago`;
 }
 
+function formatLatency(latency: number | null): string {
+  if (latency === null) return "—";
+
+  if (!Number.isFinite(latency)) return "Unknown";
+
+  return `${Math.round(latency)} ms`;
+}
+
 function TerminalRow({
   terminal,
   token,
+  now,
+  heartbeatTimeoutSeconds,
   notice,
   confirmDisable,
   busyAction,
@@ -196,20 +303,30 @@ function TerminalRow({
 }: {
   terminal: ManagedTerminal;
   token: string;
+  now: number;
+  heartbeatTimeoutSeconds: number;
   notice?: Notice;
   confirmDisable: boolean;
   busyAction: string | null;
-  onNotice: (notice: Notice) => void;
   onConfirmDisable: (confirm: boolean) => void;
   onSync: (terminal: ManagedTerminal) => Promise<void>;
   onMaintenance: (terminal: ManagedTerminal) => Promise<void>;
   onDisable: (terminal: ManagedTerminal) => Promise<void>;
   onEnable: (terminal: ManagedTerminal) => Promise<void>;
 }) {
-  const connected = terminal.status === "Connected";
+  const connected =
+    terminal.is_enabled &&
+    isHeartbeatFresh(
+      terminal.last_seen_at,
+      heartbeatTimeoutSeconds,
+      now,
+    );
+
   const disabled = !terminal.is_enabled;
   const busy = busyAction !== null;
+
   const tablet = /tablet|monitor/i.test(terminal.device_type);
+  const latency = terminal.latency_ms;
 
   const actionClass =
     "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
@@ -220,8 +337,8 @@ function TerminalRow({
         <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${connected
-              ? "bg-ctp-blue/10 text-ctp-blue"
-              : "bg-ctp-surface0 text-ctp-overlay1"
+                ? "bg-ctp-blue/10 text-ctp-blue"
+                : "bg-ctp-surface0 text-ctp-overlay1"
               }`}
           >
             {tablet ? <Monitor size={18} /> : <Smartphone size={18} />}
@@ -233,7 +350,9 @@ function TerminalRow({
                 {terminal.name}
               </h3>
 
-              <StatusBadge status={terminal.status} />
+              <StatusBadge connected={connected} />
+
+              <HealthBadge health={terminal.connection_health} />
 
               {terminal.maintenance_mode && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-line-seed text-[10px] font-bold text-ctp-yellow">
@@ -278,7 +397,7 @@ function TerminalRow({
             title={
               connected
                 ? "Queue a synchronization request"
-                : "Terminal must be connected to request sync"
+                : "Terminal must have a recent heartbeat to request sync"
             }
           >
             <RefreshCw
@@ -293,8 +412,8 @@ function TerminalRow({
             onClick={() => void onMaintenance(terminal)}
             disabled={disabled || busy || !token}
             className={`${actionClass} ${terminal.maintenance_mode
-              ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
-              : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
+                ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+                : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
               }`}
           >
             {terminal.maintenance_mode ? (
@@ -302,6 +421,7 @@ function TerminalRow({
             ) : (
               <Lock size={13} />
             )}
+
             {terminal.maintenance_mode ? "End maintenance" : "Maintenance"}
           </button>
 
@@ -324,6 +444,7 @@ function TerminalRow({
               <span className="px-1 font-line-seed text-[11px] text-ctp-red">
                 Disable access?
               </span>
+
               <button
                 type="button"
                 onClick={() => void onDisable(terminal)}
@@ -333,6 +454,7 @@ function TerminalRow({
                 <Check size={13} />
                 Confirm
               </button>
+
               <button
                 type="button"
                 onClick={() => onConfirmDisable(false)}
@@ -357,11 +479,13 @@ function TerminalRow({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-2.5 sm:grid-cols-4">
+      {/* Terminal connection and activity details */}
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-3 sm:grid-cols-3 xl:grid-cols-7">
         <div className="min-w-0">
           <p className="font-line-seed text-[10px] text-ctp-subtext0">
             IP address
           </p>
+
           <p className="mt-1 break-all font-mono text-xs text-ctp-text">
             {terminal.ip_address ?? "Not reported"}
           </p>
@@ -369,25 +493,72 @@ function TerminalRow({
 
         <div className="min-w-0">
           <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            First registered
+            HTTP heartbeat
           </p>
+
           <p
-            className="mt-1 break-words font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.first_seen_at)}
+            className="mt-1 font-line-seed text-xs text-ctp-text"
+            title={formatDateTime(terminal.last_seen_at)}
           >
-            {formatDateTime(terminal.first_seen_at)}
+            {formatRelativeTime(terminal.last_seen_at, now)}
+          </p>
+
+          <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+            {connected
+              ? "Within timeout"
+              : "Expired or unavailable"}
           </p>
         </div>
 
         <div className="min-w-0">
           <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            Last heartbeat
+            WebSocket
           </p>
+
+          <div className="mt-1">
+            <WebSocketBadge connected={terminal.websocket_connected} />
+          </div>
+
+          {terminal.consecutive_ping_timeouts > 0 && (
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-red">
+              {terminal.consecutive_ping_timeouts} missed ping(s)
+            </p>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <p className="font-line-seed text-[10px] text-ctp-subtext0">
+            Ping latency
+          </p>
+
+          <p
+            className={`mt-1 font-line-seed text-sm font-bold ${latency === null
+                ? "text-ctp-overlay1"
+                : latency <= 100
+                  ? "text-ctp-green"
+                  : latency <= 300
+                    ? "text-ctp-yellow"
+                    : "text-ctp-red"
+              }`}
+          >
+            {terminal.websocket_connected
+              ? latency === null
+                ? "Measuring…"
+                : formatLatency(latency)
+              : "—"}
+          </p>
+        </div>
+
+        <div className="min-w-0">
+          <p className="font-line-seed text-[10px] text-ctp-subtext0">
+            Last measurement
+          </p>
+
           <p
             className="mt-1 font-line-seed text-xs text-ctp-text"
-            title={formatDateTime(terminal.last_seen_at)}
+            title={formatDateTime(terminal.latency_updated_at)}
           >
-            {formatRelativeTime(terminal.last_seen_at)}
+            {formatRelativeTime(terminal.latency_updated_at, now)}
           </p>
         </div>
 
@@ -395,11 +566,25 @@ function TerminalRow({
           <p className="font-line-seed text-[10px] text-ctp-subtext0">
             Last successful sync
           </p>
+
           <p
             className="mt-1 font-line-seed text-xs text-ctp-text"
             title={formatDateTime(terminal.last_sync_at)}
           >
-            {formatRelativeTime(terminal.last_sync_at)}
+            {formatRelativeTime(terminal.last_sync_at, now)}
+          </p>
+        </div>
+
+        <div className="min-w-0">
+          <p className="font-line-seed text-[10px] text-ctp-subtext0">
+            First registered
+          </p>
+
+          <p
+            className="mt-1 font-line-seed text-xs text-ctp-text"
+            title={formatDateTime(terminal.first_seen_at)}
+          >
+            {formatDateTime(terminal.first_seen_at)}
           </p>
         </div>
       </div>
@@ -414,29 +599,101 @@ export default function Terminals() {
   const [tokenInput, setTokenInput] = useState(readStoredToken);
   const [search, setSearch] = useState("");
   const [broadcast, setBroadcast] = useState("");
-  const [broadcastNotice, setBroadcastNotice] = useState<Notice | null>(null);
+
+  const [broadcastNotice, setBroadcastNotice] =
+    useState<Notice | null>(null);
+
   const [tokenNotice, setTokenNotice] = useState("");
   const [confirmDisable, setConfirmDisable] = useState<number | null>(null);
+
   const [notices, setNotices] = useState<Record<number, Notice>>({});
+
   const [busyActions, setBusyActions] = useState<
     Record<number, string | null>
   >({});
+
   const [broadcastBusy, setBroadcastBusy] = useState(false);
+
+  // Keep heartbeat freshness current without requiring a manual API refresh.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const {
     data,
     loading,
     refreshing,
     error,
+    metricsError,
     lastUpdated,
+    metricsUpdatedAt,
     refresh,
   } = useTerminalManagement(token, search);
 
   const terminals = data?.items ?? [];
-  const connectedCount = data?.connected_count ?? 0;
-  const disconnectedCount = data?.disconnected_count ?? 0;
-  const totalCount = data?.total_count ?? 0;
-  const maintenanceCount = data?.maintenance_count ?? 0;
+
+  const heartbeatTimeoutSeconds = Math.max(
+    1,
+    data?.heartbeat_timeout_seconds ?? 30,
+  );
+
+  // Derive online status from heartbeat freshness, not the server's last
+  // stored status value. The same calculation is used by the row badges,
+  // summary cards, sync controls, and broadcast recipient count.
+  const connectedCount = terminals.filter(
+    (terminal) =>
+      terminal.is_enabled &&
+      isHeartbeatFresh(
+        terminal.last_seen_at,
+        heartbeatTimeoutSeconds,
+        now,
+      ),
+  ).length;
+
+  const disconnectedCount = Math.max(
+    0,
+    terminals.length - connectedCount,
+  );
+
+  const totalCount = terminals.length;
+
+  const maintenanceCount = terminals.filter(
+    (terminal) => terminal.maintenance_mode,
+  ).length;
+
+  const measuredLatencies = terminals
+    .filter(
+      (terminal) =>
+        terminal.websocket_connected &&
+        terminal.latency_ms !== null,
+    )
+    .map((terminal) => terminal.latency_ms as number);
+
+  const averageLatency =
+    measuredLatencies.length > 0
+      ? Math.round(
+        measuredLatencies.reduce((sum, value) => sum + value, 0) /
+        measuredLatencies.length,
+      )
+      : null;
+
+  const healthyCount = terminals.filter(
+    (terminal) => terminal.connection_health === "Healthy",
+  ).length;
+
+  const degradedCount = terminals.filter(
+    (terminal) => terminal.connection_health === "Degraded",
+  ).length;
+
+  const poorCount = terminals.filter(
+    (terminal) => terminal.connection_health === "Poor",
+  ).length;
 
   const networkStatus = !data
     ? loading
@@ -513,6 +770,7 @@ export default function Terminals() {
     if (!token) return;
 
     setBusy(terminal.id, "sync");
+
     saveTerminalNotice(terminal.id, {
       message: "Sending sync request…",
       error: false,
@@ -636,6 +894,7 @@ export default function Terminals() {
         message: "Connect to the admin API first.",
         error: true,
       });
+
       return;
     }
 
@@ -644,6 +903,7 @@ export default function Terminals() {
         message: "Enter a message before broadcasting.",
         error: true,
       });
+
       return;
     }
 
@@ -652,6 +912,7 @@ export default function Terminals() {
         message: "No recently connected terminals are available.",
         error: true,
       });
+
       return;
     }
 
@@ -659,7 +920,10 @@ export default function Terminals() {
     setBroadcastNotice(null);
 
     try {
-      const response = await broadcastToTerminals(token, broadcast.trim());
+      const response = await broadcastToTerminals(
+        token,
+        broadcast.trim(),
+      );
 
       setBroadcastNotice({
         message:
@@ -694,21 +958,23 @@ export default function Terminals() {
           <h1 className="text-xl font-bold text-ctp-text">
             Terminal Management
           </h1>
+
           <p className="mt-1 text-xs text-ctp-subtext0">
-            Monitor registered devices and manage terminal access.
+            Monitor terminal connectivity, latency, and device access.
           </p>
         </div>
 
         <div
           className={`inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 ${apiConnected
-            ? "border-ctp-green/20 bg-ctp-green/5"
-            : "border-ctp-yellow/20 bg-ctp-yellow/5"
+              ? "border-ctp-green/20 bg-ctp-green/5"
+              : "border-ctp-yellow/20 bg-ctp-yellow/5"
             }`}
         >
           <span
             className={`h-2 w-2 rounded-full ${apiConnected ? "bg-ctp-green" : "bg-ctp-yellow"
               }`}
           />
+
           <span
             className={`text-xs font-semibold ${apiConnected ? "text-ctp-green" : "text-ctp-yellow"
               }`}
@@ -724,10 +990,12 @@ export default function Terminals() {
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
             <KeyRound size={18} />
           </div>
+
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-ctp-text">
               Admin API access
             </h2>
+
             <p className="text-xs text-ctp-subtext0">
               Authenticate with the token configured on your FastAPI server.
             </p>
@@ -790,12 +1058,12 @@ export default function Terminals() {
       {/* Summary */}
       <section
         aria-label="Terminal summary"
-        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5"
       >
         <StatCard
           label="Connected terminals"
           value={data ? `${connectedCount} / ${totalCount}` : "—"}
-          description="Registered devices with recent heartbeats"
+          description="Devices with fresh HTTP heartbeats"
           icon={Smartphone}
           color="bg-ctp-blue/10 text-ctp-blue"
         />
@@ -805,7 +1073,7 @@ export default function Terminals() {
           value={networkStatus}
           description={
             data
-              ? `Heartbeat timeout: ${data.heartbeat_timeout_seconds}s`
+              ? `Heartbeat timeout: ${heartbeatTimeoutSeconds}s`
               : "Waiting for API data"
           }
           icon={connectedCount > 0 ? Wifi : WifiOff}
@@ -817,9 +1085,21 @@ export default function Terminals() {
         />
 
         <StatCard
+          label="Average ping"
+          value={
+            averageLatency === null
+              ? "—"
+              : `${averageLatency} ms`
+          }
+          description={`${measuredLatencies.length} terminal(s) measured`}
+          icon={Gauge}
+          color="bg-ctp-mauve/10 text-ctp-mauve"
+        />
+
+        <StatCard
           label="Maintenance"
           value={data ? maintenanceCount : "—"}
-          description="Connected devices in maintenance"
+          description="Devices in maintenance mode"
           icon={Wrench}
           color="bg-ctp-yellow/10 text-ctp-yellow"
         />
@@ -827,7 +1107,7 @@ export default function Terminals() {
         <StatCard
           label="Disconnected"
           value={data ? disconnectedCount : "—"}
-          description="Registered devices not recently seen"
+          description="Devices without fresh heartbeats"
           icon={Activity}
           color="bg-ctp-red/10 text-ctp-red"
         />
@@ -845,39 +1125,94 @@ export default function Terminals() {
               <h2 className="text-sm font-bold text-ctp-text">
                 Network overview
               </h2>
+
               <p className="text-xs text-ctp-subtext0">
-                Backend-reported terminal health
+                HTTP heartbeat and WebSocket latency measurements
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-6 sm:text-right">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-6">
             <div>
               <p className="text-[11px] text-ctp-subtext0">API endpoint</p>
+
               <p className="mt-1 break-all font-mono text-xs font-semibold text-ctp-text">
                 {import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ||
                   "http://127.0.0.1:8000"}
               </p>
+
               <p className="mt-1 text-[10px] text-ctp-subtext0">
                 FastAPI server
               </p>
             </div>
 
             <div>
-              <p className="text-[11px] text-ctp-subtext0">Connection health</p>
+              <p className="text-[11px] text-ctp-subtext0">
+                Heartbeat status
+              </p>
+
               <p className={`mt-1 text-sm font-bold ${healthColor}`}>
                 {data ? networkStatus : loading ? "Checking…" : "Unknown"}
               </p>
-              <p className="mt-1 flex items-center gap-1 text-[10px] text-ctp-subtext0 sm:justify-end">
-                <Clock size={11} />
+
+              <p className="mt-1 text-[10px] text-ctp-subtext0">
                 {data
-                  ? `Heartbeat timeout ${data.heartbeat_timeout_seconds}s`
+                  ? `${heartbeatTimeoutSeconds}s timeout`
                   : "Awaiting authentication"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[11px] text-ctp-subtext0">
+                Latency health
+              </p>
+
+              <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                <span className="font-semibold text-ctp-green">
+                  {healthyCount} healthy
+                </span>
+
+                <span className="font-semibold text-ctp-yellow">
+                  {degradedCount} degraded
+                </span>
+
+                <span className="font-semibold text-ctp-red">
+                  {poorCount} poor
+                </span>
+              </div>
+
+              <p className="mt-1 text-[10px] text-ctp-subtext0">
+                {metricsUpdatedAt
+                  ? `Metrics refreshed ${formatRelativeTime(metricsUpdatedAt, now)}`
+                  : "Waiting for measurements"}
               </p>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Metrics error */}
+      {token && metricsError && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3"
+        >
+          <CircleAlert
+            size={15}
+            className="mt-0.5 shrink-0 text-ctp-yellow"
+          />
+
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-ctp-yellow">
+              Connection metrics unavailable
+            </p>
+
+            <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext1">
+              {metricsError}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* API error */}
       {token && error && (
@@ -885,15 +1220,21 @@ export default function Terminals() {
           role="alert"
           className="flex items-start gap-2 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-3"
         >
-          <CircleAlert size={16} className="mt-0.5 shrink-0 text-ctp-red" />
+          <CircleAlert
+            size={16}
+            className="mt-0.5 shrink-0 text-ctp-red"
+          />
+
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-ctp-red">
               Could not load terminals
             </p>
+
             <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext1">
               {error}
             </p>
           </div>
+
           <button
             type="button"
             onClick={refresh}
@@ -910,10 +1251,12 @@ export default function Terminals() {
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
             <Radio size={17} />
           </div>
+
           <div>
             <h2 className="text-sm font-bold text-ctp-text">
               Broadcast message
             </h2>
+
             <p className="text-xs text-ctp-subtext0">
               Queue an announcement for recently connected terminals.
             </p>
@@ -956,6 +1299,7 @@ export default function Terminals() {
             <Users size={12} />
             {connectedCount} available recipient(s)
           </p>
+
           <p className="text-[11px] text-ctp-subtext0">
             {broadcast.length}/250
           </p>
@@ -966,8 +1310,8 @@ export default function Terminals() {
         )}
 
         <p className="mt-2 text-[11px] leading-relaxed text-ctp-subtext0">
-          Queued messages are not confirmed as delivered until a terminal
-          processes and acknowledges them.
+          A queued message is not considered delivered until the terminal
+          displays it and acknowledges it.
         </p>
       </section>
 
@@ -975,7 +1319,10 @@ export default function Terminals() {
       <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
         <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-bold text-ctp-text">Terminals</h2>
+            <h2 className="text-sm font-bold text-ctp-text">
+              Terminals
+            </h2>
+
             <p className="mt-1 text-xs text-ctp-subtext0">
               Search registered devices and manage their access.
             </p>
@@ -987,6 +1334,7 @@ export default function Terminals() {
                 size={15}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-ctp-overlay1"
               />
+
               <input
                 aria-label="Search terminals"
                 value={search}
@@ -995,6 +1343,7 @@ export default function Terminals() {
                 disabled={!token}
                 className={`${inputClass} w-full py-2 pl-9 pr-9`}
               />
+
               {search && (
                 <button
                   type="button"
@@ -1018,6 +1367,7 @@ export default function Terminals() {
                 size={14}
                 className={refreshing ? "animate-spin" : ""}
               />
+
               Refresh
             </button>
           </div>
@@ -1026,22 +1376,34 @@ export default function Terminals() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2">
           <p className="text-[11px] text-ctp-subtext0">
             {data
-              ? `Showing ${terminals.length} result(s) · ${totalCount} registered`
+              ? `Showing ${terminals.length} result(s) · ${data.total_count} registered`
               : "Terminal data unavailable"}
           </p>
 
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ctp-green">
-            <span className="h-1.5 w-1.5 rounded-full bg-ctp-green" />
-            {connectedCount} connected
+          <span
+            className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${connectedCount > 0
+                ? "text-ctp-green"
+                : "text-ctp-red"
+              }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${connectedCount > 0
+                  ? "bg-ctp-green"
+                  : "bg-ctp-red"
+                }`}
+            />
+            {connectedCount} heartbeat-connected
           </span>
         </div>
 
         {!token ? (
           <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
             <KeyRound size={24} className="mb-2 text-ctp-overlay1" />
+
             <p className="text-sm font-semibold text-ctp-text">
               Admin authentication required
             </p>
+
             <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
               Enter the admin API token above to load and manage registered
               terminals.
@@ -1059,10 +1421,11 @@ export default function Terminals() {
                 key={terminal.id}
                 terminal={terminal}
                 token={token}
+                now={now}
+                heartbeatTimeoutSeconds={heartbeatTimeoutSeconds}
                 notice={notices[terminal.id]}
                 confirmDisable={confirmDisable === terminal.id}
                 busyAction={busyActions[terminal.id] ?? null}
-                onNotice={(notice) => saveTerminalNotice(terminal.id, notice)}
                 onConfirmDisable={(confirm) =>
                   setConfirmDisable(confirm ? terminal.id : null)
                 }
@@ -1076,14 +1439,17 @@ export default function Terminals() {
         ) : (
           <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
             <Search size={24} className="mb-2 text-ctp-overlay1" />
+
             <p className="text-sm font-semibold text-ctp-text">
               {search ? "No matching terminals" : "No terminals registered"}
             </p>
+
             <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
               {search
                 ? "Try another name, device ID, platform, or IP address."
                 : "Once the Expo app registers a device successfully, it will appear here."}
             </p>
+
             {search && (
               <button
                 type="button"
@@ -1099,30 +1465,35 @@ export default function Terminals() {
         {data && lastUpdated && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 px-3 py-2">
             <p className="text-[10px] text-ctp-subtext0">
-              Last fetched{" "}
+              Terminal list fetched{" "}
               {new Date(lastUpdated).toLocaleTimeString("en-PH", {
                 hour: "numeric",
                 minute: "2-digit",
                 second: "2-digit",
               })}
             </p>
+
             <p className="text-[10px] text-ctp-subtext0">
-              Status is inferred from the last heartbeat, not a persistent
-              connection.
+              {metricsUpdatedAt
+                ? `Metrics checked ${formatRelativeTime(metricsUpdatedAt, now)}`
+                : "Metrics not yet available"}
             </p>
           </div>
         )}
       </section>
 
-      {/* Current limitations */}
+      {/* Technical note */}
       <footer className="flex items-start gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
         <Server size={15} className="mt-0.5 shrink-0 text-ctp-overlay1" />
+
         <p className="text-[11px] leading-relaxed text-ctp-subtext0">
-          This screen uses registered terminals from PostgreSQL. Sync and
-          broadcast requests are queued until the mobile app polls for commands
-          and acknowledges their results. The mobile-app integration is a
-          separate step; these controls do not force-close a running app or
-          measure Wi-Fi signal strength.
+          Heartbeat connectivity is calculated from the age of each
+          terminal&apos;s last HTTP heartbeat and the configured timeout.
+          WebSocket status is tracked independently. Ping measures WebSocket
+          round-trip time, not Wi-Fi signal strength. Connection metrics are
+          collected by the FastAPI process and refreshed independently from
+          terminal details. Sync and broadcasts remain queued until the mobile
+          terminal processes and acknowledges them.
         </p>
       </footer>
     </div>

@@ -1,5 +1,11 @@
+
 import { useState } from "react";
-import { DarkTheme, DefaultTheme, ThemeProvider, Slot } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider,
+  Slot,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { View } from "react-native";
 import { useColorScheme } from "nativewind";
@@ -8,9 +14,12 @@ import { useFonts } from "expo-font";
 import "../../global.css";
 
 import { CartProvider } from "@/app/context/CartContext";
+import { CatalogProvider } from "@/app/context/CatalogContext";
 import { TerminalSettingsProvider } from "@/app/context/TerminalSettingsContext";
+
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { TerminalAgent } from "@/components/TerminalAgent";
+
 import { latte, mocha } from "@/theme";
 
 SplashScreen.preventAutoHideAsync();
@@ -35,21 +44,29 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+    <ThemeProvider
+      value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+    >
       <View
         style={[
           { flex: 1 },
           colorScheme === "dark" ? mocha : latte,
         ]}
       >
-        <TerminalSettingsProvider sessionToken={terminalSessionToken}>
-          <CartProvider>
-            <AnimatedSplashOverlay />
-            <Slot />
-            <TerminalAgent
-              onSessionTokenChange={setTerminalSessionToken}
-            />
-          </CartProvider>
+        <TerminalSettingsProvider
+          sessionToken={terminalSessionToken}
+        >
+          <CatalogProvider>
+            <CartProvider>
+              <AnimatedSplashOverlay />
+
+              <Slot />
+
+              <TerminalAgent
+                onSessionTokenChange={setTerminalSessionToken}
+              />
+            </CartProvider>
+          </CatalogProvider>
         </TerminalSettingsProvider>
       </View>
     </ThemeProvider>

@@ -1,17 +1,26 @@
+
 import { apiRequest } from "./api";
 
 import type {
   TerminalActionResponse,
   TerminalBroadcastResponse,
+  TerminalConnectionMetricsResponse,
   TerminalListResponse,
 } from "../types/terminal";
 
 const PAGE_SIZE = 100;
 
-function adminHeaders(token: string): HeadersInit {
-  return {
-    "X-Admin-Token": token,
-  };
+
+function adminHeaders(token: string): Headers {
+  const normalizedToken = token.trim();
+
+  if (!normalizedToken) {
+    throw new Error("An admin token is required.");
+  }
+
+  return new Headers({
+    "X-Admin-Token": normalizedToken,
+  });
 }
 
 async function fetchTerminalPage(
@@ -32,7 +41,6 @@ async function fetchTerminalPage(
   return apiRequest<TerminalListResponse>(
     `/api/admin/terminals?${params.toString()}`,
     {
-      method: "GET",
       headers: adminHeaders(token),
       signal,
     },
@@ -44,25 +52,12 @@ export async function fetchAdminTerminals(
   search = "",
   signal?: AbortSignal,
 ): Promise<TerminalListResponse> {
-  if (!token.trim()) {
-    throw new Error("Enter the admin API token to connect.");
-  }
+  const allItems: TerminalListResponse["items"] = [];
 
-  const firstPage = await fetchTerminalPage(
-    token,
-    search,
-    0,
-    signal,
-  );
+  let offset = 0;
+  let metadata: TerminalListResponse | null = null;
 
-  const items = [...firstPage.items];
-  let offset = firstPage.items.length;
-
-  while (items.length < firstPage.count) {
-    if (signal?.aborted) {
-      throw new DOMException("Request cancelled.", "AbortError");
-    }
-
+  while (true) {
     const page = await fetchTerminalPage(
       token,
       search,
@@ -70,18 +65,46 @@ export async function fetchAdminTerminals(
       signal,
     );
 
-    if (page.items.length === 0) {
+    if (!Array.isArray(page.items)) {
+      throw new Error("The server returned an invalid terminal list.");
+    }
+
+    allItems.push(...page.items);
+    metadata = page;
+
+    if (
+      allItems.length >= page.count ||
+      page.items.length < PAGE_SIZE
+    ) {
       break;
     }
 
-    items.push(...page.items);
     offset += page.items.length;
   }
 
+  if (!metadata) {
+    throw new Error("The server did not return terminal data.");
+  }
+
   return {
-    ...firstPage,
-    items,
+    ...metadata,
+    items: allItems,
+    count: allItems.length,
   };
+}
+
+export function fetchTerminalConnectionMetrics(
+  token: string,
+  signal?: AbortSignal,
+): Promise<TerminalConnectionMetricsResponse> {
+  return apiRequest<TerminalConnectionMetricsResponse>(
+    "/api/admin/terminals/metrics",
+    {
+      method: "GET",
+      headers: adminHeaders(token),
+      signal,
+    },
+  );
 }
 
 export function requestTerminalSync(

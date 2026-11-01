@@ -1,4 +1,7 @@
 from decimal import Decimal
+
+from contextlib import asynccontextmanager
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 import logging
@@ -16,7 +19,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -24,18 +27,22 @@ from database import get_db
 from models import Product
 from sales_routes import router as sales_router
 from services_routes import router as services_router
-from terminal_routes import router as terminal_router
+from terminal_routes import (
+    require_admin_or_terminal,
+    require_writable_terminal,
+    router as terminal_router,
+)
 from console_routes import router as console_router
 from database_routes import router as database_router
 from settings_routes import router as settings_router
 from sku_generator import generate_product_sku
 from logging_config import initialize_application_logging
-from contextlib import asynccontextmanager
 
 
 logger = logging.getLogger(__name__)
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
+
 IMAGE_DIRECTORY = Path(
     os.getenv("KINESIS_IMAGE_DIRECTORY", "uploads/products")
 ).resolve()
@@ -66,6 +73,11 @@ app = FastAPI(
 )
 
 
+# --------------------------------------------------
+# CORS
+# --------------------------------------------------
+
+
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -81,6 +93,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# --------------------------------------------------
+# Application routers
+# --------------------------------------------------
+
+
 app.include_router(sales_router)
 app.include_router(services_router)
 app.include_router(terminal_router)
@@ -89,9 +107,9 @@ app.include_router(database_router)
 app.include_router(settings_router)
 
 
-# -------------------------
+# --------------------------------------------------
 # Product request schemas
-# -------------------------
+# --------------------------------------------------
 
 
 class ProductCreate(BaseModel):
@@ -155,9 +173,9 @@ class ProductUpdate(BaseModel):
         return value.strip() or None
 
 
-# -------------------------
+# --------------------------------------------------
 # Product response helpers
-# -------------------------
+# --------------------------------------------------
 
 
 def product_response(product: Product) -> dict:
@@ -190,7 +208,7 @@ def commit_or_raise_sku_conflict(db: Session) -> None:
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Database commit failed")
+        logger.exception("Database commit failed.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -200,6 +218,7 @@ def commit_or_raise_sku_conflict(db: Session) -> None:
 
 def resolve_image_path(relative_path: str) -> Path:
     """Resolve a stored relative image path without allowing path traversal."""
+
     root = IMAGE_DIRECTORY.resolve()
     candidate = (root / relative_path).resolve()
 
@@ -214,6 +233,7 @@ def resolve_image_path(relative_path: str) -> Path:
 
 def detect_image(data: bytes) -> tuple[str, str] | None:
     """Return the extension and media type for a supported image signature."""
+
     for signature, result in IMAGE_FORMATS.items():
         if data.startswith(signature):
             extension, media_type = result
@@ -227,8 +247,11 @@ def detect_image(data: bytes) -> tuple[str, str] | None:
     return None
 
 
-async def read_validated_image(file: UploadFile) -> tuple[bytes, str, str]:
+async def read_validated_image(
+    file: UploadFile,
+) -> tuple[bytes, str, str]:
     """Read a bounded upload and validate its actual file signature."""
+
     data = await file.read(MAX_IMAGE_SIZE + 1)
 
     if not data:
@@ -252,25 +275,39 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str, str]:
         )
 
     extension, media_type = detected
+
     return data, extension, media_type
 
 
-# -------------------------
+# --------------------------------------------------
 # Health check
-# -------------------------
+# --------------------------------------------------
 
 
 @app.get("/api/health", tags=["Health"])
-def health_check():
+def health_check(db: Session = Depends(get_db)):
+    try:
+        # Verify that PostgreSQL is actually reachable.
+        db.execute(text("SELECT 1"))
+
+    except SQLAlchemyError as exc:
+        logger.exception("Health check failed: database unavailable.")
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kinesis database is unavailable.",
+        ) from exc
+
     return {
         "status": "online",
-        "message": "Kinesis FastAPI Backend is running!",
+        "database": "online",
+        "message": "Kinesis API and database are operational.",
     }
 
 
-# -------------------------
+# --------------------------------------------------
 # List, search, and filter products
-# -------------------------
+# --------------------------------------------------
 
 
 @app.get("/api/products", tags=["Products"])
@@ -279,6 +316,7 @@ def get_products(
     category: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     statement = select(Product)
@@ -287,6 +325,7 @@ def get_products(
         term = (
             search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
+
         pattern = f"%{term}%"
 
         statement = statement.where(
@@ -300,6 +339,7 @@ def get_products(
         statement = statement.where(Product.category.ilike(category.strip()))
 
     statement = statement.order_by(Product.id).offset(offset).limit(limit)
+
     products = db.scalars(statement).all()
 
     return {
@@ -310,13 +350,17 @@ def get_products(
     }
 
 
-# -------------------------
+# --------------------------------------------------
 # Get one product
-# -------------------------
+# --------------------------------------------------
 
 
 @app.get("/api/products/{product_id}", tags=["Products"])
-def get_product(product_id: int, db: Session = Depends(get_db)):
+def get_product(
+    product_id: int,
+    _authorized: object = Depends(require_admin_or_terminal),
+    db: Session = Depends(get_db),
+):
     product = db.get(Product, product_id)
 
     if product is None:
@@ -328,9 +372,9 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return product_response(product)
 
 
-# -------------------------
+# --------------------------------------------------
 # Create product
-# -------------------------
+# --------------------------------------------------
 
 
 @app.post(
@@ -338,7 +382,11 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["Products"],
 )
-def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
+def create_product(
+    product_data: ProductCreate,
+    _terminal: object = Depends(require_writable_terminal),
+    db: Session = Depends(get_db),
+):
     # Keep manually supplied SKUs. Otherwise, generate one using the
     # current database-backed SKU configuration.
     product_sku = (
@@ -355,6 +403,7 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     )
 
     db.add(product)
+
     commit_or_raise_sku_conflict(db)
 
     try:
@@ -362,7 +411,7 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not refresh created product")
+        logger.exception("Could not refresh created product.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -372,15 +421,16 @@ def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
     return product_response(product)
 
 
-# -------------------------
+# --------------------------------------------------
 # Update product
-# -------------------------
+# --------------------------------------------------
 
 
 @app.put("/api/products/{product_id}", tags=["Products"])
 def update_product(
     product_id: int,
     product_data: ProductUpdate,
+    _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
@@ -409,7 +459,7 @@ def update_product(
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not refresh updated product")
+        logger.exception("Could not refresh updated product.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -419,15 +469,19 @@ def update_product(
     return product_response(product)
 
 
-# -------------------------
+# --------------------------------------------------
 # Upload or replace product image
-# -------------------------
+# --------------------------------------------------
 
 
-@app.post("/api/products/{product_id}/image", tags=["Product images"])
+@app.post(
+    "/api/products/{product_id}/image",
+    tags=["Product images"],
+)
 async def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
+    _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
@@ -451,7 +505,7 @@ async def upload_product_image(
             image_file.write(data)
 
     except OSError as exc:
-        logger.exception("Could not store uploaded product image")
+        logger.exception("Could not store uploaded product image.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -480,7 +534,7 @@ async def upload_product_image(
     except SQLAlchemyError as exc:
         db.rollback()
         new_path.unlink(missing_ok=True)
-        logger.exception("Could not save product image path")
+        logger.exception("Could not save product image path.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -492,18 +546,25 @@ async def upload_product_image(
             resolve_image_path(old_relative_path).unlink(missing_ok=True)
 
         except OSError:
-            logger.exception("Old product image could not be removed")
+            logger.exception("Old product image could not be removed.")
 
     return product_response(product)
 
 
-# -------------------------
+# --------------------------------------------------
 # Retrieve product image
-# -------------------------
+# --------------------------------------------------
 
 
-@app.get("/api/products/{product_id}/image", tags=["Product images"])
-def get_product_image(product_id: int, db: Session = Depends(get_db)):
+@app.get(
+    "/api/products/{product_id}/image",
+    tags=["Product images"],
+)
+def get_product_image(
+    product_id: int,
+    _authorized: object = Depends(require_admin_or_terminal),
+    db: Session = Depends(get_db),
+):
     product = db.get(Product, product_id)
 
     if product is None:
@@ -521,22 +582,25 @@ def get_product_image(product_id: int, db: Session = Depends(get_db)):
     image_path = resolve_image_path(product.image_path)
 
     if not image_path.is_file():
-        logger.error("Image file is missing for product ID %s", product_id)
+        logger.error(
+            "Image file is missing for product ID %s",
+            product_id,
+        )
 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="The product image file is missing.",
         )
 
-    media_type = detect_image(image_path.read_bytes())
+    detected = detect_image(image_path.read_bytes())
 
-    if media_type is None:
+    if detected is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The stored product image is invalid.",
         )
 
-    _, content_type = media_type
+    _, content_type = detected
 
     return FileResponse(
         path=image_path,
@@ -545,13 +609,20 @@ def get_product_image(product_id: int, db: Session = Depends(get_db)):
     )
 
 
-# -------------------------
+# --------------------------------------------------
 # Delete product image
-# -------------------------
+# --------------------------------------------------
 
 
-@app.delete("/api/products/{product_id}/image", tags=["Product images"])
-def delete_product_image(product_id: int, db: Session = Depends(get_db)):
+@app.delete(
+    "/api/products/{product_id}/image",
+    tags=["Product images"],
+)
+def delete_product_image(
+    product_id: int,
+    _terminal: object = Depends(require_writable_terminal),
+    db: Session = Depends(get_db),
+):
     product = db.get(Product, product_id)
 
     if product is None:
@@ -563,7 +634,10 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
     old_relative_path = product.image_path
 
     if not old_relative_path:
-        return {"message": "Product has no image.", "id": product_id}
+        return {
+            "message": "Product has no image.",
+            "id": product_id,
+        }
 
     product.image_path = None
 
@@ -572,7 +646,7 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not remove product image reference")
+        logger.exception("Could not remove product image reference.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -583,7 +657,7 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
         resolve_image_path(old_relative_path).unlink(missing_ok=True)
 
     except OSError:
-        logger.exception("Unreferenced product image could not be removed")
+        logger.exception("Unreferenced product image could not be removed.")
 
     return {
         "message": "Product image deleted successfully.",
@@ -591,13 +665,20 @@ def delete_product_image(product_id: int, db: Session = Depends(get_db)):
     }
 
 
-# -------------------------
+# --------------------------------------------------
 # Delete product
-# -------------------------
+# --------------------------------------------------
 
 
-@app.delete("/api/products/{product_id}", tags=["Products"])
-def delete_product(product_id: int, db: Session = Depends(get_db)):
+@app.delete(
+    "/api/products/{product_id}",
+    tags=["Products"],
+)
+def delete_product(
+    product_id: int,
+    _terminal: object = Depends(require_writable_terminal),
+    db: Session = Depends(get_db),
+):
     product = db.get(Product, product_id)
 
     if product is None:
@@ -614,7 +695,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not delete product")
+        logger.exception("Could not delete product.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -627,7 +708,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 
         except OSError:
             logger.exception(
-                "Product %s was deleted but its image file remains",
+                "Product %s was deleted but its image file remains.",
                 product_id,
             )
 
