@@ -1,4 +1,3 @@
-
 import {
   useCallback,
   useEffect,
@@ -10,7 +9,11 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
 
-import { ApiError } from "@/lib/api";
+import {
+  ApiError,
+  isNetworkError,
+} from "@/lib/api";
+
 import { useCatalog } from "@/app/context/CatalogContext";
 
 import {
@@ -20,17 +23,29 @@ import {
   type TerminalCommand,
 } from "@/lib/terminalAgentApi";
 
+
 const DEVICE_ID_KEY = "kinesis-terminal-device-id";
 const SESSION_TOKEN_KEY = "kinesis-terminal-session-token";
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const DISABLED_RETRY_INTERVAL_MS = 15_000;
 
+const NETWORK_RETRY_BASE_MS = 3_000;
+const NETWORK_RETRY_MAX_MS = 30_000;
+
+
 export type TerminalBroadcastNotice = {
   id: number;
   message: string;
   created_at: string;
 };
+
+export type TerminalConnectionStatus =
+  | "unknown"
+  | "checking"
+  | "online"
+  | "offline";
+
 
 function createDeviceId(): string {
   return [
@@ -67,8 +82,20 @@ function getAppVersion(): string | null {
 function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : "An unexpected terminal pairing error occurred.";
+    : "An unexpected terminal error occurred.";
 }
+
+function getNetworkRetryDelay(failureCount: number): number {
+  const delay =
+    NETWORK_RETRY_BASE_MS *
+    Math.pow(2, Math.max(0, failureCount - 1));
+
+  return Math.min(
+    delay,
+    NETWORK_RETRY_MAX_MS,
+  );
+}
+
 
 export type TerminalAgentStatus =
   | "initializing"
@@ -78,6 +105,7 @@ export type TerminalAgentStatus =
   | "registration-error"
   | "storage-error";
 
+
 export function useTerminalAgent(
   onSessionTokenChange?: (token: string | null) => void,
 ) {
@@ -86,8 +114,16 @@ export function useTerminalAgent(
   const [status, setStatus] =
     useState<TerminalAgentStatus>("initializing");
 
+  const [connectionStatus, setConnectionStatus] =
+    useState<TerminalConnectionStatus>("unknown");
+
+  const connectionStatusRef = useRef<TerminalConnectionStatus>(
+    "unknown",
+  );
+
   const [deviceId, setDeviceId] = useState("");
   const [message, setMessage] = useState("");
+
   const [sessionToken, setSessionToken] =
     useState<string | null>(null);
 
@@ -99,9 +135,20 @@ export function useTerminalAgent(
 
   const processingCommandIds = useRef<Set<number>>(new Set());
 
+
+  const updateConnectionStatus = useCallback(
+    (nextStatus: TerminalConnectionStatus) => {
+      connectionStatusRef.current = nextStatus;
+      setConnectionStatus(nextStatus);
+    },
+    [],
+  );
+
+
   // --------------------------------------------------
   // Initialize device identity and saved credentials
   // --------------------------------------------------
+
 
   useEffect(() => {
     let cancelled = false;
@@ -130,9 +177,13 @@ export function useTerminalAgent(
         if (storedToken) {
           setSessionToken(storedToken);
           onSessionTokenChange?.(storedToken);
+
+          updateConnectionStatus("checking");
           setStatus("active");
         } else {
           onSessionTokenChange?.(null);
+
+          updateConnectionStatus("unknown");
           setStatus("enrollment-required");
         }
       } catch (error) {
@@ -151,11 +202,16 @@ export function useTerminalAgent(
     return () => {
       cancelled = true;
     };
-  }, [onSessionTokenChange]);
+  }, [
+    onSessionTokenChange,
+    updateConnectionStatus,
+  ]);
+
 
   // --------------------------------------------------
   // Return an invalidated terminal to QR pairing
   // --------------------------------------------------
+
 
   const clearInvalidTerminalSession = useCallback(async () => {
     try {
@@ -185,12 +241,19 @@ export function useTerminalAgent(
     );
 
     onSessionTokenChange?.(null);
+
+    updateConnectionStatus("unknown");
     setStatus("enrollment-required");
-  }, [onSessionTokenChange]);
+  }, [
+    onSessionTokenChange,
+    updateConnectionStatus,
+  ]);
+
 
   // --------------------------------------------------
   // Pair using an administrator-issued QR token
   // --------------------------------------------------
+
 
   const pair = useCallback(
     async (pairingToken: string): Promise<boolean> => {
@@ -212,6 +275,7 @@ export function useTerminalAgent(
       }
 
       setMessage("");
+      updateConnectionStatus("checking");
       setStatus("registering");
 
       try {
@@ -240,23 +304,37 @@ export function useTerminalAgent(
 
         onSessionTokenChange?.(registration.session_token);
 
+        updateConnectionStatus("online");
         setStatus("active");
         setMessage("");
 
         return true;
       } catch (error) {
+        if (isNetworkError(error)) {
+          updateConnectionStatus("offline");
+        } else {
+          // An HTTP response means the server was reachable.
+          updateConnectionStatus("online");
+        }
+
         setMessage(errorMessage(error));
         setStatus("registration-error");
 
         return false;
       }
     },
-    [deviceId, onSessionTokenChange],
+    [
+      deviceId,
+      onSessionTokenChange,
+      updateConnectionStatus,
+    ],
   );
+
 
   // --------------------------------------------------
   // Command acknowledgment
   // --------------------------------------------------
+
 
   const acknowledgeCommand = useCallback(
     async (
@@ -290,9 +368,11 @@ export function useTerminalAgent(
     [],
   );
 
+
   // --------------------------------------------------
   // Process pending commands
   // --------------------------------------------------
+
 
   const processCommands = useCallback(
     async (
@@ -377,12 +457,17 @@ export function useTerminalAgent(
         }
       }
     },
-    [acknowledgeCommand, synchronizeCatalog],
+    [
+      acknowledgeCommand,
+      synchronizeCatalog,
+    ],
   );
+
 
   // --------------------------------------------------
   // Broadcast acknowledgment
   // --------------------------------------------------
+
 
   const dismissBroadcast = useCallback(() => {
     const currentBroadcast = broadcastQueue[0];
@@ -413,9 +498,11 @@ export function useTerminalAgent(
     acknowledgeCommand,
   ]);
 
+
   // --------------------------------------------------
   // Heartbeat and command polling
   // --------------------------------------------------
+
 
   useEffect(() => {
     if (!deviceId || !sessionToken || status !== "active") {
@@ -426,10 +513,10 @@ export function useTerminalAgent(
 
     let cancelled = false;
     let running = false;
-
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     let intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS;
+    let networkFailureCount = 0;
 
     function clearTimer() {
       if (timer !== undefined) {
@@ -469,13 +556,17 @@ export function useTerminalAgent(
 
         if (cancelled) return;
 
+        networkFailureCount = 0;
+
         intervalMs = Math.max(
           5_000,
           Math.min(
-            30_000,
+            DEFAULT_HEARTBEAT_INTERVAL_MS,
             response.heartbeat_interval_seconds * 1_000,
           ),
         );
+
+        updateConnectionStatus("online");
 
         setAccessDisabled(false);
         setMessage("");
@@ -507,6 +598,8 @@ export function useTerminalAgent(
             error instanceof ApiError &&
             error.status === 403
           ) {
+            updateConnectionStatus("online");
+
             setAccessDisabled(true);
             setMaintenanceMode(false);
 
@@ -515,11 +608,30 @@ export function useTerminalAgent(
             );
 
             intervalMs = DISABLED_RETRY_INTERVAL_MS;
+          } else if (isNetworkError(error)) {
+            networkFailureCount += 1;
+
+            updateConnectionStatus("offline");
+
+            setMessage(errorMessage(error));
+
+            intervalMs = getNetworkRetryDelay(
+              networkFailureCount,
+            );
+
+            // Log only the transition to offline, not every retry.
+            if (networkFailureCount === 1) {
+              console.warn(
+                "[Terminal] Kinesis host is unreachable. Retrying automatically.",
+              );
+            }
           } else {
             console.warn(
               "[Terminal] Heartbeat failed:",
               errorMessage(error),
             );
+
+            intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS;
           }
         }
       } finally {
@@ -543,6 +655,7 @@ export function useTerminalAgent(
       },
     );
 
+    // Check immediately when the heartbeat effect starts.
     void sendHeartbeat();
 
     return () => {
@@ -556,10 +669,13 @@ export function useTerminalAgent(
     status,
     processCommands,
     clearInvalidTerminalSession,
+    updateConnectionStatus,
   ]);
+
 
   return {
     status,
+    connectionStatus,
     deviceId,
     message,
     accessDisabled,

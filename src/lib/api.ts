@@ -1,4 +1,3 @@
-
 import * as SecureStore from "expo-secure-store";
 
 export const API_BASE_URL = (
@@ -16,14 +15,29 @@ const REQUEST_TIMEOUT_MS = 15000;
 const ENROLLMENT_PATH = "/api/terminals/register";
 const CASHIER_LOGIN_PATH = "/api/cashier-auth/login";
 
+export type ApiErrorKind = "http" | "network" | "timeout";
+
 export class ApiError extends Error {
   readonly status: number;
+  readonly kind: ApiErrorKind;
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    kind: ApiErrorKind = "http",
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.kind = kind;
   }
+}
+
+export function isNetworkError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.kind === "network" || error.kind === "timeout")
+  );
 }
 
 function isFormData(body: BodyInit | null | undefined): boolean {
@@ -45,8 +59,7 @@ async function getAuthenticatedHeaders(
 
   const requestPath = path.split("?")[0];
 
-  // Terminal enrollment uses the enrollment key instead of
-  // an existing terminal session token.
+  // Terminal enrollment does not use an existing terminal token.
   if (
     requestPath !== ENROLLMENT_PATH &&
     !headers.has("Authorization")
@@ -77,8 +90,6 @@ async function getAuthenticatedHeaders(
   }
 
   // PIN login does not require an existing cashier session.
-  // Other requests automatically include the current cashier session
-  // when one is available.
   if (
     requestPath !== CASHIER_LOGIN_PATH &&
     !headers.has("X-Cashier-Session")
@@ -115,6 +126,7 @@ async function sendRequest(
   path: string,
   options: RequestInit,
   controller: AbortController,
+  wasTimedOut: () => boolean,
 ): Promise<Response> {
   const isMultipart = isFormData(options.body);
 
@@ -139,31 +151,32 @@ async function sendRequest(
       headers,
     });
   } catch (error) {
-    // Cancellation initiated by the caller is not a network failure.
+    // A component intentionally cancelled its request.
+    // This is not a network failure.
     if (options.signal?.aborted) {
       throw error;
     }
 
-    console.error("[API] Request failed:", {
-      path,
-      method: options.method ?? "GET",
-      error,
-    });
-
-    if (
-      error instanceof Error &&
-      error.name === "AbortError"
-    ) {
-      throw new Error(
-        "The request timed out. Check your connection and try again.",
+    // Distinguish our request timeout from other fetch failures.
+    if (controller.signal.aborted && wasTimedOut()) {
+      throw new ApiError(
+        "Kinesis took too long to respond. Check your connection and try again.",
+        0,
+        "timeout",
       );
     }
 
-    throw new Error(
-      `Request to ${path} failed: ${error instanceof Error
-        ? error.message
-        : String(error)
-      }`,
+    if (controller.signal.aborted) {
+      throw new Error("The request was cancelled.");
+    }
+
+    // React Native can report unavailable Wi-Fi, an unreachable host,
+    // and some fetch cancellations as different low-level errors.
+    // Present one consistent message to the UI.
+    throw new ApiError(
+      "Cannot connect to the Kinesis server. Connect this device to the shop's Wi-Fi and make sure the host computer is running.",
+      0,
+      "network",
     );
   }
 }
@@ -193,7 +206,7 @@ async function readErrorMessage(
       message = body.detail.message;
     }
   } catch {
-    // Preserve the HTTP status message if the response isn't JSON.
+    // Keep the HTTP status message when the response isn't JSON.
   }
 
   return message;
@@ -205,11 +218,13 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const controller = new AbortController();
 
+  let timedOut = false;
+
   const timeout = setTimeout(() => {
+    timedOut = true;
     controller.abort();
   }, REQUEST_TIMEOUT_MS);
 
-  // Honour a caller-supplied signal while enforcing our own timeout.
   const callerSignal = options.signal;
 
   const abortFromCaller = () => {
@@ -236,6 +251,10 @@ export async function apiRequest<T>(
       options.headers,
     );
 
+    if (callerSignal?.aborted) {
+      throw new Error("The request was cancelled.");
+    }
+
     const response = await sendRequest(
       path,
       {
@@ -243,6 +262,7 @@ export async function apiRequest<T>(
         headers: authenticatedHeaders,
       },
       controller,
+      () => timedOut,
     );
 
     if (!response.ok) {

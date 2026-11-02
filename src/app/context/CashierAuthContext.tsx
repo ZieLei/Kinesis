@@ -1,5 +1,3 @@
-
-
 import {
   createContext,
   useCallback,
@@ -9,28 +7,38 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import {
   ActivityIndicator,
   Pressable,
   Text,
   View,
 } from "react-native";
+
 import {
   Redirect,
   usePathname,
 } from "expo-router";
+
 import * as SecureStore from "expo-secure-store";
 
-import { ApiError, apiRequest } from "@/lib/api";
+import {
+  ApiError,
+  apiRequest,
+  isNetworkError,
+} from "@/lib/api";
+
 
 export const CASHIER_SESSION_TOKEN_KEY =
   "kinesis-cashier-session-token";
+
 
 export type CashierAccount = {
   id: string;
   username: string;
   display_name: string;
 };
+
 
 type CashierLoginResponse = {
   authenticated: boolean;
@@ -40,6 +48,7 @@ type CashierLoginResponse = {
   absolute_expires_at: string;
 };
 
+
 type CashierSessionResponse = {
   authenticated: boolean;
   cashier: CashierAccount;
@@ -48,12 +57,14 @@ type CashierSessionResponse = {
   absolute_expires_at: string;
 };
 
+
 export type CashierAuthStatus =
   | "terminal-unavailable"
   | "loading"
   | "unauthenticated"
   | "authenticated"
   | "unavailable";
+
 
 type CashierAuthContextValue = {
   status: CashierAuthStatus;
@@ -64,19 +75,34 @@ type CashierAuthContextValue = {
   refreshSession: () => Promise<void>;
 };
 
+
 const CashierAuthContext =
   createContext<CashierAuthContextValue | null>(null);
 
+
 function getErrorMessage(error: unknown): string {
+  if (isNetworkError(error)) {
+    return (
+      "Cannot reach the Kinesis server. Connect this terminal " +
+      "to the shop's Wi-Fi and check that the host computer is running."
+    );
+  }
+
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+
   return error instanceof Error
     ? error.message
     : "Cashier authentication failed.";
 }
 
+
 type CashierAuthProviderProps = {
   terminalSessionToken: string | null;
   children: ReactNode;
 };
+
 
 export function CashierAuthProvider({
   terminalSessionToken,
@@ -93,12 +119,19 @@ export function CashierAuthProvider({
 
   const [error, setError] = useState<string | null>(null);
 
+
+  // --------------------------------------------------
+  // Restore an existing cashier session
+  // --------------------------------------------------
+
+
   const refreshSession = useCallback(async () => {
     if (!terminalSessionToken) {
       setStatus("terminal-unavailable");
       setCashier(null);
       setSessionToken(null);
       setError(null);
+
       return;
     }
 
@@ -114,6 +147,7 @@ export function CashierAuthProvider({
         setCashier(null);
         setSessionToken(null);
         setStatus("unauthenticated");
+
         return;
       }
 
@@ -129,11 +163,14 @@ export function CashierAuthProvider({
       setCashier(response.cashier);
       setSessionToken(storedToken);
       setStatus("authenticated");
+      setError(null);
     } catch (requestError) {
       if (
         requestError instanceof ApiError &&
         [401, 403].includes(requestError.status)
       ) {
+        // The server explicitly rejected the saved cashier token.
+        // This is an expired/invalid session, not a network outage.
         try {
           await SecureStore.deleteItemAsync(
             CASHIER_SESSION_TOKEN_KEY,
@@ -149,26 +186,42 @@ export function CashierAuthProvider({
         setSessionToken(null);
         setStatus("unauthenticated");
         setError(null);
+
         return;
       }
 
       setError(getErrorMessage(requestError));
       setStatus("unavailable");
+
+      // Keep the saved token locally. The server could not be
+      // reached, so we cannot conclude that the session expired.
     }
   }, [terminalSessionToken]);
+
 
   useEffect(() => {
     void refreshSession();
   }, [refreshSession]);
 
+
+  // --------------------------------------------------
+  // Authenticate a cashier
+  // --------------------------------------------------
+
+
   const login = useCallback(
     async (username: string, pin: string) => {
       if (!terminalSessionToken) {
-        throw new Error(
-          "This terminal is not connected to the Kinesis server.",
+        const unavailableError = new Error(
+          "This terminal is not connected to the Kinesis server. Check the shop Wi-Fi and try again.",
         );
+
+        setError(unavailableError.message);
+
+        throw unavailableError;
       }
 
+      setStatus("loading");
       setError(null);
 
       try {
@@ -189,7 +242,8 @@ export function CashierAuthProvider({
             response.session_token,
           );
         } catch (storageError) {
-          // Do not leave an inaccessible session active on the server.
+          // Do not leave a server session active if its credential
+          // cannot be stored securely on this device.
           try {
             await apiRequest(
               "/api/cashier-auth/logout",
@@ -217,7 +271,9 @@ export function CashierAuthProvider({
         setStatus("authenticated");
         setError(null);
       } catch (loginError) {
-        setError(getErrorMessage(loginError));
+        const message = getErrorMessage(loginError);
+
+        setError(message);
         setStatus("unauthenticated");
         setCashier(null);
         setSessionToken(null);
@@ -227,6 +283,12 @@ export function CashierAuthProvider({
     },
     [terminalSessionToken],
   );
+
+
+  // --------------------------------------------------
+  // End the cashier session
+  // --------------------------------------------------
+
 
   const logout = useCallback(async () => {
     let token = sessionToken;
@@ -255,6 +317,9 @@ export function CashierAuthProvider({
         );
       }
     } catch (logoutError) {
+      // End the local session even when the server is unavailable.
+      // The server-side session will expire according to its configured
+      // idle and absolute expiration limits.
       console.warn(
         "[Cashier Auth] Server-side logout could not be confirmed:",
         getErrorMessage(logoutError),
@@ -278,6 +343,12 @@ export function CashierAuthProvider({
     }
   }, [sessionToken, terminalSessionToken]);
 
+
+  // --------------------------------------------------
+  // Context value
+  // --------------------------------------------------
+
+
   const value = useMemo<CashierAuthContextValue>(
     () => ({
       status,
@@ -297,12 +368,14 @@ export function CashierAuthProvider({
     ],
   );
 
+
   return (
     <CashierAuthContext.Provider value={value}>
       {children}
     </CashierAuthContext.Provider>
   );
 }
+
 
 export function useCashierAuth() {
   const context = useContext(CashierAuthContext);
@@ -315,6 +388,7 @@ export function useCashierAuth() {
 
   return context;
 }
+
 
 /**
  * Globally protects POS routes while leaving the landing page,
@@ -329,6 +403,7 @@ export function CashierRouteGuard({
 
   const {
     status,
+    error,
     refreshSession,
   } = useCashierAuth();
 
@@ -340,6 +415,7 @@ export function CashierRouteGuard({
 
   const isPublicRoute = publicRoutes.includes(pathname);
 
+
   if (pathname === "/login" && status === "authenticated") {
     return <Redirect href="/dashboard" />;
   }
@@ -347,6 +423,7 @@ export function CashierRouteGuard({
   if (isPublicRoute) {
     return <>{children}</>;
   }
+
 
   if (
     status === "terminal-unavailable" ||
@@ -366,6 +443,7 @@ export function CashierRouteGuard({
     );
   }
 
+
   if (status === "unavailable") {
     return (
       <View className="flex-1 items-center justify-center bg-ctp-base px-6">
@@ -375,13 +453,14 @@ export function CashierRouteGuard({
           </Text>
 
           <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
-            Kinesis could not contact the server to verify your cashier
-            session. Reconnect to the store network and try again.
+            Kinesis could not contact the server to verify your
+            cashier session. Reconnect to the store network and
+            try again.
           </Text>
 
-          {!!useCashierAuth().error && (
-            <Text className="mt-3 font-line-seed text-xs text-ctp-red">
-              {useCashierAuth().error}
+          {!!error && (
+            <Text className="mt-3 font-line-seed text-xs leading-5 text-ctp-red">
+              {error}
             </Text>
           )}
 
@@ -397,6 +476,7 @@ export function CashierRouteGuard({
       </View>
     );
   }
+
 
   if (status !== "authenticated") {
     return <Redirect href="/login" />;

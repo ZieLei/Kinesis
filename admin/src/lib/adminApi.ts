@@ -1,8 +1,8 @@
-
 import { apiRequest } from "./api";
 
 import type {
   ApiHealth,
+  OperationsOverviewResponse,
   Product,
   ProductListResponse,
   ProductSalesReport,
@@ -145,6 +145,24 @@ export function fetchRecentSales(
 
   return apiRequest<SalesListResponse>(
     `/api/sales?${params.toString()}`,
+    {
+      method: "GET",
+      signal,
+    },
+  );
+}
+
+
+// --------------------------------------------------
+// Operations overview
+// --------------------------------------------------
+
+
+export function fetchOperationsOverview(
+  signal?: AbortSignal,
+): Promise<OperationsOverviewResponse> {
+  return apiRequest<OperationsOverviewResponse>(
+    "/api/admin/overview/operations",
     {
       method: "GET",
       signal,

@@ -1,4 +1,3 @@
-
 import { useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -7,11 +6,13 @@ import {
   Text,
   View,
 } from "react-native";
+
 import {
   CameraView,
   useCameraPermissions,
   type BarcodeScanningResult,
 } from "expo-camera";
+
 import {
   Check,
   MessageSquareText,
@@ -19,10 +20,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Wifi,
+  WifiOff,
   Wrench,
 } from "lucide-react-native";
 
 import { useTerminalAgent } from "@/hooks/useTerminalAgent";
+
 
 type TerminalAgentProps = {
   onSessionTokenChange: (token: string | null) => void;
@@ -31,11 +35,13 @@ type TerminalAgentProps = {
 const PAIRING_TOKEN_PATTERN =
   /^KINESIS-PAIRING:v1:([A-Za-z0-9_-]{43})$/;
 
+
 export function TerminalAgent({
   onSessionTokenChange,
 }: TerminalAgentProps) {
   const {
     status,
+    connectionStatus,
     deviceId,
     message,
     accessDisabled,
@@ -58,9 +64,11 @@ export function TerminalAgent({
   const registering = status === "registering";
   const initializing = status === "initializing";
 
+
   // --------------------------------------------------
   // QR scanner
   // --------------------------------------------------
+
 
   const handleBarcodeScanned = async (
     result: BarcodeScanningResult,
@@ -99,15 +107,18 @@ export function TerminalAgent({
     scanLocked.current = false;
   };
 
+
   function resumeScanning() {
     scanLocked.current = false;
     setScanEnabled(true);
     setScanError("");
   }
 
+
   // --------------------------------------------------
   // Full-screen terminal state
   // --------------------------------------------------
+
 
   let blockingScreen: ReactNode = null;
 
@@ -273,6 +284,7 @@ export function TerminalAgent({
             </View>
 
             {/* Camera permission */}
+
             {!initializing &&
               !registering &&
               !permission?.granted && (
@@ -306,6 +318,7 @@ export function TerminalAgent({
               )}
 
             {/* QR camera */}
+
             {!initializing &&
               !registering &&
               permission?.granted && (
@@ -411,12 +424,61 @@ export function TerminalAgent({
     );
   }
 
+
+  // --------------------------------------------------
+  // Non-blocking network status
+  // --------------------------------------------------
+
+
+  const connectionBanner =
+    status === "active" &&
+      !accessDisabled &&
+      !maintenanceMode &&
+      connectionStatus !== "online" ? (
+      <View
+        pointerEvents="none"
+        className="absolute left-4 right-4 top-12 z-[90] rounded-xl border border-ctp-yellow/30 bg-ctp-mantle px-4 py-3"
+      >
+        <View className="flex-row items-center gap-3">
+          {connectionStatus === "offline" ? (
+            <WifiOff
+              size={19}
+              color="#f9e2af"
+            />
+          ) : (
+            <ActivityIndicator
+              size="small"
+              color="#f9e2af"
+            />
+          )}
+
+          <View className="min-w-0 flex-1">
+            <Text className="font-line-seed text-sm font-semibold text-ctp-text">
+              {connectionStatus === "offline"
+                ? "Kinesis server unreachable"
+                : "Connecting to Kinesis..."}
+            </Text>
+
+            <Text className="mt-0.5 font-line-seed text-xs leading-5 text-ctp-subtext0">
+              {connectionStatus === "offline"
+                ? "Check the shop Wi-Fi and host computer. Kinesis will retry automatically."
+                : "Checking the connection to the host computer."}
+            </Text>
+          </View>
+
+        </View>
+      </View>
+    ) : null;
+
+
   // --------------------------------------------------
   // Global broadcast modal
   // --------------------------------------------------
 
+
   return (
     <>
+      {connectionBanner}
       {blockingScreen}
 
       <Modal

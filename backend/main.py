@@ -39,6 +39,8 @@ from logging_config import initialize_application_logging
 from auth.integration import install_admin_authentication
 from auth.config import auth_settings
 from cashier_routes import router as cashier_router
+from activity_tracking import install_activity_tracking
+from overview_routes import router as overview_router
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ IMAGE_FORMATS = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_application_logging()
+    install_activity_tracking()
     yield
 
 
@@ -123,6 +126,7 @@ app.include_router(console_router)
 app.include_router(database_router)
 app.include_router(settings_router)
 app.include_router(cashier_router)
+app.include_router(overview_router)
 
 
 # --------------------------------------------------
@@ -305,7 +309,6 @@ async def read_validated_image(
 @app.get("/api/health", tags=["Health"])
 def health_check(db: Session = Depends(get_db)):
     try:
-        # Verify that PostgreSQL is actually reachable.
         db.execute(text("SELECT 1"))
 
     except SQLAlchemyError as exc:
@@ -405,8 +408,6 @@ def create_product(
     _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
-    # Keep manually supplied SKUs. Otherwise, generate one using the
-    # current database-backed SKU configuration.
     product_sku = (
         product_data.sku if product_data.sku is not None else generate_product_sku(db)
     )

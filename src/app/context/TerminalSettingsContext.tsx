@@ -1,4 +1,3 @@
-
 import {
   createContext,
   useCallback,
@@ -9,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import { AppState } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
@@ -19,11 +19,15 @@ import {
   type TerminalSettingsSocketMessage,
 } from "@/lib/terminalAgentApi";
 
+import { isNetworkError } from "@/lib/api";
+
+
 const SETTINGS_CACHE_KEY = "kinesis-terminal-pos-settings";
 const SETTINGS_REFRESH_INTERVAL_MS = 60_000;
 
 const SOCKET_RECONNECT_INITIAL_MS = 1_000;
 const SOCKET_RECONNECT_MAX_MS = 30_000;
+
 
 export type TerminalSettingsStatus =
   | "not-connected"
@@ -32,11 +36,13 @@ export type TerminalSettingsStatus =
   | "offline"
   | "error";
 
+
 type CachedSettings = {
   settings: TerminalPOSSettings;
   version: number;
   updated_at: string;
 };
+
 
 type TerminalSettingsContextValue = {
   settings: TerminalPOSSettings | null;
@@ -47,8 +53,10 @@ type TerminalSettingsContextValue = {
   refreshSettings: () => Promise<void>;
 };
 
+
 const TerminalSettingsContext =
   createContext<TerminalSettingsContextValue | null>(null);
+
 
 function isCachedSettings(value: unknown): value is CachedSettings {
   if (!value || typeof value !== "object") {
@@ -65,16 +73,19 @@ function isCachedSettings(value: unknown): value is CachedSettings {
   );
 }
 
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "Could not synchronize terminal settings.";
 }
 
+
 type TerminalSettingsProviderProps = {
   sessionToken: string | null;
   children: ReactNode;
 };
+
 
 export function TerminalSettingsProvider({
   sessionToken,
@@ -91,97 +102,166 @@ export function TerminalSettingsProvider({
 
   const [error, setError] = useState<string | null>(null);
 
+
+  // --------------------------------------------------
+  // Request coordination
+  // --------------------------------------------------
+
+
   const refreshing = useRef(false);
   const refreshQueued = useRef(false);
 
-  const refreshSettings = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!sessionToken) {
+  const requestGeneration = useRef(0);
+
+  const activeRequest = useRef<AbortController | null>(null);
+
+  const networkFailureLogged = useRef(false);
+  const socketFailureLogged = useRef(false);
+
+
+  // --------------------------------------------------
+  // Fetch settings
+  // --------------------------------------------------
+
+
+  const refreshSettings = useCallback(async () => {
+    if (!sessionToken) {
+      return;
+    }
+
+    // Coalesce concurrent refresh requests into one follow-up.
+    if (refreshing.current) {
+      refreshQueued.current = true;
+      return;
+    }
+
+    const controller = new AbortController();
+    const requestId = ++requestGeneration.current;
+
+    activeRequest.current = controller;
+    refreshing.current = true;
+
+    try {
+      const response = await fetchTerminalSettings(
+        sessionToken,
+        controller.signal,
+      );
+
+      if (
+        controller.signal.aborted ||
+        requestGeneration.current !== requestId
+      ) {
         return;
       }
 
-      // Queue one follow-up refresh rather than losing requests
-      // while another settings request is running.
-      if (refreshing.current) {
-        refreshQueued.current = true;
-        return;
-      }
+      setSettings(response.settings);
+      setVersion(response.version);
+      setUpdatedAt(response.updated_at);
 
-      refreshing.current = true;
+      setStatus("synced");
+      setError(null);
+
+      networkFailureLogged.current = false;
 
       try {
-        const response = await fetchTerminalSettings(
-          sessionToken,
-          signal,
+        await SecureStore.setItemAsync(
+          SETTINGS_CACHE_KEY,
+          JSON.stringify(response),
         );
+      } catch (cacheError) {
+        console.warn(
+          "[Terminal Settings] Could not cache settings:",
+          getErrorMessage(cacheError),
+        );
+      }
+    } catch (fetchError) {
+      if (
+        controller.signal.aborted ||
+        requestGeneration.current !== requestId
+      ) {
+        return;
+      }
 
-        if (signal?.aborted) return;
+      setError(getErrorMessage(fetchError));
 
-        setSettings(response.settings);
-        setVersion(response.version);
-        setUpdatedAt(response.updated_at);
-        setStatus("synced");
-        setError(null);
+      if (isNetworkError(fetchError)) {
+        setStatus("offline");
 
-        try {
-          await SecureStore.setItemAsync(
-            SETTINGS_CACHE_KEY,
-            JSON.stringify(response),
-          );
-        } catch (cacheError) {
-          console.warn(
-            "[Terminal Settings] Could not cache settings:",
-            getErrorMessage(cacheError),
+        // Log only the first failure in a continuous outage.
+        if (!networkFailureLogged.current) {
+          networkFailureLogged.current = true;
+
+          console.info(
+            "[Terminal Settings] Server unavailable. Keeping cached settings and retrying.",
           );
         }
-      } catch (fetchError) {
-        if (signal?.aborted) return;
-
-        setError(getErrorMessage(fetchError));
-
-        setStatus((current) =>
-          current === "synced" || current === "offline"
-            ? "offline"
-            : "error",
-        );
+      } else {
+        setStatus("error");
 
         console.warn(
           "[Terminal Settings] Synchronization failed:",
           getErrorMessage(fetchError),
         );
-      } finally {
+      }
+    } finally {
+      // An old request must not modify the state of a newer request.
+      if (requestGeneration.current === requestId) {
         refreshing.current = false;
+        activeRequest.current = null;
 
-        if (signal?.aborted) {
-          refreshQueued.current = false;
-        } else if (refreshQueued.current) {
+        if (
+          refreshQueued.current &&
+          !controller.signal.aborted
+        ) {
           refreshQueued.current = false;
           void refreshSettings();
         }
       }
-    },
-    [sessionToken],
-  );
+    }
+  }, [sessionToken]);
+
+
+  // --------------------------------------------------
+  // Restore cached settings and establish live updates
+  // --------------------------------------------------
+
 
   useEffect(() => {
     if (!sessionToken) {
       setSettings(null);
       setVersion(null);
       setUpdatedAt(null);
+
       setStatus("not-connected");
       setError(null);
+
       refreshQueued.current = false;
+      networkFailureLogged.current = false;
+      socketFailureLogged.current = false;
 
       return;
     }
 
     let cancelled = false;
+
     let activeSocket: WebSocket | null = null;
 
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
 
-    const controller = new AbortController();
+    // Make this provider generation independent from any request
+    // left over from a previous terminal session.
+    requestGeneration.current += 1;
+
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+
+    refreshing.current = false;
+    refreshQueued.current = false;
+
+    networkFailureLogged.current = false;
+    socketFailureLogged.current = false;
+
 
     const clearReconnectTimer = () => {
       if (reconnectTimer !== null) {
@@ -190,13 +270,25 @@ export function TerminalSettingsProvider({
       }
     };
 
+
+    // --------------------------------------------------
+    // WebSocket reconnection
+    // --------------------------------------------------
+
+
     const scheduleReconnect = () => {
-      if (cancelled || reconnectTimer !== null) {
+      if (
+        cancelled ||
+        reconnectTimer !== null ||
+        AppState.currentState !== "active"
+      ) {
         return;
       }
 
+      const exponent = Math.min(reconnectAttempt, 5);
+
       const delay = Math.min(
-        SOCKET_RECONNECT_INITIAL_MS * 2 ** reconnectAttempt,
+        SOCKET_RECONNECT_INITIAL_MS * 2 ** exponent,
         SOCKET_RECONNECT_MAX_MS,
       );
 
@@ -206,14 +298,14 @@ export function TerminalSettingsProvider({
         reconnectTimer = null;
         connectSocket();
       }, delay);
-
-      console.log(
-        `[Terminal Settings] WebSocket reconnect scheduled in ${delay}ms.`,
-      );
     };
 
+
     const connectSocket = () => {
-      if (cancelled) {
+      if (
+        cancelled ||
+        AppState.currentState !== "active"
+      ) {
         return;
       }
 
@@ -229,7 +321,9 @@ export function TerminalSettingsProvider({
 
       try {
         const socket = connectTerminalSettingsSocket(sessionToken);
+
         activeSocket = socket;
+
 
         socket.onmessage = (event) => {
           if (cancelled) {
@@ -250,33 +344,30 @@ export function TerminalSettingsProvider({
             return;
           }
 
+
           if (message.type === "authenticated") {
             reconnectAttempt = 0;
+            socketFailureLogged.current = false;
 
-            console.log(
-              "[Terminal Settings] Realtime connection authenticated.",
+            console.info(
+              "[Terminal Settings] Realtime connection restored.",
             );
 
-            // Recover changes made while the terminal was offline.
+            // Fetch any updates that may have happened while offline.
             void refreshSettings();
 
             return;
           }
+
 
           if (message.type === "settings_updated") {
-            console.log(
-              "[Terminal Settings] Settings update received.",
-              { version: message.version },
-            );
-
             void refreshSettings();
 
             return;
           }
 
+
           if (message.type === "ping") {
-            // Echo the exact ping identifier so the server can
-            // measure this terminal's round-trip latency.
             if (
               socket.readyState === WebSocket.OPEN &&
               message.ping_id
@@ -291,40 +382,61 @@ export function TerminalSettingsProvider({
           }
         };
 
+
         socket.onerror = () => {
-          console.warn(
-            "[Terminal Settings] WebSocket connection error.",
-          );
+          if (!cancelled && !socketFailureLogged.current) {
+            socketFailureLogged.current = true;
+
+            console.info(
+              "[Terminal Settings] Realtime connection unavailable. Reconnecting automatically.",
+            );
+          }
 
           try {
             socket.close();
           } catch {
-            // The close event will schedule reconnection.
+            // The close handler schedules the next attempt.
           }
         };
+
 
         socket.onclose = (event) => {
           if (activeSocket === socket) {
             activeSocket = null;
           }
 
-          if (event.code === 4403) {
+          if (
+            event.code === 4403 &&
+            !socketFailureLogged.current
+          ) {
+            socketFailureLogged.current = true;
+
             console.warn(
-              "[Terminal Settings] Server closed the disabled terminal connection.",
+              "[Terminal Settings] Server rejected the terminal WebSocket connection.",
             );
           }
 
           scheduleReconnect();
         };
       } catch (socketError) {
-        console.warn(
-          "[Terminal Settings] Could not create WebSocket:",
-          getErrorMessage(socketError),
-        );
+        if (!socketFailureLogged.current) {
+          socketFailureLogged.current = true;
+
+          console.info(
+            "[Terminal Settings] Could not establish realtime connection. Retrying automatically.",
+            getErrorMessage(socketError),
+          );
+        }
 
         scheduleReconnect();
       }
     };
+
+
+    // --------------------------------------------------
+    // Restore cached settings before contacting the server
+    // --------------------------------------------------
+
 
     async function initializeSettings() {
       setStatus("loading");
@@ -344,6 +456,9 @@ export function TerminalSettingsProvider({
             setSettings(parsed.settings);
             setVersion(parsed.version);
             setUpdatedAt(parsed.updated_at);
+
+            // Cached data is usable, but it has not yet been
+            // confirmed against the current server state.
             setStatus("offline");
           }
         }
@@ -356,23 +471,44 @@ export function TerminalSettingsProvider({
 
       if (cancelled) return;
 
-      await refreshSettings(controller.signal);
+      await refreshSettings();
     }
+
 
     void initializeSettings();
 
     connectSocket();
 
+
+    // --------------------------------------------------
+    // Periodic settings refresh
+    // --------------------------------------------------
+
+
     const interval = setInterval(() => {
-      if (!cancelled && AppState.currentState === "active") {
+      if (
+        !cancelled &&
+        AppState.currentState === "active"
+      ) {
         void refreshSettings();
       }
     }, SETTINGS_REFRESH_INTERVAL_MS);
 
+
+    // --------------------------------------------------
+    // App foreground/background handling
+    // --------------------------------------------------
+
+
     const subscription = AppState.addEventListener(
       "change",
       (nextState) => {
-        if (cancelled || nextState !== "active") {
+        if (cancelled) {
+          return;
+        }
+
+        if (nextState !== "active") {
+          clearReconnectTimer();
           return;
         }
 
@@ -388,10 +524,19 @@ export function TerminalSettingsProvider({
       },
     );
 
+
     return () => {
       cancelled = true;
 
-      controller.abort();
+      // Invalidate any outstanding HTTP settings request.
+      requestGeneration.current += 1;
+
+      activeRequest.current?.abort();
+      activeRequest.current = null;
+
+      refreshing.current = false;
+      refreshQueued.current = false;
+
       clearInterval(interval);
       subscription.remove();
       clearReconnectTimer();
@@ -410,7 +555,16 @@ export function TerminalSettingsProvider({
         activeSocket = null;
       }
     };
-  }, [sessionToken, refreshSettings]);
+  }, [
+    sessionToken,
+    refreshSettings,
+  ]);
+
+
+  // --------------------------------------------------
+  // Context value
+  // --------------------------------------------------
+
 
   const value = useMemo<TerminalSettingsContextValue>(
     () => ({
@@ -419,7 +573,7 @@ export function TerminalSettingsProvider({
       updatedAt,
       status,
       error,
-      refreshSettings: () => refreshSettings(),
+      refreshSettings,
     }),
     [
       settings,
@@ -431,12 +585,14 @@ export function TerminalSettingsProvider({
     ],
   );
 
+
   return (
     <TerminalSettingsContext.Provider value={value}>
       {children}
     </TerminalSettingsContext.Provider>
   );
 }
+
 
 export function useTerminalSettings() {
   const context = useContext(TerminalSettingsContext);
