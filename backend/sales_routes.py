@@ -1,17 +1,39 @@
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
+import re
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator, model_validator
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import Date as SQLDate, cast, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from auth.password import DUMMY_PASSWORD_HASH, verify_password
+from cashier_models import Cashier
 from cashier_routes import CashierPrincipal, require_cashier_principal
+from cashier_sessions import (
+    cashier_login_attempt_keys,
+    lock_cashier_login_attempts,
+    record_failed_cashier_login,
+    reset_cashier_login_attempts,
+)
 from database import get_db
 from models import (
     AppSettings,
@@ -33,10 +55,13 @@ REPORT_TIMEZONE = ZoneInfo("Asia/Manila")
 ZERO_MONEY = Decimal("0.00")
 CENT = Decimal("0.01")
 COST_PRECISION = Decimal("0.0001")
-DEFAULT_CASH_ROUNDING = Decimal("0.01")
+
+USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$")
+PIN_PATTERN = re.compile(r"^\d{6}$")
 
 PaymentMethod = Literal["cash", "gcash"]
 ReportPeriod = Literal["daily", "weekly", "monthly", "yearly"]
+
 
 DEFAULT_SETTINGS = {
     "currencySymbol": "₱",
@@ -51,6 +76,10 @@ DEFAULT_SETTINGS = {
     "receiptNotes": "Please keep your receipt for returns and exchanges.",
     "digitalReceipts": False,
     "receiptOutput": "bluetooth",
+    "supervisorPinForDiscounts": True,
+    "allowCustomLineItems": False,
+    "discountLimit": "10",
+    "inactivityLock": "5",
 }
 
 
@@ -75,11 +104,38 @@ class CheckoutCreate(BaseModel):
         max_length=32,
         pattern=r"^[A-Za-z0-9-]+$",
     )
+
     payment_method: PaymentMethod
 
-    # Defaults preserve compatibility with existing product-only clients.
-    items: list[CheckoutItem] = Field(default_factory=list, max_length=100)
-    services: list[CheckoutService] = Field(default_factory=list, max_length=100)
+    items: list[CheckoutItem] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    services: list[CheckoutService] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    # Percentage discount applied to the original subtotal.
+    # The server always calculates the actual monetary discount.
+    discount_percent: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=0,
+        le=100,
+        max_digits=5,
+        decimal_places=2,
+    )
+
+    # Required only when the discount exceeds the cashier limit
+    # and supervisor authorization is enabled.
+    supervisor_username: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=64,
+    )
+
+    supervisor_pin: SecretStr | None = None
 
     amount_tendered: Decimal | None = Field(
         default=None,
@@ -87,7 +143,11 @@ class CheckoutCreate(BaseModel):
         max_digits=12,
         decimal_places=2,
     )
-    reference_number: str | None = Field(default=None, max_length=64)
+
+    reference_number: str | None = Field(
+        default=None,
+        max_length=64,
+    )
 
     @field_validator("transaction_code")
     @classmethod
@@ -102,7 +162,35 @@ class CheckoutCreate(BaseModel):
     ) -> str | None:
         if value is None:
             return None
+
         return value.strip() or None
+
+    @field_validator("supervisor_username")
+    @classmethod
+    def normalize_supervisor_username(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        value = value.strip().lower()
+
+        if not USERNAME_PATTERN.fullmatch(value):
+            raise ValueError("Enter a valid supervisor username.")
+
+        return value
+
+    @field_validator("supervisor_pin")
+    @classmethod
+    def validate_supervisor_pin(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is not None and not PIN_PATTERN.fullmatch(value.get_secret_value()):
+            raise ValueError("Supervisor PIN must contain exactly six digits.")
+
+        return value
 
     @model_validator(mode="after")
     def validate_checkout(self):
@@ -121,6 +209,12 @@ class CheckoutCreate(BaseModel):
             raise ValueError(
                 "Each service must appear only once in the checkout services."
             )
+
+        has_supervisor_username = self.supervisor_username is not None
+        has_supervisor_pin = self.supervisor_pin is not None
+
+        if has_supervisor_username != has_supervisor_pin:
+            raise ValueError("Supervisor username and PIN must be provided together.")
 
         if self.payment_method == "cash":
             if self.amount_tendered is None:
@@ -142,7 +236,7 @@ class CheckoutCreate(BaseModel):
 
 def get_checkout_settings(
     db: Session,
-) -> tuple[Decimal, Decimal, dict, bool]:
+) -> tuple[Decimal, Decimal, dict, bool, Decimal, bool]:
     statement = (
         pg_insert(AppSettings)
         .values(
@@ -150,7 +244,9 @@ def get_checkout_settings(
             settings=DEFAULT_SETTINGS,
             version=1,
         )
-        .on_conflict_do_nothing(index_elements=[AppSettings.id])
+        .on_conflict_do_nothing(
+            index_elements=[AppSettings.id],
+        )
     )
 
     db.execute(statement)
@@ -162,7 +258,7 @@ def get_checkout_settings(
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application settings could not be loaded for checkout.",
+            detail=("Application settings could not be loaded for checkout."),
         )
 
     stored_settings = row.settings
@@ -175,18 +271,31 @@ def get_checkout_settings(
 
     try:
         tax_rate = Decimal(str(stored_settings.get("taxRate", "0")))
+
         cash_rounding = Decimal(str(stored_settings.get("cashRounding", "0.01")))
+
+        discount_limit = Decimal(str(stored_settings.get("discountLimit", "10")))
+
     except (InvalidOperation, ValueError, TypeError) as exc:
-        logger.error("Invalid checkout pricing settings in the database.")
+        logger.error("Invalid pricing or discount settings in the database.")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The saved checkout pricing settings are invalid.",
+            detail="The saved checkout settings are invalid.",
         ) from exc
 
     if not tax_rate.is_finite() or not Decimal("0") <= tax_rate <= Decimal("100"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The saved tax rate is outside the permitted range.",
+        )
+
+    if not discount_limit.is_finite() or not Decimal("0") <= discount_limit <= Decimal(
+        "100"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=("The saved discount limit is outside the permitted range."),
         )
 
     allowed_rounding = {
@@ -207,10 +316,21 @@ def get_checkout_settings(
         False,
     )
 
+    supervisor_pin_required = stored_settings.get(
+        "supervisorPinForDiscounts",
+        True,
+    )
+
     if not isinstance(allow_negative_inventory, bool):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The saved negative-inventory setting is invalid.",
+            detail=("The saved negative-inventory setting is invalid."),
+        )
+
+    if not isinstance(supervisor_pin_required, bool):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=("The saved supervisor authorization setting is invalid."),
         )
 
     snapshot_keys = (
@@ -225,32 +345,219 @@ def get_checkout_settings(
         "digitalReceipts",
         "receiptOutput",
         "allowNegativeInventory",
+        "supervisorPinForDiscounts",
+        "discountLimit",
+        "inactivityLock",
     )
 
     snapshot = {
-        key: stored_settings.get(key, DEFAULT_SETTINGS.get(key))
+        key: stored_settings.get(
+            key,
+            DEFAULT_SETTINGS.get(key),
+        )
         for key in snapshot_keys
     }
 
-    return tax_rate, cash_rounding, snapshot, allow_negative_inventory
+    return (
+        tax_rate,
+        cash_rounding,
+        snapshot,
+        allow_negative_inventory,
+        discount_limit,
+        supervisor_pin_required,
+    )
 
 
-def calculate_tax(subtotal: Decimal, tax_rate: Decimal) -> Decimal:
+def calculate_tax(
+    subtotal: Decimal,
+    tax_rate: Decimal,
+) -> Decimal:
     return (subtotal * tax_rate / Decimal("100")).quantize(
         CENT,
         rounding=ROUND_HALF_UP,
     )
 
 
-def round_cash_total(amount: Decimal, increment: Decimal) -> Decimal:
+def round_cash_total(
+    amount: Decimal,
+    increment: Decimal,
+) -> Decimal:
     if increment == CENT:
-        return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+        return amount.quantize(
+            CENT,
+            rounding=ROUND_HALF_UP,
+        )
 
     units = (amount / increment).quantize(
         Decimal("1"),
         rounding=ROUND_HALF_UP,
     )
-    return (units * increment).quantize(CENT, rounding=ROUND_HALF_UP)
+
+    return (units * increment).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def money_to_cents(amount: Decimal) -> int:
+    return int((amount.quantize(CENT) * 100).to_integral_value())
+
+
+def cents_to_money(amount: int) -> Decimal:
+    return (Decimal(amount) / 100).quantize(CENT)
+
+
+def calculate_discount(
+    gross_subtotal: Decimal,
+    discount_percent: Decimal,
+) -> Decimal:
+    """
+    Calculate the monetary discount from the original subtotal.
+
+    All monetary calculations are performed with Decimal.
+    """
+
+    return (gross_subtotal * discount_percent / Decimal("100")).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def allocate_discount(
+    discount_amount: Decimal,
+    line_gross_totals: list[Decimal],
+) -> list[Decimal]:
+    """
+    Allocate a sale-wide discount proportionally across its lines.
+
+    Uses integer cents and largest-remainder allocation. This ensures
+    the sum of line discounts always equals the sale discount exactly.
+    """
+
+    if not line_gross_totals:
+        return []
+
+    gross_cents = [money_to_cents(amount) for amount in line_gross_totals]
+
+    total_gross_cents = sum(gross_cents)
+    total_discount_cents = money_to_cents(discount_amount)
+
+    if total_discount_cents == 0:
+        return [ZERO_MONEY for _ in line_gross_totals]
+
+    if total_gross_cents <= 0:
+        raise ValueError("A discount cannot be allocated to a zero-value sale.")
+
+    if total_discount_cents > total_gross_cents:
+        raise ValueError("The discount cannot exceed the original sale amount.")
+
+    allocations: list[int] = []
+    remainders: list[tuple[int, int]] = []
+
+    for index, line_cents in enumerate(gross_cents):
+        base_amount, remainder = divmod(
+            total_discount_cents * line_cents,
+            total_gross_cents,
+        )
+
+        allocations.append(base_amount)
+        remainders.append((remainder, index))
+
+    remaining_cents = total_discount_cents - sum(allocations)
+
+    # Deterministic largest-remainder distribution.
+    remainders.sort(key=lambda entry: (-entry[0], entry[1]))
+
+    for _, index in remainders[:remaining_cents]:
+        allocations[index] += 1
+
+    return [cents_to_money(amount) for amount in allocations]
+
+
+# --------------------------------------------------
+# Supervisor authorization
+# --------------------------------------------------
+
+
+def get_request_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
+
+    return request.client.host[:45]
+
+
+def authorize_supervisor_discount(
+    db: Session,
+    request: Request,
+    username: str,
+    pin: SecretStr,
+) -> Cashier:
+    """
+    Verify an active supervisor account and PIN.
+
+    The supervisor row remains locked until the checkout transaction
+    commits, preventing a simultaneous role change or PIN reset from
+    racing with the authorization.
+    """
+
+    attempt_keys = cashier_login_attempt_keys(
+        username,
+        get_request_ip(request),
+    )
+
+    attempts, retry_after = lock_cashier_login_attempts(
+        db,
+        attempt_keys,
+    )
+
+    if retry_after:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Too many unsuccessful supervisor PIN attempts. Please try again later."
+            ),
+            headers={
+                "Retry-After": str(retry_after),
+                "Cache-Control": "no-store",
+            },
+        )
+
+    supervisor = db.scalar(
+        select(Cashier)
+        .where(Cashier.username == username)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    stored_hash = supervisor.pin_hash if supervisor is not None else DUMMY_PASSWORD_HASH
+
+    pin_valid = verify_password(
+        pin.get_secret_value(),
+        stored_hash,
+    )
+
+    if (
+        supervisor is None
+        or not supervisor.is_active
+        or not supervisor.is_supervisor
+        or not pin_valid
+    ):
+        record_failed_cashier_login(attempts)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supervisor authorization failed. Check the credentials.",
+        )
+
+    reset_cashier_login_attempts(
+        db,
+        attempt_keys,
+    )
+
+    return supervisor
 
 
 # --------------------------------------------------
@@ -260,6 +567,10 @@ def round_cash_total(amount: Decimal, increment: Decimal) -> Decimal:
 
 def sale_response(sale: Sale) -> dict:
     subtotal = Decimal(sale.subtotal)
+    gross_subtotal = Decimal(sale.gross_subtotal)
+    discount_amount = Decimal(sale.discount_amount)
+    discount_percent = Decimal(sale.discount_percent)
+
     tax_amount = Decimal(sale.tax_amount)
     total = Decimal(sale.total)
 
@@ -271,6 +582,15 @@ def sale_response(sale: Sale) -> dict:
         "payment_method": sale.payment_method,
         "reference_number": sale.reference_number,
         "status": sale.status,
+        "gross_subtotal": float(gross_subtotal),
+        "discount_amount": float(discount_amount),
+        "discount_percent": float(discount_percent),
+        "discount_authorized_by": (
+            str(sale.discount_authorized_by)
+            if sale.discount_authorized_by is not None
+            else None
+        ),
+        "discount_authorized_username": (sale.discount_authorized_username),
         "subtotal": float(subtotal),
         "tax_amount": float(tax_amount),
         "rounding_adjustment": float(rounding_adjustment),
@@ -296,6 +616,7 @@ def sale_response(sale: Sale) -> dict:
                     float(item.unit_cost) if item.unit_cost is not None else None
                 ),
                 "quantity": item.quantity,
+                "discount_amount": float(item.discount_amount),
                 "line_total": float(item.line_total),
             }
             for item in sale.items
@@ -311,6 +632,7 @@ def sale_response(sale: Sale) -> dict:
                     float(item.unit_cost) if item.unit_cost is not None else None
                 ),
                 "quantity": item.quantity,
+                "discount_amount": float(item.discount_amount),
                 "line_total": float(item.line_total),
             }
             for item in sale.service_items
@@ -320,6 +642,7 @@ def sale_response(sale: Sale) -> dict:
 
 def sale_list_response(sale: Sale) -> dict:
     item_count = sum(item.quantity for item in sale.items)
+
     service_count = sum(item.quantity for item in sale.service_items)
 
     return {
@@ -328,6 +651,9 @@ def sale_list_response(sale: Sale) -> dict:
         "payment_method": sale.payment_method,
         "reference_number": sale.reference_number,
         "status": sale.status,
+        "gross_subtotal": float(sale.gross_subtotal),
+        "discount_amount": float(sale.discount_amount),
+        "discount_percent": float(sale.discount_percent),
         "total": float(sale.total),
         "created_at": sale.created_at.isoformat(),
         "item_count": item_count + service_count,
@@ -355,7 +681,10 @@ def get_sale_by_code(
     )
 
 
-def checkout_matches_sale(sale: Sale, request: CheckoutCreate) -> bool:
+def checkout_matches_sale(
+    sale: Sale,
+    request: CheckoutCreate,
+) -> bool:
     if sale.payment_method != request.payment_method:
         return False
 
@@ -363,15 +692,22 @@ def checkout_matches_sale(sale: Sale, request: CheckoutCreate) -> bool:
         return False
 
     stored_items = {(item.product_id, item.quantity) for item in sale.items}
+
     requested_items = {(item.product_id, item.quantity) for item in request.items}
 
     stored_services = {(item.service_id, item.quantity) for item in sale.service_items}
+
     requested_services = {(item.service_id, item.quantity) for item in request.services}
 
     if stored_items != requested_items:
         return False
 
     if stored_services != requested_services:
+        return False
+
+    if Decimal(sale.discount_percent).quantize(
+        CENT
+    ) != request.discount_percent.quantize(CENT):
         return False
 
     if request.payment_method == "cash":
@@ -410,13 +746,19 @@ def list_sales(
             selectinload(Sale.items),
             selectinload(Sale.service_items),
         )
-        .order_by(Sale.created_at.desc(), Sale.id.desc())
+        .order_by(
+            Sale.created_at.desc(),
+            Sale.id.desc(),
+        )
         .offset(offset)
         .limit(limit)
     ).all()
 
     status_rows = db.execute(
-        select(Sale.status, func.count(Sale.id)).group_by(Sale.status)
+        select(
+            Sale.status,
+            func.count(Sale.id),
+        ).group_by(Sale.status)
     ).all()
 
     return {
@@ -438,6 +780,7 @@ def list_sales(
 @router.post("/sales", tags=["Sales"])
 def create_sale(
     checkout: CheckoutCreate,
+    request: Request,
     terminal: Terminal = Depends(require_writable_terminal),
     cashier: CashierPrincipal = Depends(require_cashier_principal),
     db: Session = Depends(get_db),
@@ -445,12 +788,23 @@ def create_sale(
     """
     Complete a product-only, service-only, or mixed checkout.
 
+    Prices always come from the server database.
+
+    Discounts are calculated by the server and allocated proportionally
+    across all sale lines. A supervisor PIN is verified when required.
+
     Product rows and service rows are locked in ascending ID order.
-    Product stock validation, cost snapshots, sale lines, and stock
-    deductions are committed in one database transaction.
+    Product stock validation, cost snapshots, discounted sale lines,
+    and stock deductions are committed in one database transaction.
     """
 
-    existing = get_sale_by_code(db, checkout.transaction_code)
+    # Idempotency recovery must happen before supervisor verification.
+    # A previously committed sale can safely be returned even if the
+    # original response was interrupted.
+    existing = get_sale_by_code(
+        db,
+        checkout.transaction_code,
+    )
 
     if existing is not None:
         if checkout_matches_sale(existing, checkout) and checkout_belongs_to_cashier(
@@ -469,7 +823,47 @@ def create_sale(
             cash_rounding,
             settings_snapshot,
             allow_negative_inventory,
+            discount_limit,
+            supervisor_pin_required,
         ) = get_checkout_settings(db)
+
+        requested_discount = checkout.discount_percent.quantize(CENT)
+
+        supervisor: Cashier | None = None
+
+        # --------------------------------------------------
+        # Discount authorization
+        # --------------------------------------------------
+
+        if requested_discount > discount_limit:
+            if not supervisor_pin_required:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "The requested discount exceeds the configured "
+                        f"cashier limit of {discount_limit}%."
+                    ),
+                )
+
+            if checkout.supervisor_username is None or checkout.supervisor_pin is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "This discount requires supervisor authorization. "
+                        "Enter a supervisor username and PIN."
+                    ),
+                )
+
+            supervisor = authorize_supervisor_discount(
+                db,
+                request,
+                checkout.supervisor_username,
+                checkout.supervisor_pin,
+            )
+
+        # --------------------------------------------------
+        # Acquire inventory and service locks
+        # --------------------------------------------------
 
         requested_product_ids = sorted(item.product_id for item in checkout.items)
 
@@ -498,6 +892,7 @@ def create_sale(
         )
 
         products_by_id = {product.id: product for product in locked_products}
+
         services_by_id = {service.id: service for service in locked_services}
 
         missing_product_ids = [
@@ -509,7 +904,7 @@ def create_sale(
         if missing_product_ids:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Product ID {missing_product_ids[0]} does not exist.",
+                detail=(f"Product ID {missing_product_ids[0]} does not exist."),
             )
 
         missing_service_ids = [
@@ -521,12 +916,15 @@ def create_sale(
         if missing_service_ids:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Service ID {missing_service_ids[0]} does not exist.",
+                detail=(f"Service ID {missing_service_ids[0]} does not exist."),
             )
 
-        # Recheck after locks. This handles simultaneous requests using
-        # the same transaction code.
-        existing = get_sale_by_code(db, checkout.transaction_code)
+        # Recheck after locks. This handles simultaneous requests
+        # using the same transaction code.
+        existing = get_sale_by_code(
+            db,
+            checkout.transaction_code,
+        )
 
         if existing is not None:
             if checkout_matches_sale(
@@ -541,6 +939,10 @@ def create_sale(
                 detail="This transaction code has already been used.",
             )
 
+        # --------------------------------------------------
+        # Duplicate GCash reference protection
+        # --------------------------------------------------
+
         if checkout.reference_number:
             duplicate_reference = db.scalar(
                 select(Sale.id).where(
@@ -551,12 +953,16 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="This GCash reference number has already been recorded.",
+                    detail=("This GCash reference number has already been recorded."),
                 )
+
+        # --------------------------------------------------
+        # Calculate original line prices and acquisition costs
+        # --------------------------------------------------
 
         calculated_products = []
         calculated_services = []
-        subtotal = ZERO_MONEY
+        line_gross_totals: list[Decimal] = []
 
         for item in checkout.items:
             product = products_by_id[item.product_id]
@@ -566,12 +972,14 @@ def create_sale(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
                         f"Insufficient stock for '{product.name}'. "
-                        f"Available: {product.stock}; requested: {item.quantity}."
+                        f"Available: {product.stock}; "
+                        f"requested: {item.quantity}."
                     ),
                 )
 
             unit_price = Decimal(product.price).quantize(CENT)
-            line_total = (unit_price * item.quantity).quantize(CENT)
+
+            gross_line_total = (unit_price * item.quantity).quantize(CENT)
 
             unit_cost = (
                 Decimal(product.average_cost).quantize(COST_PRECISION)
@@ -579,17 +987,24 @@ def create_sale(
                 else None
             )
 
-            subtotal += line_total
-
             calculated_products.append(
-                (item, product, unit_price, unit_cost, line_total)
+                (
+                    item,
+                    product,
+                    unit_price,
+                    unit_cost,
+                    gross_line_total,
+                )
             )
+
+            line_gross_totals.append(gross_line_total)
 
         for item in checkout.services:
             service = services_by_id[item.service_id]
 
             unit_price = Decimal(service.price).quantize(CENT)
-            line_total = (unit_price * item.quantity).quantize(CENT)
+
+            gross_line_total = (unit_price * item.quantity).quantize(CENT)
 
             unit_cost = (
                 Decimal(service.estimated_cost).quantize(COST_PRECISION)
@@ -597,38 +1012,89 @@ def create_sale(
                 else None
             )
 
-            subtotal += line_total
-
             calculated_services.append(
-                (item, service, unit_price, unit_cost, line_total)
+                (
+                    item,
+                    service,
+                    unit_price,
+                    unit_cost,
+                    gross_line_total,
+                )
             )
 
-        subtotal = subtotal.quantize(CENT)
-        tax_amount = calculate_tax(subtotal, tax_rate)
+            line_gross_totals.append(gross_line_total)
+
+        # --------------------------------------------------
+        # Calculate and allocate discount
+        # --------------------------------------------------
+
+        gross_subtotal = sum(
+            line_gross_totals,
+            ZERO_MONEY,
+        ).quantize(CENT)
+
+        discount_amount = calculate_discount(
+            gross_subtotal,
+            requested_discount,
+        )
+
+        allocations = allocate_discount(
+            discount_amount,
+            line_gross_totals,
+        )
+
+        subtotal = (gross_subtotal - discount_amount).quantize(CENT)
+
+        # --------------------------------------------------
+        # Tax and payment calculations
+        # --------------------------------------------------
+
+        tax_amount = calculate_tax(
+            subtotal,
+            tax_rate,
+        )
+
         unrounded_total = (subtotal + tax_amount).quantize(CENT)
 
         if checkout.payment_method == "cash":
-            total = round_cash_total(unrounded_total, cash_rounding)
+            total = round_cash_total(
+                unrounded_total,
+                cash_rounding,
+            )
+
             amount_tendered = checkout.amount_tendered
 
             if amount_tendered is None or amount_tendered < total:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="The amount received is less than the amount due.",
+                    detail=("The amount received is less than the amount due."),
                 )
 
             amount_tendered = amount_tendered.quantize(CENT)
+
             change_due = (amount_tendered - total).quantize(CENT)
+
         else:
             total = unrounded_total
             amount_tendered = total
             change_due = ZERO_MONEY
+
+        # --------------------------------------------------
+        # Persist sale
+        # --------------------------------------------------
 
         sale = Sale(
             transaction_code=checkout.transaction_code,
             payment_method=checkout.payment_method,
             reference_number=checkout.reference_number,
             status="completed",
+            gross_subtotal=gross_subtotal,
+            discount_amount=discount_amount,
+            discount_percent=requested_discount,
+            discount_authorized_by=(supervisor.id if supervisor is not None else None),
+            discount_authorized_username=(
+                supervisor.username if supervisor is not None else None
+            ),
             subtotal=subtotal,
             tax_amount=tax_amount,
             total=total,
@@ -645,7 +1111,23 @@ def create_sale(
         db.add(sale)
         db.flush()
 
-        for item, product, unit_price, unit_cost, line_total in calculated_products:
+        # --------------------------------------------------
+        # Persist discounted product lines and deduct stock
+        # --------------------------------------------------
+
+        product_count = len(calculated_products)
+
+        for index, (
+            item,
+            product,
+            unit_price,
+            unit_cost,
+            gross_line_total,
+        ) in enumerate(calculated_products):
+            line_discount = allocations[index]
+
+            discounted_line_total = (gross_line_total - line_discount).quantize(CENT)
+
             db.add(
                 SaleItem(
                     sale_id=sale.id,
@@ -656,14 +1138,31 @@ def create_sale(
                     unit_price=unit_price,
                     unit_cost=unit_cost,
                     quantity=item.quantity,
-                    line_total=line_total,
+                    discount_amount=line_discount,
+                    line_total=discounted_line_total,
                 )
             )
 
             product.stock -= item.quantity
             product.how_much_sold += item.quantity
 
-        for item, service, unit_price, unit_cost, line_total in calculated_services:
+        # --------------------------------------------------
+        # Persist discounted service lines
+        # --------------------------------------------------
+
+        for service_index, (
+            item,
+            service,
+            unit_price,
+            unit_cost,
+            gross_line_total,
+        ) in enumerate(calculated_services):
+            allocation_index = product_count + service_index
+
+            line_discount = allocations[allocation_index]
+
+            discounted_line_total = (gross_line_total - line_discount).quantize(CENT)
+
             db.add(
                 SaleServiceItem(
                     sale_id=sale.id,
@@ -673,11 +1172,13 @@ def create_sale(
                     unit_price=unit_price,
                     unit_cost=unit_cost,
                     quantity=item.quantity,
-                    line_total=line_total,
+                    discount_amount=line_discount,
+                    line_total=discounted_line_total,
                 )
             )
 
         sale_id = sale.id
+
         db.commit()
 
         saved_sale = db.scalar(
@@ -692,7 +1193,7 @@ def create_sale(
         if saved_sale is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Sale was committed but could not be reloaded.",
+                detail=("Sale was committed but could not be reloaded."),
             )
 
         return sale_response(saved_sale)
@@ -704,7 +1205,10 @@ def create_sale(
     except IntegrityError as exc:
         db.rollback()
 
-        existing = get_sale_by_code(db, checkout.transaction_code)
+        existing = get_sale_by_code(
+            db,
+            checkout.transaction_code,
+        )
 
         if (
             existing is not None
@@ -723,18 +1227,19 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="This GCash reference number has already been recorded.",
+                    detail=("This GCash reference number has already been recorded."),
                 ) from exc
 
         logger.warning("Checkout failed due to a database constraint.")
 
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="The checkout conflicts with an existing transaction.",
+            detail=("The checkout conflicts with an existing transaction."),
         ) from exc
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not complete checkout.")
 
         raise HTTPException(
@@ -784,19 +1289,29 @@ def period_dates(
 
     if period == "weekly":
         start = reference_date - timedelta(days=reference_date.weekday())
+
         return start, start + timedelta(days=7)
 
     if period == "monthly":
-        start = date(reference_date.year, reference_date.month, 1)
+        start = date(
+            reference_date.year,
+            reference_date.month,
+            1,
+        )
 
         if reference_date.month == 12:
             end = date(reference_date.year + 1, 1, 1)
         else:
-            end = date(reference_date.year, reference_date.month + 1, 1)
+            end = date(
+                reference_date.year,
+                reference_date.month + 1,
+                1,
+            )
 
         return start, end
 
     start = date(reference_date.year, 1, 1)
+
     return start, date(reference_date.year + 1, 1, 1)
 
 
@@ -828,19 +1343,33 @@ def sales_summary(
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict:
-    conditions = sale_conditions(start_date, end_date)
+    conditions = sale_conditions(
+        start_date,
+        end_date,
+    )
 
     transaction_count, revenue = db.execute(
         select(
             func.count(Sale.id),
-            func.coalesce(func.sum(Sale.total), ZERO_MONEY),
+            func.coalesce(
+                func.sum(Sale.total),
+                ZERO_MONEY,
+            ),
         ).where(*conditions)
     ).one()
 
     product_quantity = (
         db.scalar(
-            select(func.coalesce(func.sum(SaleItem.quantity), 0))
-            .join(Sale, Sale.id == SaleItem.sale_id)
+            select(
+                func.coalesce(
+                    func.sum(SaleItem.quantity),
+                    0,
+                )
+            )
+            .join(
+                Sale,
+                Sale.id == SaleItem.sale_id,
+            )
             .where(*conditions)
         )
         or 0
@@ -848,8 +1377,16 @@ def sales_summary(
 
     service_quantity = (
         db.scalar(
-            select(func.coalesce(func.sum(SaleServiceItem.quantity), 0))
-            .join(Sale, Sale.id == SaleServiceItem.sale_id)
+            select(
+                func.coalesce(
+                    func.sum(SaleServiceItem.quantity),
+                    0,
+                )
+            )
+            .join(
+                Sale,
+                Sale.id == SaleServiceItem.sale_id,
+            )
             .where(*conditions)
         )
         or 0
@@ -867,10 +1404,17 @@ def load_period_rows(
     start_date: date,
     end_date: date,
 ):
-    conditions = sale_conditions(start_date, end_date)
+    conditions = sale_conditions(
+        start_date,
+        end_date,
+    )
 
     sales = db.execute(
-        select(Sale.id, Sale.total, Sale.created_at)
+        select(
+            Sale.id,
+            Sale.total,
+            Sale.created_at,
+        )
         .where(*conditions)
         .order_by(Sale.created_at)
     ).all()
@@ -884,7 +1428,10 @@ def load_period_rows(
                 SaleItem.sale_id,
                 func.sum(SaleItem.quantity),
             )
-            .join(Sale, Sale.id == SaleItem.sale_id)
+            .join(
+                Sale,
+                Sale.id == SaleItem.sale_id,
+            )
             .where(*conditions)
             .group_by(SaleItem.sale_id)
         ).all()
@@ -896,15 +1443,20 @@ def load_period_rows(
                 SaleServiceItem.sale_id,
                 func.sum(SaleServiceItem.quantity),
             )
-            .join(Sale, Sale.id == SaleServiceItem.sale_id)
+            .join(
+                Sale,
+                Sale.id == SaleServiceItem.sale_id,
+            )
             .where(*conditions)
             .group_by(SaleServiceItem.sale_id)
         ).all()
     )
 
     quantities = {
-        sale_id: int(product_quantities.get(sale_id, 0) or 0)
-        + int(service_quantities.get(sale_id, 0) or 0)
+        sale_id: (
+            int(product_quantities.get(sale_id, 0) or 0)
+            + int(service_quantities.get(sale_id, 0) or 0)
+        )
         for sale_id in {row.id for row in sales}
     }
 
@@ -936,18 +1488,24 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
+
             buckets.append(bucket)
             bucket_by_key[hour] = bucket
 
     elif period == "yearly":
         for month in range(1, 13):
             bucket = {
-                "label": date(start_date.year, month, 1).strftime("%b"),
+                "label": date(
+                    start_date.year,
+                    month,
+                    1,
+                ).strftime("%b"),
                 "month": month,
                 "sales": ZERO_MONEY,
                 "transactions": 0,
                 "items": 0,
             }
+
             buckets.append(bucket)
             bucket_by_key[month] = bucket
 
@@ -964,8 +1522,10 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
+
             buckets.append(bucket)
             bucket_by_key[cursor] = bucket
+
             cursor += timedelta(days=1)
 
     for row in sales:
@@ -984,7 +1544,9 @@ def build_series(
             continue
 
         bucket["sales"] += Decimal(row.total or ZERO_MONEY)
+
         bucket["transactions"] += 1
+
         bucket["items"] += int(quantities.get(row.id, 0) or 0)
 
     for bucket in buckets:
@@ -1001,18 +1563,25 @@ def build_series(
 @router.get("/reports/sales", tags=["Reports"])
 def get_sales_report(
     period: ReportPeriod = Query(default="monthly"),
-    report_date: date | None = Query(default=None, alias="date"),
+    report_date: date | None = Query(
+        default=None,
+        alias="date",
+    ),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
-    current_start, current_end = period_dates(period, selected_date)
+    current_start, current_end = period_dates(
+        period,
+        selected_date,
+    )
 
     previous_start, _ = period_dates(
         period,
         current_start - timedelta(days=1),
     )
+
     previous_end = current_start
 
     current_rows, current_quantities = load_period_rows(
@@ -1049,8 +1618,16 @@ def get_sales_report(
         "period_end_exclusive": current_end.isoformat(),
         "previous_period_start": previous_start.isoformat(),
         "previous_period_end_exclusive": previous_end.isoformat(),
-        "current": sales_summary(db, current_start, current_end),
-        "previous": sales_summary(db, previous_start, previous_end),
+        "current": sales_summary(
+            db,
+            current_start,
+            current_end,
+        ),
+        "previous": sales_summary(
+            db,
+            previous_start,
+            previous_end,
+        ),
         "lifetime": sales_summary(db),
         "series": build_series(
             period,
@@ -1071,6 +1648,7 @@ def get_sales_report(
 def normalize_category(value: str | None) -> str:
     if value is None or not value.strip():
         return "Uncategorized"
+
     return value.strip()
 
 
@@ -1084,7 +1662,10 @@ def build_category_series(
     if not selected_categories:
         return []
 
-    conditions = sale_conditions(start_date, end_date)
+    conditions = sale_conditions(
+        start_date,
+        end_date,
+    )
 
     local_created_at = func.timezone(
         REPORT_TIMEZONE.key,
@@ -1092,11 +1673,20 @@ def build_category_series(
     )
 
     if period == "daily":
-        bucket_expression = func.extract("hour", local_created_at)
+        bucket_expression = func.extract(
+            "hour",
+            local_created_at,
+        )
     elif period == "yearly":
-        bucket_expression = func.extract("month", local_created_at)
+        bucket_expression = func.extract(
+            "month",
+            local_created_at,
+        )
     else:
-        bucket_expression = cast(local_created_at, SQLDate)
+        bucket_expression = cast(
+            local_created_at,
+            SQLDate,
+        )
 
     rows = db.execute(
         select(
@@ -1107,13 +1697,23 @@ def build_category_series(
                 ZERO_MONEY,
             ).label("revenue"),
         )
-        .join(Sale, Sale.id == SaleItem.sale_id)
+        .join(
+            Sale,
+            Sale.id == SaleItem.sale_id,
+        )
         .where(*conditions)
-        .group_by(SaleItem.category, bucket_expression)
+        .group_by(
+            SaleItem.category,
+            bucket_expression,
+        )
     ).all()
 
     selected_category_set = set(selected_categories)
-    revenue_by_bucket: dict[object, dict[str, Decimal]] = {}
+
+    revenue_by_bucket: dict[
+        object,
+        dict[str, Decimal],
+    ] = {}
 
     for row in rows:
         category = normalize_category(row.category)
@@ -1123,9 +1723,14 @@ def build_category_series(
 
         bucket_key = int(row.bucket) if period in ("daily", "yearly") else row.bucket
 
-        bucket_categories = revenue_by_bucket.setdefault(bucket_key, {})
+        bucket_categories = revenue_by_bucket.setdefault(
+            bucket_key,
+            {},
+        )
+
         bucket_categories[category] = bucket_categories.get(
-            category, ZERO_MONEY
+            category,
+            ZERO_MONEY,
         ) + Decimal(row.revenue or ZERO_MONEY)
 
     buckets: list[dict] = []
@@ -1139,13 +1744,23 @@ def build_category_series(
     elif period == "yearly":
         for month in range(1, 13):
             bucket_keys.append(month)
-            buckets.append({"label": date(start_date.year, month, 1).strftime("%b")})
+
+            buckets.append(
+                {
+                    "label": date(
+                        start_date.year,
+                        month,
+                        1,
+                    ).strftime("%b")
+                }
+            )
 
     else:
         cursor = start_date
 
         while cursor < end_date:
             bucket_keys.append(cursor)
+
             buckets.append(
                 {
                     "label": (
@@ -1154,6 +1769,7 @@ def build_category_series(
                     "date": cursor.isoformat(),
                 }
             )
+
             cursor += timedelta(days=1)
 
     return [
@@ -1161,7 +1777,10 @@ def build_category_series(
             **bucket,
             "categories": {
                 category: float(
-                    revenue_by_bucket.get(bucket_key, {}).get(
+                    revenue_by_bucket.get(
+                        bucket_key,
+                        {},
+                    ).get(
                         category,
                         ZERO_MONEY,
                     )
@@ -1169,7 +1788,10 @@ def build_category_series(
                 for category in selected_categories
             },
         }
-        for bucket_key, bucket in zip(bucket_keys, buckets)
+        for bucket_key, bucket in zip(
+            bucket_keys,
+            buckets,
+        )
     ]
 
 
@@ -1177,15 +1799,26 @@ def build_category_series(
 def get_product_report(
     limit: int = Query(default=5, ge=1, le=100),
     period: ReportPeriod | None = Query(default=None),
-    report_date: date | None = Query(default=None, alias="date"),
+    report_date: date | None = Query(
+        default=None,
+        alias="date",
+    ),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
     if period is not None:
-        current_start, current_end = period_dates(period, selected_date)
-        conditions = sale_conditions(current_start, current_end)
+        current_start, current_end = period_dates(
+            period,
+            selected_date,
+        )
+
+        conditions = sale_conditions(
+            current_start,
+            current_end,
+        )
+
     else:
         current_start = None
         current_end = None
@@ -1197,7 +1830,10 @@ def get_product_report(
             func.sum(SaleItem.quantity).label("units_sold"),
             func.sum(SaleItem.line_total).label("revenue"),
         )
-        .join(Sale, Sale.id == SaleItem.sale_id)
+        .join(
+            Sale,
+            Sale.id == SaleItem.sale_id,
+        )
         .where(*conditions)
         .group_by(SaleItem.category)
     ).all()
@@ -1217,6 +1853,7 @@ def get_product_report(
         )
 
         total["units_sold"] += int(row.units_sold or 0)
+
         total["revenue"] += Decimal(row.revenue or ZERO_MONEY)
 
     sorted_categories = sorted(
@@ -1262,7 +1899,10 @@ def get_product_report(
             func.sum(SaleItem.quantity).label("units_sold"),
             func.sum(SaleItem.line_total).label("revenue"),
         )
-        .join(Sale, Sale.id == SaleItem.sale_id)
+        .join(
+            Sale,
+            Sale.id == SaleItem.sale_id,
+        )
         .where(*conditions)
         .group_by(
             SaleItem.product_id,
@@ -1279,10 +1919,10 @@ def get_product_report(
 
     return {
         "period": period,
-        "date": selected_date.isoformat() if period is not None else None,
+        "date": (selected_date.isoformat() if period is not None else None),
         "timezone": REPORT_TIMEZONE.key,
-        "period_start": current_start.isoformat() if current_start else None,
-        "period_end_exclusive": current_end.isoformat() if current_end else None,
+        "period_start": (current_start.isoformat() if current_start else None),
+        "period_end_exclusive": (current_end.isoformat() if current_end else None),
         "categories": categories,
         "category_series": category_series,
         "top_products": [

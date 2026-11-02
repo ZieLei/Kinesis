@@ -45,9 +45,15 @@ function money(
   currencyPlacement: "before" | "after",
   decimalPrecision: string,
 ) {
+  const precision = Number(decimalPrecision);
+  const safePrecision =
+    Number.isInteger(precision) && precision >= 0 && precision <= 4
+      ? precision
+      : 2;
+
   const formatted = amount.toLocaleString("en-PH", {
-    minimumFractionDigits: Number(decimalPrecision),
-    maximumFractionDigits: Number(decimalPrecision),
+    minimumFractionDigits: safePrecision,
+    maximumFractionDigits: safePrecision,
   });
 
   return currencyPlacement === "before"
@@ -67,6 +73,25 @@ function calculateTaxCents(
 
   return Math.floor(
     (subtotalCents * rateHundredths + 5000) / 10000,
+  );
+}
+
+function calculateDiscountCents(
+  subtotalCents: number,
+  discountPercent: number,
+): number {
+  const percentageHundredths = Math.round(discountPercent * 100);
+
+  if (
+    !Number.isFinite(percentageHundredths) ||
+    percentageHundredths < 0 ||
+    percentageHundredths > 10000
+  ) {
+    return 0;
+  }
+
+  return Math.floor(
+    (subtotalCents * percentageHundredths + 5000) / 10000,
   );
 }
 
@@ -122,30 +147,17 @@ export default function Checkout() {
     0,
   );
 
-  const subtotalCents = Math.round(total * 100);
-
-  const taxCents = settings
-    ? calculateTaxCents(subtotalCents, settings.taxRate)
-    : 0;
-
-  const unroundedTotalCents = subtotalCents + taxCents;
-
-  const cashTotalCents =
-    settings && settingsStatus === "synced"
-      ? roundCashCents(
-        unroundedTotalCents,
-        settings.cashRounding,
-      )
-      : unroundedTotalCents;
-
-  const estimatedTotalCents = unroundedTotalCents;
-
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>("cash");
 
   const [amountReceived, setAmountReceived] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [gcashVerified, setGcashVerified] = useState(false);
+
+  const [discountPercent, setDiscountPercent] = useState("0");
+  const [supervisorUsername, setSupervisorUsername] = useState("");
+  const [supervisorPin, setSupervisorPin] = useState("");
+
   const [submitting, setSubmitting] = useState(false);
   const [requestFailed, setRequestFailed] = useState(false);
   const [error, setError] = useState("");
@@ -162,6 +174,66 @@ export default function Checkout() {
   const receivedCents = validReceived
     ? Math.round(parsedReceived * 100)
     : 0;
+
+  const discountValue =
+    discountPercent.trim() === ""
+      ? 0
+      : Number(discountPercent);
+
+  const discountInputValid =
+    Number.isFinite(discountValue) &&
+    discountValue >= 0 &&
+    discountValue <= 100 &&
+    /^\d{1,3}(?:\.\d{1,2})?$/.test(
+      discountPercent.trim() || "0",
+    );
+
+  const discountLimit = Number(settings?.discountLimit ?? "10");
+
+  const discountOverLimit =
+    discountInputValid && discountValue > discountLimit;
+
+  const supervisorRequired =
+    discountOverLimit &&
+    settings?.supervisorPinForDiscounts === true;
+
+  const supervisorApprovalDisabled =
+    discountOverLimit &&
+    settings?.supervisorPinForDiscounts === false;
+
+  const supervisorCredentialsValid =
+    supervisorUsername.trim().length >= 3 &&
+    /^\d{6}$/.test(supervisorPin);
+
+  const grossSubtotalCents = Math.round(total * 100);
+
+  const discountCents = discountInputValid
+    ? calculateDiscountCents(
+      grossSubtotalCents,
+      discountValue,
+    )
+    : 0;
+
+  const subtotalCents = Math.max(
+    0,
+    grossSubtotalCents - discountCents,
+  );
+
+  const taxCents = settings
+    ? calculateTaxCents(subtotalCents, settings.taxRate)
+    : 0;
+
+  const unroundedTotalCents = subtotalCents + taxCents;
+
+  const cashTotalCents =
+    settings && settingsStatus === "synced"
+      ? roundCashCents(
+        unroundedTotalCents,
+        settings.cashRounding,
+      )
+      : unroundedTotalCents;
+
+  const estimatedTotalCents = unroundedTotalCents;
 
   const changeCents = Math.max(
     0,
@@ -221,6 +293,28 @@ export default function Checkout() {
       return;
     }
 
+    if (!discountInputValid) {
+      setError("Enter a valid discount percentage between 0 and 100.");
+      return;
+    }
+
+    if (supervisorApprovalDisabled) {
+      setError(
+        `The maximum cashier discount is ${discountLimit}%. Supervisor approval is disabled, so this discount cannot be applied.`,
+      );
+      return;
+    }
+
+    if (
+      supervisorRequired &&
+      !supervisorCredentialsValid
+    ) {
+      setError(
+        "Enter the supervisor's username and six-digit PIN to authorize this discount.",
+      );
+      return;
+    }
+
     if (paymentMethod === "cash" && !hasEnoughCash) {
       setError("Amount received must be at least the amount due.");
       return;
@@ -242,6 +336,7 @@ export default function Checkout() {
     const checkout: CheckoutRequest = {
       transaction_code: transactionCode,
       payment_method: paymentMethod,
+      discount_percent: discountValue,
 
       items: productItems.map((item) => ({
         product_id: item.id,
@@ -252,6 +347,13 @@ export default function Checkout() {
         service_id: item.id,
         quantity: item.quantity,
       })),
+
+      ...(supervisorRequired
+        ? {
+          supervisor_username: supervisorUsername.trim().toLowerCase(),
+          supervisor_pin: supervisorPin,
+        }
+        : {}),
 
       ...(paymentMethod === "cash"
         ? {
@@ -269,7 +371,7 @@ export default function Checkout() {
       finishSale(savedSale);
     } catch (requestError) {
       // The server may have committed the sale before the response
-      // was interrupted. Recover by checking the transaction code.
+      // was interrupted. Recover using the same transaction code.
       try {
         const savedSale = await fetchSale(transactionCode);
         finishSale(savedSale);
@@ -360,10 +462,32 @@ export default function Checkout() {
             <View className="mt-5 gap-2">
               <View className="flex-row justify-between">
                 <Text className="font-inter-regular text-sm text-ctp-subtext0">
-                  Subtotal
+                  Original subtotal
                 </Text>
 
                 <Text className="font-inter-medium text-sm text-ctp-text">
+                  {formatMoney(grossSubtotalCents)}
+                </Text>
+              </View>
+
+              {discountCents > 0 ? (
+                <View className="flex-row justify-between">
+                  <Text className="font-inter-regular text-sm text-ctp-green">
+                    Discount ({discountValue}%)
+                  </Text>
+
+                  <Text className="font-inter-semibold text-sm text-ctp-green">
+                    -{formatMoney(discountCents)}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View className="flex-row justify-between">
+                <Text className="font-inter-semibold text-sm text-ctp-text">
+                  Subtotal after discount
+                </Text>
+
+                <Text className="font-inter-semibold text-sm text-ctp-text">
                   {formatMoney(subtotalCents)}
                 </Text>
               </View>
@@ -395,8 +519,131 @@ export default function Checkout() {
             </View>
 
             <Text className="mt-3 font-inter-regular text-xs text-ctp-subtext0">
-              Final totals are calculated and validated by the server.
+              Final totals and discount authorization are validated by the server.
             </Text>
+          </View>
+
+          {/* Discount */}
+          <View className="mb-7 rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
+            <Text className="font-inter-semibold text-base text-ctp-text">
+              Sale Discount
+            </Text>
+
+            <Text className="mt-1 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+              Apply a percentage discount to the sale subtotal before tax.
+              Cashier limit: {settings?.discountLimit ?? "10"}%.
+            </Text>
+
+            <View className="mt-3 flex-row items-center gap-3">
+              <View className="flex-1">
+                <TextInput
+                  value={discountPercent}
+                  onChangeText={(value) => {
+                    setDiscountPercent(
+                      value.replace(/[^0-9.]/g, "").slice(0, 6),
+                    );
+                    setError("");
+                    setRequestFailed(false);
+                  }}
+                  editable={!submitting}
+                  keyboardType="decimal-pad"
+                  maxLength={6}
+                  placeholder="0"
+                  placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                  selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                  className="rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3 font-inter-semibold text-lg text-ctp-text"
+                />
+              </View>
+
+              <Text className="font-inter-semibold text-base text-ctp-subtext0">
+                %
+              </Text>
+
+              <View className="min-w-24 items-end">
+                <Text className="font-inter-regular text-[10px] text-ctp-subtext0">
+                  Discount amount
+                </Text>
+                <Text className="font-inter-semibold text-sm text-ctp-green">
+                  {formatMoney(discountCents)}
+                </Text>
+              </View>
+            </View>
+
+            {!discountInputValid ? (
+              <Text className="mt-2 font-inter-medium text-xs text-ctp-red">
+                Enter a valid percentage between 0 and 100, with up to two decimal places.
+              </Text>
+            ) : null}
+
+            {supervisorRequired ? (
+              <View className="mt-4 gap-3 rounded-lg border border-ctp-yellow/30 bg-ctp-yellow/5 p-3">
+                <View>
+                  <Text className="font-inter-semibold text-sm text-ctp-yellow">
+                    Supervisor authorization required
+                  </Text>
+                  <Text className="mt-1 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                    This discount is above the cashier limit. A designated supervisor must authorize it.
+                  </Text>
+                </View>
+
+                <View className="gap-1.5">
+                  <Text className="font-inter-medium text-xs text-ctp-subtext1">
+                    Supervisor username
+                  </Text>
+                  <TextInput
+                    value={supervisorUsername}
+                    onChangeText={(value) => {
+                      setSupervisorUsername(value);
+                      setError("");
+                      setRequestFailed(false);
+                    }}
+                    editable={!submitting}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="Supervisor username"
+                    placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                    selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                    className="rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-3 font-inter-medium text-sm text-ctp-text"
+                  />
+                </View>
+
+                <View className="gap-1.5">
+                  <Text className="font-inter-medium text-xs text-ctp-subtext1">
+                    Supervisor six-digit PIN
+                  </Text>
+                  <TextInput
+                    value={supervisorPin}
+                    onChangeText={(value) => {
+                      setSupervisorPin(
+                        value.replace(/\D/g, "").slice(0, 6),
+                      );
+                      setError("");
+                      setRequestFailed(false);
+                    }}
+                    editable={!submitting}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={6}
+                    placeholder="••••••"
+                    placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                    selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                    className="rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-3 text-center font-inter-medium text-lg tracking-[8px] text-ctp-text"
+                  />
+                </View>
+              </View>
+            ) : supervisorApprovalDisabled ? (
+              <Text className="mt-3 font-inter-medium text-xs leading-5 text-ctp-red">
+                Discounts above the configured cashier limit are blocked because supervisor authorization is disabled.
+              </Text>
+            ) : discountOverLimit ? (
+              <Text className="mt-3 font-inter-medium text-xs text-ctp-yellow">
+                This discount exceeds the cashier limit.
+              </Text>
+            ) : discountCents > 0 ? (
+              <Text className="mt-3 font-inter-medium text-xs text-ctp-green">
+                This discount is within the cashier limit.
+              </Text>
+            ) : null}
           </View>
 
           <Text className="mb-3 font-inter-semibold text-base text-ctp-text">
@@ -562,9 +809,17 @@ export default function Checkout() {
             disabled={
               submitting ||
               items.length === 0 ||
-              !settingsReady
+              !settingsReady ||
+              !discountInputValid ||
+              supervisorApprovalDisabled ||
+              (supervisorRequired && !supervisorCredentialsValid)
             }
-            className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting || items.length === 0 || !settingsReady
+            className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting ||
+                items.length === 0 ||
+                !settingsReady ||
+                !discountInputValid ||
+                supervisorApprovalDisabled ||
+                (supervisorRequired && !supervisorCredentialsValid)
                 ? "bg-ctp-blue/50"
                 : "bg-ctp-blue"
               }`}
@@ -583,7 +838,9 @@ export default function Checkout() {
                   ? "Retry Checkout"
                   : !settingsReady
                     ? "Waiting for Settings"
-                    : "Complete Sale"}
+                    : supervisorRequired
+                      ? "Authorize & Complete Sale"
+                      : "Complete Sale"}
             </Text>
           </Pressable>
         </ScrollView>

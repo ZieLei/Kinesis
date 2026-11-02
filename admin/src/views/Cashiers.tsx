@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   AlertCircle,
@@ -18,6 +19,7 @@ type Cashier = {
   username: string;
   display_name: string;
   is_active: boolean;
+  is_supervisor: boolean;
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
@@ -31,12 +33,14 @@ type CashierForm = {
   username: string;
   display_name: string;
   pin: string;
+  is_supervisor: boolean;
 };
 
 const EMPTY_FORM: CashierForm = {
   username: "",
   display_name: "",
   pin: "",
+  is_supervisor: false,
 };
 
 function formatDate(value: string | null): string {
@@ -135,11 +139,18 @@ export default function Cashiers() {
           username,
           display_name: displayName,
           pin: form.pin,
+          is_supervisor: form.is_supervisor,
         }),
       });
 
       setForm(EMPTY_FORM);
-      setNotice(`Cashier account "${username}" was created.`);
+
+      setNotice(
+        form.is_supervisor
+          ? `Supervisor account "${username}" was created.`
+          : `Cashier account "${username}" was created.`,
+      );
+
       await loadCashiers();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -152,6 +163,7 @@ export default function Cashiers() {
     if (busyId || resettingId) return;
 
     const nextActive = !cashier.is_active;
+
     const confirmed = window.confirm(
       nextActive
         ? `Enable cashier account "${cashier.username}"?`
@@ -167,13 +179,59 @@ export default function Cashiers() {
     try {
       await apiRequest(`/api/admin/cashiers/${cashier.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ is_active: nextActive }),
+        body: JSON.stringify({
+          is_active: nextActive,
+        }),
       });
 
       setNotice(
         nextActive
           ? `Cashier "${cashier.username}" was enabled.`
           : `Cashier "${cashier.username}" was disabled and existing sessions were revoked.`,
+      );
+
+      await loadCashiers();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleToggleSupervisor = async (cashier: Cashier) => {
+    if (busyId || resettingId) return;
+
+    if (!cashier.is_active && !cashier.is_supervisor) {
+      setError("Enable this account before promoting it to supervisor.");
+      return;
+    }
+
+    const nextSupervisor = !cashier.is_supervisor;
+
+    const confirmed = window.confirm(
+      nextSupervisor
+        ? `Promote "${cashier.username}" to supervisor? This account will be able to authorize cashier discounts.`
+        : `Remove supervisor privileges from "${cashier.username}"? This account will no longer be able to authorize discounts.`,
+    );
+
+    if (!confirmed) return;
+
+    setBusyId(cashier.id);
+    setError("");
+    setNotice("");
+
+    try {
+      await apiRequest(`/api/admin/cashiers/${cashier.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          is_supervisor: nextSupervisor,
+        }),
+      });
+
+      setNotice(
+        nextSupervisor
+          ? `"${cashier.username}" is now a supervisor.`
+          : `Supervisor privileges were removed from "${cashier.username}".`,
       );
 
       await loadCashiers();
@@ -213,7 +271,9 @@ export default function Cashiers() {
         `/api/admin/cashiers/${cashier.id}/reset-pin`,
         {
           method: "POST",
-          body: JSON.stringify({ pin: resetPin }),
+          body: JSON.stringify({
+            pin: resetPin,
+          }),
         },
       );
 
@@ -234,6 +294,10 @@ export default function Cashiers() {
     (cashier) => cashier.is_active,
   ).length;
 
+  const supervisorCount = cashiers.filter(
+    (cashier) => cashier.is_active && cashier.is_supervisor,
+  ).length;
+
   const isMutating = busyId !== null || resettingId !== null;
   const showInitialLoading = loading && !hasLoaded;
 
@@ -245,7 +309,7 @@ export default function Cashiers() {
             Cashier Management
           </h2>
           <p className="mt-1 text-sm text-ctp-subtext0">
-            Create and manage employee accounts used to sign in to Kinesis POS.
+            Create employee accounts, manage supervisor access, and reset PINs.
           </p>
         </div>
 
@@ -285,12 +349,12 @@ export default function Cashiers() {
         </div>
 
         <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
-          <div className="flex items-center gap-2 text-ctp-subtext0">
-            <UserX size={16} />
-            <span className="text-xs font-medium">Disabled accounts</span>
+          <div className="flex items-center gap-2 text-ctp-blue">
+            <ShieldCheck size={16} />
+            <span className="text-xs font-medium">Active supervisors</span>
           </div>
           <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
-            {hasLoaded ? cashiers.length - activeCount : "—"}
+            {hasLoaded ? supervisorCount : "—"}
           </p>
         </div>
       </div>
@@ -332,7 +396,7 @@ export default function Cashiers() {
 
         <form
           onSubmit={handleCreateCashier}
-          className="grid gap-3 md:grid-cols-3"
+          className="grid gap-3 md:grid-cols-4"
         >
           <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-medium text-ctp-subtext1">
@@ -400,7 +464,29 @@ export default function Cashiers() {
             />
           </label>
 
-          <div className="md:col-span-3">
+          <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={form.is_supervisor}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  is_supervisor: event.target.checked,
+                }))
+              }
+              className="h-4 w-4 accent-[var(--ctp-blue)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-ctp-text">
+                Supervisor
+              </span>
+              <span className="block text-[10px] leading-4 text-ctp-subtext0">
+                Can authorize discounts
+              </span>
+            </span>
+          </label>
+
+          <div className="md:col-span-4">
             <button
               type="submit"
               disabled={creating}
@@ -424,7 +510,7 @@ export default function Cashiers() {
               Cashier accounts
             </h3>
             <p className="mt-0.5 text-xs text-ctp-subtext0">
-              Manage access and reset employee PINs.
+              Manage access, supervisor privileges, and employee PINs.
             </p>
           </div>
 
@@ -476,6 +562,7 @@ export default function Cashiers() {
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ctp-surface0 text-ctp-text">
                       <UserRound size={17} />
                     </div>
+
                     <div className="min-w-0">
                       <h4 className="truncate text-sm font-semibold text-ctp-text">
                         {cashier.display_name}
@@ -486,7 +573,13 @@ export default function Cashiers() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {cashier.is_supervisor && (
+                      <span className="rounded-full border border-ctp-blue/30 bg-ctp-blue/10 px-2.5 py-1 text-[11px] font-medium text-ctp-blue">
+                        Supervisor
+                      </span>
+                    )}
+
                     <span
                       className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${cashier.is_active
                           ? "border-ctp-green/30 bg-ctp-green/10 text-ctp-green"
@@ -495,6 +588,7 @@ export default function Cashiers() {
                     >
                       {cashier.is_active ? "Active" : "Disabled"}
                     </span>
+
                     <button
                       type="button"
                       onClick={() => void handleToggleAccount(cashier)}
@@ -524,6 +618,44 @@ export default function Cashiers() {
                   </p>
                 </div>
 
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck
+                      size={15}
+                      className={
+                        cashier.is_supervisor
+                          ? "text-ctp-blue"
+                          : "text-ctp-overlay1"
+                      }
+                    />
+                    <div>
+                      <p className="text-xs font-semibold text-ctp-text">
+                        {cashier.is_supervisor
+                          ? "Supervisor privileges enabled"
+                          : "Standard cashier"}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-ctp-subtext0">
+                        {cashier.is_supervisor
+                          ? "Can authorize discounts requiring approval."
+                          : "Cannot authorize supervisor-only discounts."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleSupervisor(cashier)}
+                    disabled={isMutating || loading || !cashier.is_active}
+                    className="rounded-lg border border-ctp-surface1 px-3 py-1.5 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busyId === cashier.id
+                      ? "Saving..."
+                      : cashier.is_supervisor
+                        ? "Remove supervisor"
+                        : "Promote to supervisor"}
+                  </button>
+                </div>
+
                 <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <KeyRound size={14} className="text-ctp-subtext0" />
@@ -541,7 +673,11 @@ export default function Cashiers() {
                       pattern="[0-9]{6}"
                       aria-label={`New PIN for ${cashier.username}`}
                       placeholder="New six-digit PIN"
-                      value={activeResetId === cashier.id ? resetPin : ""}
+                      value={
+                        activeResetId === cashier.id
+                          ? resetPin
+                          : ""
+                      }
                       onFocus={() => {
                         setActiveResetId(cashier.id);
                         setResetPin("");
@@ -549,7 +685,9 @@ export default function Cashiers() {
                       onChange={(event) => {
                         setActiveResetId(cashier.id);
                         setResetPin(
-                          event.target.value.replace(/\D/g, "").slice(0, 6),
+                          event.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 6),
                         );
                       }}
                       disabled={isMutating}
@@ -567,7 +705,10 @@ export default function Cashiers() {
                       className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {resettingId === cashier.id ? (
-                        <LoaderCircle size={13} className="animate-spin" />
+                        <LoaderCircle
+                          size={13}
+                          className="animate-spin"
+                        />
                       ) : (
                         <KeyRound size={13} />
                       )}

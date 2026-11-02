@@ -10,10 +10,69 @@ from sqlalchemy.orm import Session, joinedload
 from auth.config import auth_settings
 from auth.security import generate_secret, hash_secret
 from cashier_models import Cashier, CashierLoginAttempt, CashierSession
+from models import AppSettings
+
+
+DEFAULT_INACTIVITY_LOCK = "5"
+UNLOCK_RECOVERY_MARGIN_MINUTES = 5
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def get_cashier_idle_timeout_minutes(db: Session) -> int:
+    """
+    Return the server-side session idle timeout.
+
+    The server session must remain valid long enough for the cashier
+    to unlock the local terminal with their PIN.
+
+    The five-minute recovery margin gives the cashier time to enter
+    their PIN after the local inactivity lock appears.
+
+    When the terminal lock is disabled, the existing authentication
+    configuration remains authoritative.
+    """
+
+    configured_timeout = int(auth_settings.cashier_session_idle_minutes)
+
+    row = db.scalar(select(AppSettings).where(AppSettings.id == 1))
+
+    if row is None or not isinstance(row.settings, dict):
+        return configured_timeout
+
+    value = row.settings.get(
+        "inactivityLock",
+        DEFAULT_INACTIVITY_LOCK,
+    )
+
+    if value == "disabled":
+        return configured_timeout
+
+    try:
+        lock_minutes = int(value)
+    except (TypeError, ValueError):
+        lock_minutes = int(DEFAULT_INACTIVITY_LOCK)
+
+    if lock_minutes not in {5, 10, 15, 30, 60}:
+        lock_minutes = int(DEFAULT_INACTIVITY_LOCK)
+
+    return max(
+        configured_timeout,
+        lock_minutes + UNLOCK_RECOVERY_MARGIN_MINUTES,
+    )
+
+
+def calculate_idle_expiration(
+    last_seen_at: datetime,
+    absolute_expires_at: datetime,
+    idle_timeout_minutes: int,
+) -> datetime:
+    return min(
+        last_seen_at + timedelta(minutes=idle_timeout_minutes),
+        absolute_expires_at,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,12 +253,12 @@ def create_cashier_session(
         hours=auth_settings.cashier_session_absolute_hours,
     )
 
-    idle_expiration = min(
-        now
-        + timedelta(
-            minutes=auth_settings.cashier_session_idle_minutes,
-        ),
+    idle_timeout = get_cashier_idle_timeout_minutes(db)
+
+    idle_expiration = calculate_idle_expiration(
+        now,
         absolute_expiration,
+        idle_timeout,
     )
 
     record = CashierSession(
@@ -234,7 +293,10 @@ def resolve_cashier_session(
     Sessions belonging to another terminal are never accepted.
 
     Expired or disabled-cashier sessions are revoked.
-    Idle expiration is extended only at the configured touch interval.
+
+    The inactivity setting controls how long the server session
+    remains valid without activity, with a recovery margin for
+    locally locked terminals.
     """
 
     if not raw_token or len(raw_token) > 256:
@@ -257,8 +319,16 @@ def resolve_cashier_session(
     if session_record is None:
         return None
 
+    idle_timeout = get_cashier_idle_timeout_minutes(db)
+
+    expected_idle_expiration = calculate_idle_expiration(
+        session_record.last_seen_at,
+        session_record.absolute_expires_at,
+        idle_timeout,
+    )
+
     expired = (
-        session_record.idle_expires_at <= current_time
+        expected_idle_expiration <= current_time
         or session_record.absolute_expires_at <= current_time
     )
 
@@ -267,7 +337,6 @@ def resolve_cashier_session(
     if expired or inactive:
         session_record.revoked_at = current_time
         db.commit()
-
         return None
 
     touch_interval = timedelta(
@@ -277,14 +346,17 @@ def resolve_cashier_session(
     if current_time - session_record.last_seen_at >= touch_interval:
         session_record.last_seen_at = current_time
 
-        session_record.idle_expires_at = min(
-            current_time
-            + timedelta(
-                minutes=auth_settings.cashier_session_idle_minutes,
-            ),
+        session_record.idle_expires_at = calculate_idle_expiration(
+            current_time,
             session_record.absolute_expires_at,
+            idle_timeout,
         )
 
+        db.commit()
+
+    elif session_record.idle_expires_at != expected_idle_expiration:
+        # Apply a changed inactivity policy to an existing session.
+        session_record.idle_expires_at = expected_idle_expiration
         db.commit()
 
     return session_record

@@ -64,6 +64,13 @@ class Cashier(Base):
         nullable=False,
     )
 
+    is_supervisor: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

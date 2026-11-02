@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Cashier Authentication"])
 
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$")
-
 PIN_PATTERN = re.compile(r"^\d{6}$")
 
 
@@ -93,11 +92,7 @@ def get_client_ip(request: Request) -> str | None:
 
 
 class CashierLoginRequest(BaseModel):
-    username: str = Field(
-        min_length=3,
-        max_length=64,
-    )
-
+    username: str = Field(min_length=3, max_length=64)
     pin: SecretStr
 
     @field_validator("username")
@@ -111,18 +106,20 @@ class CashierLoginRequest(BaseModel):
         return validate_pin(value)
 
 
-class CashierCreateRequest(BaseModel):
-    username: str = Field(
-        min_length=3,
-        max_length=64,
-    )
-
-    display_name: str = Field(
-        min_length=1,
-        max_length=100,
-    )
-
+class CashierPinVerificationRequest(BaseModel):
     pin: SecretStr
+
+    @field_validator("pin")
+    @classmethod
+    def validate_cashier_pin(cls, value: SecretStr) -> SecretStr:
+        return validate_pin(value)
+
+
+class CashierCreateRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    display_name: str = Field(min_length=1, max_length=100)
+    pin: SecretStr
+    is_supervisor: bool = False
 
     @field_validator("username")
     @classmethod
@@ -146,12 +143,9 @@ class CashierCreateRequest(BaseModel):
 
 
 class CashierUpdateRequest(BaseModel):
-    display_name: str | None = Field(
-        default=None,
-        max_length=100,
-    )
-
+    display_name: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
+    is_supervisor: bool | None = None
 
     @field_validator("display_name")
     @classmethod
@@ -180,6 +174,9 @@ class CashierUpdateRequest(BaseModel):
         if "is_active" in self.model_fields_set and self.is_active is None:
             raise ValueError("Account status cannot be null.")
 
+        if "is_supervisor" in self.model_fields_set and self.is_supervisor is None:
+            raise ValueError("Supervisor status cannot be null.")
+
         return self
 
 
@@ -205,6 +202,7 @@ def cashier_response(cashier: Cashier) -> dict:
         "username": cashier.username,
         "display_name": cashier.display_name,
         "is_active": cashier.is_active,
+        "is_supervisor": cashier.is_supervisor,
         "created_at": cashier.created_at.isoformat(),
         "updated_at": cashier.updated_at.isoformat(),
         "last_login_at": (
@@ -280,7 +278,8 @@ def list_available_cashiers(
     """
     List active cashier accounts for an authenticated POS terminal.
 
-    No PIN hashes or authentication credentials are exposed.
+    No PIN hashes, supervisor designations, or authentication
+    credentials are exposed to the public account-selection screen.
     """
 
     no_store(response)
@@ -350,7 +349,7 @@ def login_cashier(
 
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=("Too many unsuccessful PIN attempts. Please try again later."),
+                detail="Too many unsuccessful PIN attempts. Please try again later.",
                 headers={
                     "Retry-After": str(retry_after),
                     "Cache-Control": "no-store",
@@ -383,7 +382,6 @@ def login_cashier(
         original_pin_hash = cashier.pin_hash
 
         # Serialize logins on the same physical terminal.
-        # This also protects against simultaneous cashier switching.
         locked_terminal = db.scalar(
             select(Terminal)
             .where(Terminal.id == terminal.id)
@@ -399,9 +397,8 @@ def login_cashier(
                 detail="This terminal is no longer authorized.",
             )
 
-        # Recheck the account under a row lock.
-        # This prevents a PIN reset or account disable from racing
-        # with a login that already verified the previous PIN.
+        # Recheck the account under a row lock to prevent a PIN reset
+        # or account disable from racing with authentication.
         locked_cashier = db.scalar(
             select(Cashier)
             .where(Cashier.id == cashier.id)
@@ -422,7 +419,6 @@ def login_cashier(
         now = utc_now()
 
         # Revoke the current cashier session on this terminal.
-        # The terminal row lock serializes competing login requests.
         db.execute(
             update(CashierSession)
             .where(
@@ -497,8 +493,103 @@ def get_cashier_session(
         },
         "terminal_id": principal.terminal.id,
         "idle_expires_at": principal.session.idle_expires_at.isoformat(),
-        "absolute_expires_at": (principal.session.absolute_expires_at.isoformat()),
+        "absolute_expires_at": principal.session.absolute_expires_at.isoformat(),
     }
+
+
+# --------------------------------------------------
+# Mobile: verify current cashier PIN when unlocking
+# --------------------------------------------------
+
+
+@router.post("/api/cashier-auth/verify-pin")
+def verify_current_cashier_pin(
+    payload: CashierPinVerificationRequest,
+    request: Request,
+    response: Response,
+    principal: CashierPrincipal = Depends(require_cashier_principal),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-verify the currently authenticated cashier without creating
+    a new session. Used to unlock a terminal after inactivity.
+
+    Attempts share the existing account/IP rate-limit buckets
+    with cashier login.
+    """
+
+    no_store(response)
+
+    attempt_keys = cashier_login_attempt_keys(
+        principal.cashier.username,
+        get_client_ip(request),
+    )
+
+    try:
+        locked_attempts, retry_after = lock_cashier_login_attempts(
+            db,
+            attempt_keys,
+        )
+
+        if retry_after:
+            db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many unsuccessful PIN attempts. Please try again later.",
+                headers={
+                    "Retry-After": str(retry_after),
+                    "Cache-Control": "no-store",
+                },
+            )
+
+        cashier = db.scalar(
+            select(Cashier)
+            .where(Cashier.id == principal.cashier.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+        stored_hash = cashier.pin_hash if cashier is not None else DUMMY_PASSWORD_HASH
+
+        pin_valid = verify_password(
+            payload.pin.get_secret_value(),
+            stored_hash,
+        )
+
+        if cashier is None or not cashier.is_active or not pin_valid:
+            record_failed_cashier_login(locked_attempts)
+            db.commit()
+            raise authentication_failed()
+
+        reset_cashier_login_attempts(
+            db,
+            attempt_keys,
+        )
+
+        db.commit()
+
+        return {
+            "verified": True,
+            "cashier": {
+                "id": str(cashier.id),
+                "username": cashier.username,
+                "display_name": cashier.display_name,
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        logger.exception("Cashier PIN verification failed.")
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PIN verification is temporarily unavailable.",
+        ) from exc
 
 
 # --------------------------------------------------
@@ -604,6 +695,7 @@ def create_cashier(
         username=payload.username,
         display_name=payload.display_name,
         pin_hash=hash_password(payload.pin.get_secret_value()),
+        is_supervisor=payload.is_supervisor,
         is_active=True,
     )
 
@@ -745,7 +837,9 @@ def reset_cashier_pin(
 
         return {
             "cashier_id": str(cashier.id),
-            "message": "Cashier PIN reset successfully. Existing sessions were revoked.",
+            "message": (
+                "Cashier PIN reset successfully. Existing sessions were revoked."
+            ),
         }
 
     except HTTPException:

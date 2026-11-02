@@ -87,6 +87,22 @@ class Sale(Base):
     __table_args__ = (
         CheckConstraint("subtotal >= 0", name="ck_sales_subtotal_nonnegative"),
         CheckConstraint(
+            "gross_subtotal >= 0",
+            name="ck_sales_gross_subtotal_nonnegative",
+        ),
+        CheckConstraint(
+            "discount_amount >= 0",
+            name="ck_sales_discount_amount_nonnegative",
+        ),
+        CheckConstraint(
+            "discount_amount <= gross_subtotal",
+            name="ck_sales_discount_not_above_gross_subtotal",
+        ),
+        CheckConstraint(
+            "discount_percent >= 0 AND discount_percent <= 100",
+            name="ck_sales_discount_percent_range",
+        ),
+        CheckConstraint(
             "tax_amount >= 0",
             name="ck_sales_tax_amount_nonnegative",
         ),
@@ -123,7 +139,51 @@ class Sale(Base):
         index=True,
     )
 
-    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    # Subtotal after discount, before tax.
+    subtotal: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+    )
+
+    # Original subtotal before discount, before tax.
+    gross_subtotal: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
+    discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
+    # Supervisor identity is captured for audit purposes.
+    # Username remains available even if the account is later deleted.
+    discount_authorized_by: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "cashiers.id",
+            ondelete="SET NULL",
+            name="fk_sales_discount_authorized_by_cashiers",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    discount_authorized_username: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
 
     tax_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
@@ -225,6 +285,10 @@ class SaleItem(Base):
             name="ck_sale_items_line_total_nonnegative",
         ),
         CheckConstraint(
+            "discount_amount >= 0",
+            name="ck_sale_items_discount_amount_nonnegative",
+        ),
+        CheckConstraint(
             "unit_cost IS NULL OR unit_cost >= 0",
             name="ck_sale_items_unit_cost_nonnegative",
         ),
@@ -257,6 +321,16 @@ class SaleItem(Base):
     )
 
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Discount allocated to this line.
+    # line_total is the final line revenue after discount.
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     sale: Mapped["Sale"] = relationship(back_populates="items")
@@ -277,6 +351,10 @@ class SaleServiceItem(Base):
         CheckConstraint(
             "line_total >= 0",
             name="ck_sale_service_items_line_total_nonnegative",
+        ),
+        CheckConstraint(
+            "discount_amount >= 0",
+            name="ck_sale_service_items_discount_amount_nonnegative",
         ),
         CheckConstraint(
             "unit_cost IS NULL OR unit_cost >= 0",
@@ -312,6 +390,15 @@ class SaleServiceItem(Base):
         nullable=True,
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Discount allocated to this service line.
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     sale: Mapped["Sale"] = relationship(back_populates="service_items")

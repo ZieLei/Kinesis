@@ -23,6 +23,7 @@ import {
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { TerminalAgent } from "@/components/TerminalAgent";
+import TerminalInactivityGuard from "@/components/TerminalInactivityGuard";
 
 import { latte, mocha } from "@/theme";
 
@@ -80,16 +81,16 @@ export default function RootLayout() {
           >
             <CatalogProvider>
               <CartProvider>
-                {/* Main application */}
                 <View style={styles.application}>
                   <AnimatedSplashOverlay />
 
                   <CashierRouteGuard>
-                    <Slot />
+                    <TerminalInactivityGuard>
+                      <Slot />
+                    </TerminalInactivityGuard>
                   </CashierRouteGuard>
                 </View>
 
-                {/* Global terminal pairing and status overlay */}
                 <View
                   pointerEvents="box-none"
                   style={styles.terminalOverlay}

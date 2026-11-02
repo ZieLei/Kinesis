@@ -18,6 +18,9 @@ export type CheckoutRequest = {
   payment_method: PaymentMethod;
   items: CheckoutItemInput[];
   services: CheckoutServiceInput[];
+  discount_percent?: number;
+  supervisor_username?: string;
+  supervisor_pin?: string;
   amount_tendered?: number;
   reference_number?: string;
 };
@@ -31,6 +34,7 @@ export type SaleItemRecord = {
   unit_price: number;
   unit_cost: number | null;
   quantity: number;
+  discount_amount: number;
   line_total: number;
 };
 
@@ -42,6 +46,7 @@ export type SaleServiceItemRecord = {
   unit_price: number;
   unit_cost: number | null;
   quantity: number;
+  discount_amount: number;
   line_total: number;
 };
 
@@ -56,6 +61,9 @@ export type ReceiptSettingsSnapshot = {
   receiptNotes?: string;
   digitalReceipts?: boolean;
   receiptOutput?: "bluetooth" | "sms" | "qr";
+  supervisorPinForDiscounts?: boolean;
+  discountLimit?: string;
+  inactivityLock?: string;
 };
 
 export type SaleRecord = {
@@ -64,14 +72,29 @@ export type SaleRecord = {
   payment_method: PaymentMethod;
   reference_number: string | null;
   status: string;
+
+  gross_subtotal: number;
+  discount_amount: number;
+  discount_percent: number;
+  discount_authorized_by: string | null;
+  discount_authorized_username: string | null;
+
   subtotal: number;
   tax_amount: number;
   rounding_adjustment: number;
   total: number;
   amount_tendered: number;
   change_due: number;
+
   settings_snapshot: ReceiptSettingsSnapshot;
   created_at: string;
+
+  cashier_id?: string | null;
+  cashier_username?: string | null;
+  cashier_display_name?: string | null;
+  terminal_id?: number | null;
+  terminal_device_id?: string | null;
+
   items: SaleItemRecord[];
   service_items: SaleServiceItemRecord[];
 };
@@ -83,10 +106,18 @@ export type SaleListItem = {
   reference_number: string | null;
   status: string;
   total: number;
+  gross_subtotal?: number;
+  discount_amount?: number;
+  discount_percent?: number;
   created_at: string;
   item_count: number;
   product_count?: number;
   service_count?: number;
+  cashier_id?: string | null;
+  cashier_username?: string | null;
+  cashier_display_name?: string | null;
+  terminal_id?: number | null;
+  terminal_device_id?: string | null;
 };
 
 export type SalesListResponse = {
