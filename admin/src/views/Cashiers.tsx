@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   AlertCircle,
@@ -59,6 +58,7 @@ function getErrorMessage(error: unknown): string {
 export default function Cashiers() {
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -85,6 +85,7 @@ export default function Cashiers() {
       );
 
       setCashiers(response.items);
+      setHasLoaded(true);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -128,21 +129,17 @@ export default function Cashiers() {
     setNotice("");
 
     try {
-      await apiRequest<Cashier>(
-        "/api/admin/cashiers",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            username,
-            display_name: displayName,
-            pin: form.pin,
-          }),
-        },
-      );
+      await apiRequest<Cashier>("/api/admin/cashiers", {
+        method: "POST",
+        body: JSON.stringify({
+          username,
+          display_name: displayName,
+          pin: form.pin,
+        }),
+      });
 
       setForm(EMPTY_FORM);
       setNotice(`Cashier account "${username}" was created.`);
-
       await loadCashiers();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -152,8 +149,9 @@ export default function Cashiers() {
   };
 
   const handleToggleAccount = async (cashier: Cashier) => {
-    const nextActive = !cashier.is_active;
+    if (busyId || resettingId) return;
 
+    const nextActive = !cashier.is_active;
     const confirmed = window.confirm(
       nextActive
         ? `Enable cashier account "${cashier.username}"?`
@@ -167,15 +165,10 @@ export default function Cashiers() {
     setNotice("");
 
     try {
-      await apiRequest(
-        `/api/admin/cashiers/${cashier.id}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            is_active: nextActive,
-          }),
-        },
-      );
+      await apiRequest(`/api/admin/cashiers/${cashier.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: nextActive }),
+      });
 
       setNotice(
         nextActive
@@ -192,7 +185,11 @@ export default function Cashiers() {
   };
 
   const handleResetPin = async (cashier: Cashier) => {
-    if (resettingId || activeResetId !== cashier.id) {
+    if (
+      resettingId ||
+      busyId ||
+      activeResetId !== cashier.id
+    ) {
       return;
     }
 
@@ -216,9 +213,7 @@ export default function Cashiers() {
         `/api/admin/cashiers/${cashier.id}/reset-pin`,
         {
           method: "POST",
-          body: JSON.stringify({
-            pin: resetPin,
-          }),
+          body: JSON.stringify({ pin: resetPin }),
         },
       );
 
@@ -239,14 +234,16 @@ export default function Cashiers() {
     (cashier) => cashier.is_active,
   ).length;
 
+  const isMutating = busyId !== null || resettingId !== null;
+  const showInitialLoading = loading && !hasLoaded;
+
   return (
-    <section className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="space-y-4" aria-busy={showInitialLoading}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-ctp-text">
             Cashier Management
           </h2>
-
           <p className="mt-1 text-sm text-ctp-subtext0">
             Create and manage employee accounts used to sign in to Kinesis POS.
           </p>
@@ -266,37 +263,34 @@ export default function Cashiers() {
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
           <div className="flex items-center gap-2 text-ctp-subtext0">
-            <UserRound size={17} />
-            <span className="text-sm">Total cashiers</span>
+            <UserRound size={16} />
+            <span className="text-xs font-medium">Total cashiers</span>
           </div>
-
-          <p className="mt-3 text-2xl font-semibold tabular-nums text-ctp-text">
-            {cashiers.length}
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
+            {hasLoaded ? cashiers.length : "—"}
           </p>
         </div>
 
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-4">
+        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
           <div className="flex items-center gap-2 text-ctp-green">
-            <ShieldCheck size={17} />
-            <span className="text-sm">Active accounts</span>
+            <ShieldCheck size={16} />
+            <span className="text-xs font-medium">Active accounts</span>
           </div>
-
-          <p className="mt-3 text-2xl font-semibold tabular-nums text-ctp-text">
-            {activeCount}
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
+            {hasLoaded ? activeCount : "—"}
           </p>
         </div>
 
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-4">
+        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
           <div className="flex items-center gap-2 text-ctp-subtext0">
-            <UserX size={17} />
-            <span className="text-sm">Disabled accounts</span>
+            <UserX size={16} />
+            <span className="text-xs font-medium">Disabled accounts</span>
           </div>
-
-          <p className="mt-3 text-2xl font-semibold tabular-nums text-ctp-text">
-            {cashiers.length - activeCount}
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
+            {hasLoaded ? cashiers.length - activeCount : "—"}
           </p>
         </div>
       </div>
@@ -304,9 +298,9 @@ export default function Cashiers() {
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-lg border border-ctp-red/30 bg-ctp-red/10 p-3 text-sm text-ctp-red"
+          className="flex items-start gap-2 rounded-lg border border-ctp-red/30 bg-ctp-red/10 px-3 py-2.5 text-sm text-ctp-red"
         >
-          <AlertCircle size={17} className="mt-0.5 shrink-0" />
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <span>{error}</span>
         </div>
       )}
@@ -314,24 +308,22 @@ export default function Cashiers() {
       {notice && (
         <div
           role="status"
-          className="flex items-start gap-2 rounded-lg border border-ctp-green/30 bg-ctp-green/10 p-3 text-sm text-ctp-green"
+          className="flex items-start gap-2 rounded-lg border border-ctp-green/30 bg-ctp-green/10 px-3 py-2.5 text-sm text-ctp-green"
         >
-          <CheckCircle2 size={17} className="mt-0.5 shrink-0" />
+          <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
           <span>{notice}</span>
         </div>
       )}
 
-      <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-5">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ctp-blue/10 text-ctp-blue">
-            <Plus size={20} />
+      <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-4">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ctp-blue/10 text-ctp-blue">
+            <Plus size={18} />
           </div>
-
-          <div>
-            <h3 className="font-semibold text-ctp-text">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-ctp-text">
               Create cashier account
             </h3>
-
             <p className="mt-0.5 text-xs text-ctp-subtext0">
               Cashiers use their username and six-digit PIN on POS terminals.
             </p>
@@ -340,16 +332,17 @@ export default function Cashiers() {
 
         <form
           onSubmit={handleCreateCashier}
-          className="grid gap-4 md:grid-cols-3"
+          className="grid gap-3 md:grid-cols-3"
         >
-          <label className="space-y-1.5">
+          <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-medium text-ctp-subtext1">
               Username
             </span>
-
             <input
               type="text"
               autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
               maxLength={64}
               required
               value={form.username}
@@ -360,15 +353,14 @@ export default function Cashiers() {
                 }))
               }
               placeholder="e.g. cashier01"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2.5 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
+              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
             />
           </label>
 
-          <label className="space-y-1.5">
+          <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-medium text-ctp-subtext1">
               Display name
             </span>
-
             <input
               type="text"
               maxLength={100}
@@ -381,15 +373,14 @@ export default function Cashiers() {
                 }))
               }
               placeholder="e.g. Alex"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2.5 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
+              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
             />
           </label>
 
-          <label className="space-y-1.5">
+          <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-medium text-ctp-subtext1">
               Six-digit PIN
             </span>
-
             <input
               type="password"
               inputMode="numeric"
@@ -405,7 +396,7 @@ export default function Cashiers() {
                 }))
               }
               placeholder="••••••"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2.5 text-sm tracking-[0.35em] text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
+              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm tracking-[0.35em] text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
             />
           </label>
 
@@ -413,14 +404,13 @@ export default function Cashiers() {
             <button
               type="submit"
               disabled={creating}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-blue px-4 py-2.5 text-sm font-semibold text-ctp-base transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-blue px-3.5 py-2 text-sm font-semibold text-ctp-base transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {creating ? (
-                <LoaderCircle size={16} className="animate-spin" />
+                <LoaderCircle size={15} className="animate-spin" />
               ) : (
-                <Plus size={16} />
+                <Plus size={15} />
               )}
-
               {creating ? "Creating account..." : "Create cashier"}
             </button>
           </div>
@@ -428,81 +418,88 @@ export default function Cashiers() {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-ctp-surface1 bg-ctp-mantle">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ctp-surface0 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-4 py-3">
           <div>
-            <h3 className="font-semibold text-ctp-text">
+            <h3 className="text-sm font-semibold text-ctp-text">
               Cashier accounts
             </h3>
-
-            <p className="mt-1 text-xs text-ctp-subtext0">
+            <p className="mt-0.5 text-xs text-ctp-subtext0">
               Manage access and reset employee PINs.
             </p>
           </div>
 
           <span className="rounded-md bg-ctp-surface0 px-2.5 py-1 text-xs tabular-nums text-ctp-subtext1">
-            {cashiers.length} accounts
+            {hasLoaded ? `${cashiers.length} accounts` : "Loading"}
           </span>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-ctp-subtext0">
-            <LoaderCircle size={18} className="animate-spin" />
+        {showInitialLoading ? (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-ctp-subtext0">
+            <LoaderCircle size={17} className="animate-spin" />
             Loading cashier accounts...
           </div>
+        ) : !hasLoaded ? (
+          <div className="px-4 py-10 text-center">
+            <AlertCircle size={26} className="mx-auto text-ctp-red" />
+            <p className="mt-2 text-sm font-medium text-ctp-text">
+              Could not load cashier accounts
+            </p>
+            <p className="mt-1 text-xs text-ctp-subtext0">
+              Check the connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadCashiers()}
+              disabled={loading}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:opacity-50"
+            >
+              <RefreshCw size={13} />
+              Try again
+            </button>
+          </div>
         ) : cashiers.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <UserRound
-              size={30}
-              className="mx-auto text-ctp-overlay1"
-            />
-
-            <p className="mt-3 font-medium text-ctp-text">
+          <div className="px-4 py-10 text-center">
+            <UserRound size={28} className="mx-auto text-ctp-overlay1" />
+            <p className="mt-2 text-sm font-medium text-ctp-text">
               No cashier accounts yet
             </p>
-
-            <p className="mt-1 text-sm text-ctp-subtext0">
+            <p className="mt-1 text-xs text-ctp-subtext0">
               Create the first cashier account using the form above.
             </p>
           </div>
         ) : (
           <div className="divide-y divide-ctp-surface0">
             {cashiers.map((cashier) => (
-              <article
-                key={cashier.id}
-                className="space-y-4 p-5"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ctp-surface0 text-ctp-text">
-                      <UserRound size={20} />
+              <article key={cashier.id} className="space-y-3 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ctp-surface0 text-ctp-text">
+                      <UserRound size={17} />
                     </div>
-
                     <div className="min-w-0">
-                      <h4 className="font-semibold text-ctp-text">
+                      <h4 className="truncate text-sm font-semibold text-ctp-text">
                         {cashier.display_name}
                       </h4>
-
-                      <p className="mt-0.5 text-xs text-ctp-subtext0">
+                      <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
                         @{cashier.username}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <span
-                      className={`rounded-full border px-2.5 py-1 text-xs font-medium ${cashier.is_active
+                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${cashier.is_active
                           ? "border-ctp-green/30 bg-ctp-green/10 text-ctp-green"
                           : "border-ctp-surface1 bg-ctp-surface0 text-ctp-subtext0"
                         }`}
                     >
                       {cashier.is_active ? "Active" : "Disabled"}
                     </span>
-
                     <button
                       type="button"
                       onClick={() => void handleToggleAccount(cashier)}
-                      disabled={busyId === cashier.id}
-                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${cashier.is_active
+                      disabled={isMutating || loading}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${cashier.is_active
                           ? "border-ctp-red/30 text-ctp-red hover:bg-ctp-red/10"
                           : "border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10"
                         }`}
@@ -516,20 +513,26 @@ export default function Cashiers() {
                   </div>
                 </div>
 
-                <div className="grid gap-2 text-xs text-ctp-subtext0 sm:grid-cols-2">
-                  <p>Created: {formatDate(cashier.created_at)}</p>
-                  <p>Last login: {formatDate(cashier.last_login_at)}</p>
+                <div className="grid gap-1.5 text-xs text-ctp-subtext0 sm:grid-cols-2">
+                  <p>
+                    <span className="text-ctp-subtext1">Created:</span>{" "}
+                    {formatDate(cashier.created_at)}
+                  </p>
+                  <p>
+                    <span className="text-ctp-subtext1">Last login:</span>{" "}
+                    {formatDate(cashier.last_login_at)}
+                  </p>
                 </div>
 
                 <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-                  <div className="mb-3 flex items-center gap-2">
-                    <KeyRound size={15} className="text-ctp-subtext0" />
+                  <div className="mb-2 flex items-center gap-2">
+                    <KeyRound size={14} className="text-ctp-subtext0" />
                     <span className="text-xs font-semibold text-ctp-text">
                       Reset PIN
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       type="password"
                       inputMode="numeric"
@@ -538,11 +541,7 @@ export default function Cashiers() {
                       pattern="[0-9]{6}"
                       aria-label={`New PIN for ${cashier.username}`}
                       placeholder="New six-digit PIN"
-                      value={
-                        activeResetId === cashier.id
-                          ? resetPin
-                          : ""
-                      }
+                      value={activeResetId === cashier.id ? resetPin : ""}
                       onFocus={() => {
                         setActiveResetId(cashier.id);
                         setResetPin("");
@@ -550,36 +549,33 @@ export default function Cashiers() {
                       onChange={(event) => {
                         setActiveResetId(cashier.id);
                         setResetPin(
-                          event.target.value
-                            .replace(/\D/g, "")
-                            .slice(0, 6),
+                          event.target.value.replace(/\D/g, "").slice(0, 6),
                         );
                       }}
-                      disabled={resettingId === cashier.id}
-                      className="min-w-0 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 py-2 text-sm tracking-[0.3em] text-ctp-text outline-none placeholder:tracking-normal placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
+                      disabled={isMutating}
+                      className="min-w-0 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 py-2 text-sm tracking-[0.3em] text-ctp-text outline-none placeholder:tracking-normal placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
                     />
 
                     <button
                       type="button"
                       onClick={() => void handleResetPin(cashier)}
                       disabled={
-                        resettingId === cashier.id ||
+                        isMutating ||
                         activeResetId !== cashier.id ||
                         !/^\d{6}$/.test(resetPin)
                       }
-                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {resettingId === cashier.id ? (
-                        <LoaderCircle size={14} className="animate-spin" />
+                        <LoaderCircle size={13} className="animate-spin" />
                       ) : (
-                        <KeyRound size={14} />
+                        <KeyRound size={13} />
                       )}
-
                       Reset PIN
                     </button>
                   </div>
 
-                  <p className="mt-2 text-[11px] leading-5 text-ctp-subtext0">
+                  <p className="mt-2 text-[11px] leading-4 text-ctp-subtext0">
                     Resetting a PIN revokes all existing sessions for this cashier.
                   </p>
                 </div>
