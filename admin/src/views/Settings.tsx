@@ -1,6 +1,6 @@
+
 import { useSettingsManagement } from "../hooks/useSettingsManagement";
 import SettingsHeader from "../components/settings/SettingsHeader";
-import InfoBanner from "../components/settings/InfoBanner";
 import SettingsNav from "../components/settings/SettingsNav";
 import SettingsEmptyState from "../components/settings/SettingsEmptyState";
 import Section from "../components/settings/Section";
@@ -13,8 +13,6 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-[1500px] pb-28 font-line-seed">
       <SettingsHeader />
-
-      <InfoBanner />
 
       {s.isLoading ? (
         <div
@@ -73,7 +71,6 @@ export default function Settings() {
           )}
 
           <div className="mt-4 grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-            {/* Left navigation */}
             <SettingsNav
               search={s.search}
               onSearchChange={s.setSearch}
@@ -82,7 +79,6 @@ export default function Settings() {
               onNavigate={s.navigateTo}
             />
 
-            {/* Settings content */}
             <main className="min-w-0 space-y-4">
               {s.filteredSections.length === 0 ? (
                 <SettingsEmptyState onClear={() => s.setSearch("")} />
@@ -109,7 +105,6 @@ export default function Settings() {
             </main>
           </div>
 
-          {/* Sticky save bar */}
           <SaveBar
             showSaveNotice={s.showSaveNotice}
             noticeMessage={s.noticeMessage}
