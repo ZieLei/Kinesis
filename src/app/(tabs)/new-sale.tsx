@@ -27,6 +27,7 @@ import { styledIcon } from "@/components/StyledIcon";
 import { useInventory } from "@/hooks/useInventory";
 import { useSaleProducts } from "@/hooks/useSaleProducts";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import type { Product } from "@/types/product";
 
 const CameraIcon = styledIcon(Camera);
@@ -36,6 +37,7 @@ export default function NewSale() {
   const scrollY = useSharedValue(0);
 
   const { isDark, selection } = useThemeColors();
+  const { allowNegativeInventory } = usePOSFormatting();
 
   const {
     inventory: products,
@@ -96,13 +98,17 @@ export default function NewSale() {
       const existingCartItem = cartItemsById.get(product.id);
 
       if (
-        existingCartItem &&
-        existingCartItem.quantity >= product.stock
+        !allowNegativeInventory &&
+        (
+          product.stock <= 0 ||
+          (
+            existingCartItem &&
+            existingCartItem.quantity >= product.stock
+          )
+        )
       ) {
         return;
       }
-
-      if (product.stock <= 0) return;
 
       addProductToCart({
         id: product.id,
@@ -110,7 +116,11 @@ export default function NewSale() {
         price: product.price,
       });
     },
-    [addProductToCart, cartItemsById],
+    [
+      addProductToCart,
+      allowNegativeInventory,
+      cartItemsById,
+    ],
   );
 
   return (
@@ -214,6 +224,7 @@ export default function NewSale() {
                   <SaleProductItem
                     item={item}
                     cartQuantity={cartItemsById.get(item.id)?.quantity}
+                    allowNegativeInventory={allowNegativeInventory}
                     onAdd={handleAddToCart}
                     onDecrease={(id) =>
                       decreaseQuantity("product", id)

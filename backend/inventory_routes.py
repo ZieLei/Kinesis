@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -21,7 +21,6 @@ from terminal_routes import require_admin_or_terminal, require_writable_terminal
 
 router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
 
-ZERO = Decimal("0.0000")
 COST_QUANTUM = Decimal("0.0001")
 MONEY_QUANTUM = Decimal("0.01")
 
@@ -35,7 +34,7 @@ class ReceiptItemInput(BaseModel):
         decimal_places=4,
     )
 
-    # Required only when existing stock has no recorded acquisition cost.
+    # Required only when existing positive stock has no recorded cost.
     opening_stock_unit_cost: Decimal | None = Field(
         default=None,
         ge=0,
@@ -152,7 +151,9 @@ def create_inventory_receipt(
                 if product.average_cost is not None:
                     old_unit_cost = Decimal(product.average_cost)
                 elif line.opening_stock_unit_cost is not None:
-                    old_unit_cost = Decimal(line.opening_stock_unit_cost)
+                    old_unit_cost = Decimal(line.opening_stock_unit_cost).quantize(
+                        COST_QUANTUM
+                    )
                 else:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -171,18 +172,19 @@ def create_inventory_receipt(
                 ).quantize(COST_QUANTUM, rounding=ROUND_HALF_UP)
 
             else:
-                # When stock is zero, the new receipt establishes its cost.
-                # Negative stock cannot be valued retrospectively; use the
-                # incoming cost as the new replenishment cost.
+                # Zero or negative stock has no positive on-hand inventory
+                # value to include in the weighted average. This receipt
+                # establishes the cost of the newly available stock.
                 product.average_cost = purchase_cost
 
             product.stock = new_stock
 
             line_total = (purchase_cost * received_quantity).quantize(
-                MONEY_QUANTUM, rounding=ROUND_HALF_UP
+                MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
             )
 
-            total_cost += line_total
+            total_cost = total_cost + line_total
 
             receipt.items.append(
                 InventoryReceiptItem(
@@ -263,7 +265,6 @@ def get_inventory_valuation(
     known_gross_margin = Decimal("0.00")
 
     product_rows = []
-
     product_by_id = {product.id: product for product in products}
 
     for product in products:
@@ -275,18 +276,21 @@ def get_inventory_valuation(
         )
 
         retail_value = price * positive_stock
-        cost_value = average_cost * positive_stock if average_cost is not None else None
-
         total_units += positive_stock
-        estimated_retail_value += retail_value
+        estimated_retail_value = estimated_retail_value + retail_value
 
         if average_cost is not None:
+            cost_value = average_cost * positive_stock
+
             valued_units += positive_stock
-            inventory_cost_value += cost_value
-            known_gross_margin += (price - average_cost) * positive_stock
+            inventory_cost_value = inventory_cost_value + cost_value
+            known_gross_margin = known_gross_margin + (
+                (price - average_cost) * positive_stock
+            )
         else:
+            cost_value = None
             uncosted_units += positive_stock
-            uncosted_retail_value += retail_value
+            uncosted_retail_value = uncosted_retail_value + retail_value
 
         product_rows.append(
             {
@@ -375,16 +379,19 @@ def get_inventory_valuation(
             continue
 
         lost_revenue = estimated_lost_units * Decimal(product.price)
-        estimated_lost_revenue += lost_revenue
-        estimated_units_total += estimated_lost_units
+        estimated_lost_revenue = estimated_lost_revenue + lost_revenue
+        estimated_units_total = estimated_units_total + estimated_lost_units
 
         lost_gross_profit = None
 
         if product.average_cost is not None:
             unit_margin = Decimal(product.price) - Decimal(product.average_cost)
             lost_gross_profit = estimated_lost_units * unit_margin
-            estimated_lost_gross_profit += lost_gross_profit
-            cost_known_units += estimated_lost_units
+
+            estimated_lost_gross_profit = (
+                estimated_lost_gross_profit + lost_gross_profit
+            )
+            cost_known_units = cost_known_units + estimated_lost_units
 
         stockout_items.append(
             {

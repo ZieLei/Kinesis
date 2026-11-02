@@ -1,5 +1,4 @@
 
-
 import {
   createContext,
   useCallback,
@@ -12,9 +11,19 @@ import {
 
 import * as productsApi from "@/lib/productsApi";
 import * as servicesApi from "@/lib/serviceApi";
+import * as inventoryApi from "@/lib/inventoryApi";
 
-import type { Product, ProductFormValues } from "@/types/product";
+import type {
+  Product,
+  ProductCreate,
+  ProductFormValues,
+  ProductUpdate,
+} from "@/types/product";
 import type { Service, ServiceCreate } from "@/types/service";
+import type {
+  InventoryReceipt,
+  InventoryReceiptCreate,
+} from "@/types/inventory";
 
 type CatalogContextValue = {
   inventory: Product[];
@@ -32,6 +41,9 @@ type CatalogContextValue = {
     values: ProductFormValues,
   ) => Promise<Product>;
   removeProduct: (productId: number) => Promise<void>;
+  receiveStock: (
+    values: InventoryReceiptCreate,
+  ) => Promise<InventoryReceipt>;
 
   services: Service[];
   servicesLoading: boolean;
@@ -142,20 +154,28 @@ export function CatalogProvider({
 
   const addProduct = useCallback(
     async (values: ProductFormValues): Promise<Product> => {
-      const { image, ...fields } = values;
+      const createData: ProductCreate = {
+        name: values.name,
+        category: values.category,
+        price: values.price,
+        stock: values.stock,
+        initial_unit_cost: values.initial_unit_cost,
+        sku: values.sku,
+        howMuchSold: values.howMuchSold,
+      };
 
       try {
-        let createdProduct = await productsApi.createProduct(fields);
+        let createdProduct = await productsApi.createProduct(createData);
 
         setInventory((previous) => [
           ...previous,
           createdProduct,
         ]);
 
-        if (image) {
+        if (values.image) {
           createdProduct = await productsApi.uploadProductImage(
             createdProduct.id,
-            image,
+            values.image,
           );
 
           replaceProduct(createdProduct);
@@ -179,24 +199,29 @@ export function CatalogProvider({
       productId: number,
       values: ProductFormValues,
     ): Promise<Product> => {
-      const { image, removeImage, ...fields } = values;
+      const updateData: ProductUpdate = {
+        name: values.name,
+        category: values.category,
+        price: values.price,
+        sku: values.sku,
+      };
 
       try {
         const updatedProduct = await productsApi.updateProduct(
           productId,
-          fields,
+          updateData,
         );
 
         replaceProduct(updatedProduct);
 
         let finalProduct = updatedProduct;
 
-        if (image) {
+        if (values.image) {
           finalProduct = await productsApi.uploadProductImage(
             productId,
-            image,
+            values.image,
           );
-        } else if (removeImage) {
+        } else if (values.removeImage) {
           finalProduct = await productsApi.deleteProductImage(
             productId,
           );
@@ -225,6 +250,21 @@ export function CatalogProvider({
       );
     },
     [],
+  );
+
+  const receiveStock = useCallback(
+    async (
+      values: InventoryReceiptCreate,
+    ): Promise<InventoryReceipt> => {
+      const receipt = await inventoryApi.createInventoryReceipt(values);
+
+      // The server calculates the new weighted-average cost.
+      // Reload the authoritative product records after the receipt.
+      await fetchInventory(false);
+
+      return receipt;
+    },
+    [fetchInventory],
   );
 
   // --------------------------------------------------
@@ -384,6 +424,7 @@ export function CatalogProvider({
       addProduct,
       saveProduct,
       removeProduct,
+      receiveStock,
 
       services,
       servicesLoading,
@@ -405,6 +446,7 @@ export function CatalogProvider({
       addProduct,
       saveProduct,
       removeProduct,
+      receiveStock,
 
       services,
       servicesLoading,

@@ -1,3 +1,4 @@
+
 import type { ImagePickerAsset } from "expo-image-picker";
 
 export type Product = {
@@ -8,6 +9,7 @@ export type Product = {
   price: number;
   stock: number;
   howMuchSold: number;
+  average_cost: number | null;
   image_path: string | null;
   image_url: string | null;
 };
@@ -25,16 +27,19 @@ export type ProductCreate = Pick<
 > & {
   sku?: string | null;
   howMuchSold?: number;
+  initial_unit_cost?: number | null;
 };
 
-/** The text fields the API accepts when updating a product. */
+/** Fields that can be changed without altering inventory quantity or cost. */
 export type ProductUpdate = Pick<
   Product,
-  "name" | "category" | "price" | "stock"
->;
+  "name" | "category" | "price"
+> & {
+  sku?: string | null;
+};
 
 /** Validated output of the add/edit product form. */
-export type ProductFormValues = ProductUpdate & {
+export type ProductFormValues = ProductCreate & {
   image: ImagePickerAsset | null;
   removeImage: boolean;
 };

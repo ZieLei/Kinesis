@@ -1,3 +1,4 @@
+
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -19,6 +20,10 @@ import { LOW_STOCK_THRESHOLD } from "@/lib/products";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { useCashierAuth } from "@/app/context/CashierAuthContext";
 import { useCart } from "@/app/context/CartContext";
+import {
+  formatPOSCurrency,
+  formatPOSCompactCurrency,
+} from "@/lib/posFormatting";
 
 import SunIcon from "lucide-react-native/icons/sun";
 import MoonIcon from "lucide-react-native/icons/moon";
@@ -41,24 +46,6 @@ const Sun = styledIcon(SunIcon);
 const Moon = styledIcon(MoonIcon);
 const UsersRound = styledIcon(UsersRoundIcon);
 const LogOut = styledIcon(LogOutIcon);
-
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-
-const shortMoney = (amount: number) => {
-  if (amount >= 1_000_000) {
-    return `₱${(amount / 1_000_000).toFixed(2)}M`;
-  }
-
-  if (amount >= 1_000) {
-    return `₱${(amount / 1_000).toFixed(2)}K`;
-  }
-
-  return money(amount);
-};
 
 const formatDate = (date: Date) =>
   date.toLocaleDateString("en-PH", {
@@ -146,7 +133,6 @@ export default function Dashboard() {
     loadDashboard,
   } = useDashboardData();
 
-  // Read the low-stock threshold synchronized with the backend.
   const { settings } = useTerminalSettings();
 
   const configuredThreshold = Number(
@@ -159,7 +145,12 @@ export default function Dashboard() {
       ? configuredThreshold
       : LOW_STOCK_THRESHOLD;
 
-  // Reload dashboard data whenever this screen regains focus.
+  const money = (amount: number) =>
+    formatPOSCurrency(amount, settings);
+
+  const shortMoney = (amount: number) =>
+    formatPOSCompactCurrency(amount, settings);
+
   useFocusEffect(
     useCallback(() => {
       const controller = new AbortController();
@@ -183,12 +174,10 @@ export default function Dashboard() {
 
     setEndingSession(true);
 
-    // Never allow an unfinished cart to be inherited by another cashier.
     clearCart();
 
     try {
       await logout();
-
       router.replace("/login");
     } finally {
       setEndingSession(false);
@@ -224,10 +213,7 @@ export default function Dashboard() {
           style: "cancel",
         },
         {
-          text:
-            action === "switch"
-              ? "Switch cashier"
-              : "Log out",
+          text: action === "switch" ? "Switch cashier" : "Log out",
           style: "destructive",
           onPress: () => {
             void endCashierSession();
@@ -359,22 +345,14 @@ export default function Dashboard() {
             onPress={toggleTheme}
             accessibilityRole="button"
             accessibilityLabel={
-              isDark
-                ? "Switch to light mode"
-                : "Switch to dark mode"
+              isDark ? "Switch to light mode" : "Switch to dark mode"
             }
             className="h-10 flex-row items-center justify-center gap-2 rounded-full border border-ctp-surface1 bg-ctp-mantle px-3"
           >
             {isDark ? (
-              <Sun
-                size={18}
-                className="text-ctp-yellow"
-              />
+              <Sun size={18} className="text-ctp-yellow" />
             ) : (
-              <Moon
-                size={18}
-                className="text-ctp-text"
-              />
+              <Moon size={18} className="text-ctp-text" />
             )}
 
             <Text className="text-sm font-inter-semibold text-ctp-text">
@@ -387,10 +365,7 @@ export default function Dashboard() {
         <View className="mt-6 rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
           <View className="flex-row items-center">
             <View className="h-11 w-11 items-center justify-center rounded-full bg-ctp-blue/15">
-              <User
-                size={22}
-                className="text-ctp-blue"
-              />
+              <User size={22} className="text-ctp-blue" />
             </View>
 
             <View className="ml-3 flex-1">
@@ -419,18 +394,13 @@ export default function Dashboard() {
 
           <View className="mt-4 flex-row gap-2">
             <Pressable
-              onPress={() =>
-                confirmEndCashierSession("switch")
-              }
+              onPress={() => confirmEndCashierSession("switch")}
               disabled={endingSession}
               accessibilityRole="button"
               accessibilityLabel="Switch cashier"
               className="min-h-10 flex-1 flex-row items-center justify-center gap-2 rounded-lg border border-ctp-surface1 bg-ctp-base px-3"
             >
-              <UsersRound
-                size={16}
-                className="text-ctp-text"
-              />
+              <UsersRound size={16} className="text-ctp-text" />
 
               <Text className="font-inter-semibold text-xs text-ctp-text">
                 Switch Cashier
@@ -438,24 +408,16 @@ export default function Dashboard() {
             </Pressable>
 
             <Pressable
-              onPress={() =>
-                confirmEndCashierSession("logout")
-              }
+              onPress={() => confirmEndCashierSession("logout")}
               disabled={endingSession}
               accessibilityRole="button"
               accessibilityLabel="Log out"
               className="min-h-10 flex-1 flex-row items-center justify-center gap-2 rounded-lg bg-ctp-red/10 px-3"
             >
               {endingSession ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#F38BA8"
-                />
+                <ActivityIndicator size="small" color="#F38BA8" />
               ) : (
-                <LogOut
-                  size={16}
-                  className="text-ctp-red"
-                />
+                <LogOut size={16} className="text-ctp-red" />
               )}
 
               <Text className="font-inter-semibold text-xs text-ctp-red">
@@ -518,18 +480,14 @@ export default function Dashboard() {
 
           <View className="px-5 py-[15px]">
             <Text
-              className={`text-md font-inter ${isDark
-                  ? "text-[#4C4F69]"
-                  : "text-white/90"
+              className={`text-md font-inter ${isDark ? "text-[#4C4F69]" : "text-white/90"
                 }`}
             >
               Today's Sales
             </Text>
 
             <Text
-              className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark
-                  ? "text-[#4C4F69]"
-                  : "text-white"
+              className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark ? "text-[#4C4F69]" : "text-white"
                 }`}
             >
               {stats
@@ -543,9 +501,7 @@ export default function Dashboard() {
               {stats?.todayChange !== null &&
                 stats?.todayChange !== undefined ? (
                 <Text
-                  className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark
-                      ? "bg-ctp-surface2/30"
-                      : "bg-white"
+                  className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark ? "bg-ctp-surface2/30" : "bg-white"
                     } ${stats.todayChange.startsWith("-")
                       ? "text-[#D20F39]"
                       : "text-[#40A02B]"
@@ -565,16 +521,13 @@ export default function Dashboard() {
               )}
 
               <Text
-                className={`ml-2 font-inter ${isDark
-                    ? "text-[#6C6F85]"
-                    : "text-white/80"
+                className={`ml-2 font-inter ${isDark ? "text-[#6C6F85]" : "text-white/80"
                   }`}
               >
                 Compared with yesterday.
               </Text>
             </View>
 
-            {/* Weekly revenue spline chart */}
             <WeeklyRevenueChart
               report={data?.weeklyReport ?? null}
               loading={loading}
@@ -591,17 +544,12 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark
-                    ? "bg-ctp-surface0"
-                    : "bg-white"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
                   }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon
-                      size={20}
-                      className="text-ctp-text"
-                    />
+                    <Icon size={20} className="text-ctp-text" />
                   </View>
 
                   <Text className="text-md font-inter-semibold text-ctp-text">
@@ -632,17 +580,12 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark
-                    ? "bg-ctp-surface0"
-                    : "bg-white"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
                   }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon
-                      size={20}
-                      className="text-ctp-text"
-                    />
+                    <Icon size={20} className="text-ctp-text" />
                   </View>
 
                   <Text className="text-md font-inter-semibold text-ctp-text">
@@ -682,9 +625,7 @@ export default function Dashboard() {
 
         {/* Recent transactions */}
         <View
-          className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark
-              ? "bg-ctp-surface0"
-              : "bg-white"
+          className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark ? "bg-ctp-surface0" : "bg-white"
             }`}
         >
           <View className="mb-3 flex-row items-center">
@@ -735,10 +676,7 @@ export default function Dashboard() {
                   className="my-2 min-h-[70px] w-full flex-row items-center"
                 >
                   <View className="aspect-square rounded-lg bg-ctp-base p-3">
-                    <ShoppingCart
-                      size={24}
-                      className="text-ctp-text"
-                    />
+                    <ShoppingCart size={24} className="text-ctp-text" />
                   </View>
 
                   <View className="ml-2 flex-1 flex-col gap-2">

@@ -12,6 +12,7 @@ export function useInventory() {
     addProduct,
     saveProduct,
     removeProduct,
+    receiveStock,
   } = useCatalog();
 
   return {
@@ -24,5 +25,6 @@ export function useInventory() {
     addProduct,
     saveProduct,
     removeProduct,
+    receiveStock,
   };
 }

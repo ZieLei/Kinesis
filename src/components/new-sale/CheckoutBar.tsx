@@ -1,7 +1,8 @@
+
 import { Pressable, Text, View } from "react-native";
 
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { formatPrice } from "@/lib/products";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 
 type CheckoutBarProps = {
   total: number;
@@ -15,6 +16,7 @@ export default function CheckoutBar({
   onCheckout,
 }: CheckoutBarProps) {
   const { isDark } = useThemeColors();
+  const { formatCurrency } = usePOSFormatting();
 
   return (
     <View
@@ -31,7 +33,7 @@ export default function CheckoutBar({
         </Text>
 
         <Text className="font-inter-semibold text-base text-ctp-subtext1">
-          ₱{formatPrice(total)}
+          {formatCurrency(total)}
         </Text>
       </View>
 

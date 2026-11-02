@@ -1,10 +1,12 @@
+
 import { useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 
 import ImageOff from "lucide-react-native/icons/image-off";
 
 import { styledIcon } from "@/components/StyledIcon";
-import { formatPrice, getImageUri } from "@/lib/products";
+import { getImageUri } from "@/lib/products";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import type { Product } from "@/types/product";
 
 const ImageOffIcon = styledIcon(ImageOff);
@@ -13,6 +15,7 @@ type SaleProductItemProps = {
   item: Product;
   /** Quantity of this product already in the cart, if any. */
   cartQuantity?: number;
+  allowNegativeInventory?: boolean;
   onAdd: (item: Product) => void;
   onDecrease: (id: number) => void;
 };
@@ -20,16 +23,24 @@ type SaleProductItemProps = {
 export default function SaleProductItem({
   item,
   cartQuantity,
+  allowNegativeInventory = false,
   onAdd,
   onDecrease,
 }: SaleProductItemProps) {
   const [failedUri, setFailedUri] = useState<string | null>(null);
+  const { formatCurrency } = usePOSFormatting();
 
   const imageUri = getImageUri(item);
   const imageFailed = imageUri !== null && failedUri === imageUri;
+
   const atStockLimit =
-    cartQuantity !== undefined && cartQuantity >= item.stock;
-  const unavailable = item.stock <= 0 || atStockLimit;
+    !allowNegativeInventory &&
+    cartQuantity !== undefined &&
+    cartQuantity >= item.stock;
+
+  const unavailable =
+    !allowNegativeInventory &&
+    (item.stock <= 0 || atStockLimit);
 
   return (
     <View className="my-2 flex-row rounded-xl border border-ctp-surface0 bg-ctp-mantle">
@@ -74,14 +85,20 @@ export default function SaleProductItem({
           ) : null}
 
           <Text className="font-inter-semibold text-sm text-ctp-subtext0">
-            ₱{formatPrice(item.price)}
+            {formatCurrency(item.price)}
           </Text>
 
           <Text
-            className={`mt-auto font-inter-medium text-sm ${item.stock <= 0 ? "text-ctp-red" : "text-ctp-subtext1"
+            className={`mt-auto font-inter-medium text-sm ${item.stock <= 0
+                ? "text-ctp-red"
+                : "text-ctp-subtext1"
               }`}
           >
-            {item.stock <= 0 ? "Out of stock" : `Stock: ${item.stock}`}
+            {item.stock <= 0
+              ? allowNegativeInventory
+                ? "Out of stock · selling allowed"
+                : "Out of stock"
+              : `Stock: ${item.stock}`}
           </Text>
         </View>
       </Pressable>

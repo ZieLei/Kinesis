@@ -1,3 +1,4 @@
+
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import Animated, {
   SharedValue,
@@ -12,8 +13,8 @@ import Pencil from "lucide-react-native/icons/pencil";
 import Trash from "lucide-react-native/icons/trash";
 
 import { styledIcon } from "@/components/StyledIcon";
-import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
-import { LOW_STOCK_THRESHOLD, formatPrice, getImageUri } from "@/lib/products";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
+import { LOW_STOCK_THRESHOLD, getImageUri } from "@/lib/products";
 import type { Product } from "@/types/product";
 
 const StyledPencil = styledIcon(Pencil);
@@ -60,7 +61,7 @@ export default function StockItem({
   onDelete,
   deleting,
 }: StockItemProps) {
-  const { settings } = useTerminalSettings();
+  const { settings, formatCurrency } = usePOSFormatting();
 
   const configuredThreshold = Number(settings?.lowStockThreshold);
 
@@ -178,7 +179,7 @@ export default function StockItem({
               </Text>
 
               <Text className="font-inter-semibold text-sm text-ctp-subtext0">
-                ₱{formatPrice(item.price)}
+                {formatCurrency(item.price)}
               </Text>
 
               <Text

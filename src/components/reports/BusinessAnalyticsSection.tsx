@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,6 +15,8 @@ import {
   fetchInventoryValuation,
 } from "@/lib/analyticsApi";
 
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
+
 import type {
   BusinessAnalyticsReport,
   InventoryValuationResponse,
@@ -25,32 +28,38 @@ type Props = {
   refreshToken: number;
 };
 
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-
 const count = (value: number) => value.toLocaleString("en-PH");
-
-/* ------------------------------------------------------------------ */
-/* Shared chart helpers                                                */
-/* ------------------------------------------------------------------ */
 
 function niceStep(max: number, sections = 4) {
   if (max <= 0) return 1;
   const target = max / sections;
-  const mag = 10 ** Math.floor(Math.log10(target));
-  const n = target / mag;
-  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+  const magnitude = 10 ** Math.floor(Math.log10(target));
+  const normalized = target / magnitude;
+
+  return (
+    normalized <= 1
+      ? 1
+      : normalized <= 2
+        ? 2
+        : normalized <= 5
+          ? 5
+          : 10
+  ) * magnitude;
 }
 
 const compactAxis = (label: string) => {
-  const v = Number(label);
-  if (!Number.isFinite(v)) return label;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(v >= 10_000 ? 0 : 1)}K`;
-  return Math.round(v).toString();
+  const value = Number(label);
+  if (!Number.isFinite(value)) return label;
+
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  }
+
+  return Math.round(value).toString();
 };
 
 const chartTheme = (isDark: boolean) => ({
@@ -58,43 +67,53 @@ const chartTheme = (isDark: boolean) => ({
   axis: isDark ? "#45475a" : "#ccd0da",
   grid: isDark ? "#313244" : "#dce0e8",
   blue: isDark ? "#89b4fa" : "#1e66f5",
-  blueSoft: isDark ? "rgba(137,180,250,0.25)" : "rgba(30,102,245,0.25)",
+  blueSoft: isDark
+    ? "rgba(137,180,250,0.25)"
+    : "rgba(30,102,245,0.25)",
   green: isDark ? "#a6e3a1" : "#40a02b",
-  greenSoft: isDark ? "rgba(166,227,161,0.25)" : "rgba(64,160,43,0.25)",
+  greenSoft: isDark
+    ? "rgba(166,227,161,0.25)"
+    : "rgba(64,160,43,0.25)",
   red: isDark ? "#f38ba8" : "#d20f39",
-  redSoft: isDark ? "rgba(243,139,168,0.25)" : "rgba(210,15,57,0.25)",
+  redSoft: isDark
+    ? "rgba(243,139,168,0.25)"
+    : "rgba(210,15,57,0.25)",
   mauve: isDark ? "#cba6f7" : "#8839ef",
 });
 
 type ChartTheme = ReturnType<typeof chartTheme>;
 
-const Y_W = 44;
+const Y_W = 58;
 
-/** Width available to the plot area: screen - px-5 (40) - card p-4 (32) - y gutter. */
 function useInnerWidth(yGutter = Y_W) {
   const { width } = useWindowDimensions();
   return Math.max(200, width - 72 - yGutter);
 }
 
-const sharedAxisProps = (t: ChartTheme) => ({
+const sharedAxisProps = (
+  theme: ChartTheme,
+  formatAxisCurrency?: (value: number) => string,
+) => ({
   hideOrigin: true,
   yAxisThickness: 0,
   xAxisThickness: 1,
-  xAxisColor: t.axis,
+  xAxisColor: theme.axis,
   yAxisLabelWidth: Y_W,
-  yAxisLabelPrefix: "₱",
-  formatYLabel: compactAxis,
+  formatYLabel: (label: string) =>
+    formatAxisCurrency
+      ? formatAxisCurrency(Number(label))
+      : compactAxis(label),
   yAxisTextStyle: {
-    color: t.muted,
+    color: theme.muted,
     fontSize: 10,
     fontFamily: "LINESeed-Regular",
   },
   xAxisLabelTextStyle: {
-    color: t.muted,
+    color: theme.muted,
     fontSize: 10,
     fontFamily: "LINESeed-Regular",
   },
-  rulesColor: t.grid,
+  rulesColor: theme.grid,
   rulesThickness: 1,
   rulesType: "dashed" as const,
   dashWidth: 4,
@@ -167,8 +186,15 @@ function PaymentBreakdown({
 }: {
   report: BusinessAnalyticsReport;
 }) {
-  const cash = report.payment_methods.find((item) => item.method === "cash");
-  const gcash = report.payment_methods.find((item) => item.method === "gcash");
+  const { formatCurrency } = usePOSFormatting();
+
+  const cash = report.payment_methods.find(
+    (item) => item.method === "cash",
+  );
+
+  const gcash = report.payment_methods.find(
+    (item) => item.method === "gcash",
+  );
 
   const methods = [
     { label: "Cash", color: "#40A02B", data: cash },
@@ -211,7 +237,7 @@ function PaymentBreakdown({
 
           <View className="items-end">
             <Text className="font-inter-semibold text-sm text-ctp-text">
-              {money(method.data?.revenue ?? 0)}
+              {formatCurrency(method.data?.revenue ?? 0)}
             </Text>
 
             <Text className="text-xs text-ctp-subtext0">
@@ -236,7 +262,10 @@ function RevenueProfitChart({
   report: BusinessAnalyticsReport;
   isDark: boolean;
 }) {
-  const t = useMemo(() => chartTheme(isDark), [isDark]);
+  const { formatCurrency, formatCompactCurrency } =
+    usePOSFormatting();
+
+  const theme = useMemo(() => chartTheme(isDark), [isDark]);
   const innerWidth = useInnerWidth();
   const points = report.revenue_profit_series;
 
@@ -248,40 +277,47 @@ function RevenueProfitChart({
   const { data, maxValue, stepValue, chartWidth } = useMemo(() => {
     const max = Math.max(
       0,
-      ...points.flatMap((p) => [p.revenue, Math.abs(p.gross_profit ?? 0)]),
+      ...points.flatMap((point) => [
+        point.revenue,
+        Math.abs(point.gross_profit ?? 0),
+      ]),
     );
+
     const step = niceStep(max);
 
-    const items = points.flatMap((p) => {
-      const profit = p.gross_profit;
+    const items = points.flatMap((point) => {
+      const profit = point.gross_profit;
       const negative = profit !== null && profit < 0;
 
       return [
         {
-          value: p.revenue,
-          frontColor: t.blue,
-          gradientColor: t.blueSoft,
+          value: point.revenue,
+          frontColor: theme.blue,
+          gradientColor: theme.blueSoft,
           spacing: INNER_GAP,
           labelComponent: () => (
             <Text
               allowFontScaling={false}
               style={{
                 width: LABEL_W,
-                marginLeft: -(LABEL_W - (BAR_W * 2 + INNER_GAP)) / 2,
+                marginLeft:
+                  -(LABEL_W - (BAR_W * 2 + INNER_GAP)) / 2,
                 textAlign: "center",
-                color: t.muted,
+                color: theme.muted,
                 fontSize: 10,
                 fontFamily: "LINESeed-Regular",
               }}
             >
-              {p.label}
+              {point.label}
             </Text>
           ),
         },
         {
           value: profit === null ? 0 : Math.abs(profit),
-          frontColor: negative ? t.red : t.green,
-          gradientColor: negative ? t.redSoft : t.greenSoft,
+          frontColor: negative ? theme.red : theme.green,
+          gradientColor: negative
+            ? theme.redSoft
+            : theme.greenSoft,
           spacing: GROUP_GAP,
         },
       ];
@@ -293,10 +329,12 @@ function RevenueProfitChart({
       stepValue: step,
       chartWidth: Math.max(
         innerWidth,
-        points.length * (BAR_W * 2 + INNER_GAP + GROUP_GAP) + 24,
+        points.length *
+        (BAR_W * 2 + INNER_GAP + GROUP_GAP) +
+        24,
       ),
     };
-  }, [points, t, innerWidth]);
+  }, [points, theme, innerWidth]);
 
   return (
     <Card
@@ -305,9 +343,9 @@ function RevenueProfitChart({
     >
       <Legend
         entries={[
-          { label: "Revenue", color: t.blue },
-          { label: "Known gross profit", color: t.green },
-          { label: "Negative profit", color: t.red },
+          { label: "Revenue", color: theme.blue },
+          { label: "Known gross profit", color: theme.green },
+          { label: "Negative profit", color: theme.red },
         ]}
       />
 
@@ -326,28 +364,34 @@ function RevenueProfitChart({
         showGradient
         xAxisLabelsHeight={24}
         disableScroll={chartWidth <= innerWidth}
-        {...sharedAxisProps(t)}
+        {...sharedAxisProps(theme, formatCompactCurrency)}
       />
 
       <View className="gap-1 border-t border-ctp-surface0 pt-3">
         <View className="flex-row justify-between">
           <Text className="text-xs text-ctp-subtext0">Revenue</Text>
           <Text className="text-xs font-inter-semibold text-ctp-text">
-            {money(report.revenue_profit.revenue)}
+            {formatCurrency(report.revenue_profit.revenue)}
           </Text>
         </View>
 
         <View className="flex-row justify-between">
-          <Text className="text-xs text-ctp-subtext0">Known gross profit</Text>
+          <Text className="text-xs text-ctp-subtext0">
+            Known gross profit
+          </Text>
           <Text className="text-xs font-inter-semibold text-ctp-text">
             {report.revenue_profit.known_gross_profit === null
               ? "Unavailable"
-              : money(report.revenue_profit.known_gross_profit)}
+              : formatCurrency(
+                report.revenue_profit.known_gross_profit,
+              )}
           </Text>
         </View>
 
         <View className="flex-row justify-between">
-          <Text className="text-xs text-ctp-subtext0">Cost coverage</Text>
+          <Text className="text-xs text-ctp-subtext0">
+            Cost coverage
+          </Text>
           <Text className="text-xs font-inter-semibold text-ctp-text">
             {report.revenue_profit.cost_coverage}%
           </Text>
@@ -375,7 +419,10 @@ function RevenueBreakdownChart({
   report: BusinessAnalyticsReport;
   isDark: boolean;
 }) {
-  const t = useMemo(() => chartTheme(isDark), [isDark]);
+  const { formatCurrency, formatCompactCurrency } =
+    usePOSFormatting();
+
+  const theme = useMemo(() => chartTheme(isDark), [isDark]);
   const innerWidth = useInnerWidth();
   const points = report.revenue_breakdown_series;
 
@@ -383,28 +430,39 @@ function RevenueBreakdownChart({
   const GAP = 18;
 
   const partsTotal =
-    report.revenue_breakdown.find((i) => i.type === "parts")?.revenue ?? 0;
+    report.revenue_breakdown.find(
+      (item) => item.type === "parts",
+    )?.revenue ?? 0;
 
   const servicesTotal =
-    report.revenue_breakdown.find((i) => i.type === "services")?.revenue ?? 0;
+    report.revenue_breakdown.find(
+      (item) => item.type === "services",
+    )?.revenue ?? 0;
 
   const { stacks, maxValue, stepValue, chartWidth } = useMemo(() => {
-    const max = Math.max(0, ...points.map((p) => p.parts + p.services));
+    const max = Math.max(
+      0,
+      ...points.map((point) => point.parts + point.services),
+    );
+
     const step = niceStep(max);
 
     return {
-      stacks: points.map((p) => ({
-        label: p.label,
+      stacks: points.map((point) => ({
+        label: point.label,
         stacks: [
-          { value: p.parts, color: t.blue },
-          { value: p.services, color: t.mauve },
+          { value: point.parts, color: theme.blue },
+          { value: point.services, color: theme.mauve },
         ],
       })),
       maxValue: step * 4,
       stepValue: step,
-      chartWidth: Math.max(innerWidth, points.length * (BAR_W + GAP) + 24),
+      chartWidth: Math.max(
+        innerWidth,
+        points.length * (BAR_W + GAP) + 24,
+      ),
     };
-  }, [points, t, innerWidth]);
+  }, [points, theme, innerWidth]);
 
   return (
     <Card
@@ -413,8 +471,8 @@ function RevenueBreakdownChart({
     >
       <Legend
         entries={[
-          { label: "Parts", color: t.blue },
-          { label: "Services", color: t.mauve },
+          { label: "Parts", color: theme.blue },
+          { label: "Services", color: theme.mauve },
         ]}
       />
 
@@ -432,21 +490,25 @@ function RevenueBreakdownChart({
         stackBorderRadius={6}
         xAxisLabelsHeight={24}
         disableScroll={chartWidth <= innerWidth}
-        {...sharedAxisProps(t)}
+        {...sharedAxisProps(theme, formatCompactCurrency)}
       />
 
       <View className="gap-2 border-t border-ctp-surface0 pt-3">
         <View className="flex-row justify-between">
-          <Text className="text-xs text-ctp-subtext0">Parts revenue</Text>
+          <Text className="text-xs text-ctp-subtext0">
+            Parts revenue
+          </Text>
           <Text className="text-xs font-inter-semibold text-ctp-text">
-            {money(partsTotal)}
+            {formatCurrency(partsTotal)}
           </Text>
         </View>
 
         <View className="flex-row justify-between">
-          <Text className="text-xs text-ctp-subtext0">Service revenue</Text>
+          <Text className="text-xs text-ctp-subtext0">
+            Service revenue
+          </Text>
           <Text className="text-xs font-inter-semibold text-ctp-text">
-            {money(servicesTotal)}
+            {formatCurrency(servicesTotal)}
           </Text>
         </View>
       </View>
@@ -465,7 +527,7 @@ function PeakHoursChart({
   report: BusinessAnalyticsReport;
   isDark: boolean;
 }) {
-  const t = useMemo(() => chartTheme(isDark), [isDark]);
+  const theme = useMemo(() => chartTheme(isDark), [isDark]);
 
   const PEAK_Y_W = 28;
   const innerWidth = useInnerWidth(PEAK_Y_W);
@@ -477,23 +539,34 @@ function PeakHoursChart({
     () =>
       new Set(
         report.peak_hours
-          .filter((i) => i.transactions > 0)
+          .filter((item) => item.transactions > 0)
           .slice(0, 3)
-          .map((i) => i.hour),
+          .map((item) => item.hour),
       ),
     [report.peak_hours],
   );
 
   const { data, maxValue, stepValue, chartWidth } = useMemo(() => {
-    const max = Math.max(1, ...report.hourly_sales.map((i) => i.transactions));
+    const max = Math.max(
+      1,
+      ...report.hourly_sales.map((item) => item.transactions),
+    );
+
     const step = Math.max(1, Math.ceil(max / 4));
 
     return {
       data: report.hourly_sales.map((item) => ({
         value: item.transactions,
-        label: item.hour % 3 === 0 ? String(item.hour).padStart(2, "0") : "",
-        frontColor: peakHours.has(item.hour) ? t.blue : t.blueSoft,
-        gradientColor: peakHours.has(item.hour) ? t.blueSoft : "transparent",
+        label:
+          item.hour % 3 === 0
+            ? String(item.hour).padStart(2, "0")
+            : "",
+        frontColor: peakHours.has(item.hour)
+          ? theme.blue
+          : theme.blueSoft,
+        gradientColor: peakHours.has(item.hour)
+          ? theme.blueSoft
+          : "transparent",
       })),
       maxValue: step * 4,
       stepValue: step,
@@ -502,7 +575,7 @@ function PeakHoursChart({
         report.hourly_sales.length * (BAR_W + GAP) + 14,
       ),
     };
-  }, [report.hourly_sales, peakHours, t, innerWidth]);
+  }, [report.hourly_sales, peakHours, theme, innerWidth]);
 
   return (
     <Card
@@ -547,10 +620,11 @@ function PeakHoursChart({
         showGradient
         xAxisLabelsHeight={22}
         disableScroll={chartWidth <= innerWidth}
-        {...sharedAxisProps(t)}
-        yAxisLabelPrefix=""
-        formatYLabel={(label: string) => String(Math.round(Number(label)))}
+        {...sharedAxisProps(theme)}
         yAxisLabelWidth={PEAK_Y_W}
+        formatYLabel={(label: string) =>
+          String(Math.round(Number(label)))
+        }
       />
     </Card>
   );
@@ -583,7 +657,9 @@ function SalesHeatmap({
             {Array.from({ length: 24 }, (_, hour) => (
               <View key={hour} className="w-[22px] items-center">
                 <Text className="text-[9px] text-ctp-subtext0">
-                  {hour % 3 === 0 ? String(hour).padStart(2, "0") : ""}
+                  {hour % 3 === 0
+                    ? String(hour).padStart(2, "0")
+                    : ""}
                 </Text>
               </View>
             ))}
@@ -629,7 +705,9 @@ function SalesHeatmap({
             <View
               key={opacity}
               className="h-3 w-3 rounded-sm"
-              style={{ backgroundColor: `rgba(${tint},${opacity})` }}
+              style={{
+                backgroundColor: `rgba(${tint},${opacity})`,
+              }}
             />
           ))}
         </View>
@@ -668,7 +746,9 @@ function Metric({
       </Text>
 
       {detail ? (
-        <Text className="mt-1 text-[10px] text-ctp-subtext0">{detail}</Text>
+        <Text className="mt-1 text-[10px] text-ctp-subtext0">
+          {detail}
+        </Text>
       ) : null}
     </View>
   );
@@ -679,6 +759,8 @@ function InventoryAnalytics({
 }: {
   valuation: InventoryValuationResponse;
 }) {
+  const { formatCurrency } = usePOSFormatting();
+
   const summary = valuation.summary;
   const opportunity = valuation.stockout_opportunity;
 
@@ -691,13 +773,13 @@ function InventoryAnalytics({
         <View className="flex-row gap-2">
           <Metric
             label="Capital tied up"
-            value={money(summary.inventory_cost_value)}
+            value={formatCurrency(summary.inventory_cost_value)}
             detail={`${count(summary.valued_units)} costed units`}
           />
 
           <Metric
             label="Retail value"
-            value={money(summary.estimated_retail_value)}
+            value={formatCurrency(summary.estimated_retail_value)}
             detail={`${count(summary.total_units)} units on hand`}
           />
         </View>
@@ -705,13 +787,15 @@ function InventoryAnalytics({
         <View className="flex-row gap-2">
           <Metric
             label="Uncosted inventory"
-            value={money(summary.uncosted_retail_value)}
+            value={formatCurrency(summary.uncosted_retail_value)}
             detail={`${count(summary.uncosted_units)} units`}
           />
 
           <Metric
             label="Known margin at retail"
-            value={money(summary.known_inventory_gross_margin)}
+            value={formatCurrency(
+              summary.known_inventory_gross_margin,
+            )}
             detail="Costed units only"
           />
         </View>
@@ -733,7 +817,7 @@ function InventoryAnalytics({
           </Text>
 
           <Text className="mt-1 font-inter-bold text-2xl text-ctp-text">
-            {money(opportunity.estimated_lost_revenue)}
+            {formatCurrency(opportunity.estimated_lost_revenue)}
           </Text>
 
           <Text className="mt-1 text-xs text-ctp-subtext0">
@@ -748,12 +832,15 @@ function InventoryAnalytics({
           </Text>
 
           <Text className="text-sm font-inter-semibold text-ctp-text">
-            {money(opportunity.estimated_lost_gross_profit)}
+            {formatCurrency(
+              opportunity.estimated_lost_gross_profit,
+            )}
           </Text>
         </View>
 
         <Text className="text-xs text-ctp-subtext0">
-          Gross-profit cost coverage: {opportunity.gross_profit_cost_coverage}%
+          Gross-profit cost coverage:{" "}
+          {opportunity.gross_profit_cost_coverage}%
         </Text>
 
         {opportunity.items.length > 0 ? (
@@ -782,7 +869,7 @@ function InventoryAnalytics({
                 </View>
 
                 <Text className="font-inter-semibold text-sm text-ctp-text">
-                  {money(item.estimated_lost_revenue)}
+                  {formatCurrency(item.estimated_lost_revenue)}
                 </Text>
               </View>
             ))}
@@ -820,7 +907,8 @@ export default function BusinessAnalyticsSection({
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  const [report, setReport] = useState<BusinessAnalyticsReport | null>(null);
+  const [report, setReport] =
+    useState<BusinessAnalyticsReport | null>(null);
 
   const [valuation, setValuation] =
     useState<InventoryValuationResponse | null>(null);

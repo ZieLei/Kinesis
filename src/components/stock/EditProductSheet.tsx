@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -63,6 +64,15 @@ function createSkuPreview(
     default:
       return null;
   }
+}
+
+function formatCurrency(value: number | null): string {
+  if (value === null) return "Not recorded";
+
+  return `₱${value.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })}`;
 }
 
 export default function EditProductSheet({
@@ -197,7 +207,6 @@ export default function EditProductSheet({
                   onAddCategory={form.addCategory}
                 />
 
-                {/* SKU */}
                 <View className="mt-5 rounded-xl border border-ctp-surface1 bg-ctp-base p-3">
                   <View className="flex-row items-center justify-between">
                     <Text className="font-inter-semibold text-sm text-ctp-text">
@@ -234,28 +243,80 @@ export default function EditProductSheet({
                   Inventory
                 </Text>
 
-                <Text className="mb-4 mt-1 font-inter-regular text-xs text-ctp-subtext0">
-                  Set the quantity available in stock.
-                </Text>
+                {isCreating ? (
+                  <>
+                    <Text className="mb-4 mt-1 font-inter-regular text-xs text-ctp-subtext0">
+                      Set the initial quantity and record its acquisition cost when known.
+                    </Text>
 
-                <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
-                  Stock Quantity
-                </Text>
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                      Initial Stock Quantity
+                    </Text>
 
-                <TextInput
-                  value={form.stock}
-                  onChangeText={form.changeStock}
-                  keyboardType="number-pad"
-                  placeholder="0"
-                  placeholderTextColor={placeholder}
-                  selectionColor={selection}
-                  editable={!saving}
-                  className="rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
-                />
+                    <TextInput
+                      value={form.stock}
+                      onChangeText={form.changeStock}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={placeholder}
+                      selectionColor={selection}
+                      editable={!saving}
+                      className="mb-4 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
+                    />
 
-                <Text className="mt-2 font-inter-regular text-xs text-ctp-subtext0">
-                  Set to 0 when the product is out of stock.
-                </Text>
+                    <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
+                      Purchase Cost per Unit (₱)
+                    </Text>
+
+                    <TextInput
+                      value={form.initialUnitCost}
+                      onChangeText={form.changeInitialUnitCost}
+                      keyboardType="decimal-pad"
+                      placeholder="e.g. 150.00"
+                      placeholderTextColor={placeholder}
+                      selectionColor={selection}
+                      editable={!saving && Number(form.stock) > 0}
+                      className={`rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text ${Number(form.stock) <= 0 ? "opacity-50" : ""
+                        }`}
+                    />
+
+                    <Text className="mt-2 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                      Optional. This is what the shop paid per unit, not its selling price. Leave blank when the acquisition cost is unknown. Enter an initial stock quantity above zero to record this cost.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text className="mb-4 mt-1 font-inter-regular text-xs text-ctp-subtext0">
+                      Stock quantities and acquisition costs are managed through inventory receiving.
+                    </Text>
+
+                    <View className="mb-3 rounded-lg border border-ctp-surface2 bg-ctp-base p-3">
+                      <Text className="font-inter-medium text-xs text-ctp-subtext0">
+                        Current Stock
+                      </Text>
+
+                      <Text className="mt-1 font-inter-semibold text-lg text-ctp-text">
+                        {product?.stock ?? 0} units
+                      </Text>
+                    </View>
+
+                    <View className="rounded-lg border border-ctp-surface2 bg-ctp-base p-3">
+                      <Text className="font-inter-medium text-xs text-ctp-subtext0">
+                        Average Acquisition Cost per Unit
+                      </Text>
+
+                      <Text className="mt-1 font-inter-semibold text-lg text-ctp-text">
+                        {formatCurrency(product?.average_cost ?? null)}
+                      </Text>
+
+                      {product?.average_cost == null && (product?.stock ?? 0) > 0 ? (
+                        <Text className="mt-2 font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                          This product has stock with an unknown cost. You can enter an estimated cost for existing stock when recording its next receipt.
+                        </Text>
+                      ) : null}
+                    </View>
+                  </>
+                )}
               </View>
 
               <PricingSection

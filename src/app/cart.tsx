@@ -3,16 +3,11 @@ import { View, Text, Pressable, FlatList } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCart } from "@/app/context/CartContext";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import { styledIcon } from "@/components/StyledIcon";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
-
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 
 export default function Cart() {
   const router = useRouter();
@@ -25,6 +20,8 @@ export default function Cart() {
     total,
     itemCount,
   } = useCart();
+
+  const { formatCurrency } = usePOSFormatting();
 
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
@@ -97,7 +94,7 @@ export default function Cart() {
                 </Text>
 
                 <Text className="mt-1 text-sm font-inter-semibold text-ctp-subtext0">
-                  {money(item.price)}
+                  {formatCurrency(item.price)}
                 </Text>
 
                 {item.type === "service" && item.description ? (
@@ -109,7 +106,10 @@ export default function Cart() {
                   </Text>
                 ) : null}
 
-                <View className="mt-auto self-start flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-base px-2 py-1" style={{ width: 90 }}>
+                <View
+                  className="mt-auto self-start flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-base px-2 py-1"
+                  style={{ width: 90 }}
+                >
                   <Pressable
                     className="h-5 w-5 items-center justify-center"
                     onPress={() => decreaseQuantity(item.type, item.id)}
@@ -151,7 +151,7 @@ export default function Cart() {
                 </Pressable>
 
                 <Text className="mt-auto text-right text-sm font-inter-semibold text-ctp-text">
-                  {money(item.price * item.quantity)}
+                  {formatCurrency(item.price * item.quantity)}
                 </Text>
               </View>
             </View>
@@ -169,7 +169,7 @@ export default function Cart() {
               Total
             </Text>
             <Text className="text-base font-inter-bold text-ctp-text">
-              {money(total)}
+              {formatCurrency(total)}
             </Text>
           </View>
 

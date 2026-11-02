@@ -1,3 +1,4 @@
+
 import {
   ActivityIndicator,
   Alert,
@@ -13,10 +14,12 @@ import Animated, {
   useSharedValue,
 } from "react-native-reanimated";
 import Plus from "lucide-react-native/icons/plus";
+import PackagePlus from "lucide-react-native/icons/package-plus";
 
 import FilterModal from "@/components/modals/FilterModal";
 import CategoryTabs from "@/components/CategoryTabs";
 import EditProductSheet from "@/components/stock/EditProductSheet";
+import ReceiveStockSheet from "@/components/stock/ReceiveStockSheet";
 import StockHeader from "@/components/stock/StockHeader";
 import StockItem from "@/components/stock/StockItem";
 import CollapsibleSearchBar from "@/components/CollapsibleSearchBar";
@@ -28,6 +31,7 @@ import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { computeStockStats, LOW_STOCK_THRESHOLD } from "@/lib/products";
 import { styledIcon } from "@/components/StyledIcon";
 import type { Product, ProductFormValues } from "@/types/product";
+import type { InventoryReceiptCreate } from "@/types/inventory";
 
 const StyledPlus = styledIcon(Plus);
 
@@ -58,6 +62,7 @@ export default function Stock() {
     addProduct,
     saveProduct,
     removeProduct,
+    receiveStock,
   } = useInventory();
 
   const {
@@ -78,6 +83,7 @@ export default function Stock() {
 
   const [editingItem, setEditingItem] = useState<Product | null>(null);
   const [addingProduct, setAddingProduct] = useState(false);
+  const [receivingStock, setReceivingStock] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useFocusEffect(
@@ -126,6 +132,24 @@ export default function Stock() {
     Alert.alert(
       "Product created",
       `${createdProduct.name} was added to your inventory.`,
+    );
+  };
+
+  const handleReceiveStock = async (
+    values: InventoryReceiptCreate,
+  ) => {
+    const receipt = await receiveStock(values);
+    const receivedItem = receipt.items[0];
+
+    Alert.alert(
+      "Stock received",
+      `${receivedItem.product_name}: ${receivedItem.quantity} units recorded.\n\nReceipt total: ₱${receipt.total_cost.toLocaleString(
+        "en-PH",
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        },
+      )}`,
     );
   };
 
@@ -190,15 +214,33 @@ export default function Stock() {
         <StockStats stats={stockStats} />
 
         <View className="flex-1">
-          <View className="flex-row items-center justify-between pb-2">
+          <View className="mb-2 flex-row items-center justify-between">
             <Text className="font-inter-semibold text-lg text-ctp-text">
               Categories
             </Text>
 
-            <Text className="font-inter-regular text-xs text-ctp-subtext0">
-              Low stock: ≤ {lowStockThreshold} units
-            </Text>
+            <Pressable
+              onPress={() => setReceivingStock(true)}
+              disabled={inventory.length === 0 || loading}
+              accessibilityRole="button"
+              accessibilityLabel="Receive stock"
+              className={`flex-row items-center gap-2 rounded-lg border border-ctp-blue/40 bg-ctp-blue/10 px-3 py-2 ${inventory.length === 0 || loading ? "opacity-40" : ""
+                }`}
+            >
+              <PackagePlus
+                size={16}
+                color={isDark ? "#89B4FA" : "#1E66F5"}
+              />
+
+              <Text className="font-inter-semibold text-xs text-ctp-blue">
+                Receive Stock
+              </Text>
+            </Pressable>
           </View>
+
+          <Text className="mb-2 font-inter-regular text-xs text-ctp-subtext0">
+            Low stock: ≤ {lowStockThreshold} units
+          </Text>
 
           <CategoryTabs
             categories={categories}
@@ -320,6 +362,13 @@ export default function Stock() {
           categories={categories}
           onClose={closeProductSheet}
           onSave={handleSaveProduct}
+        />
+
+        <ReceiveStockSheet
+          visible={receivingStock}
+          products={inventory}
+          onClose={() => setReceivingStock(false)}
+          onReceive={handleReceiveStock}
         />
       </View>
     </SafeAreaView>

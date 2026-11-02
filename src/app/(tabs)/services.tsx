@@ -28,17 +28,37 @@ import { useColorScheme } from "nativewind";
 
 import { useServices } from "@/hooks/useServices";
 import { useCart } from "@/app/context/CartContext";
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 
-const formatPrice = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+const MAX_AMOUNT = 99999999.9999;
+
+function parseOptionalCost(value: string): number | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) {
+    return Number.NaN;
+  }
+
+  const parsed = Number(trimmed);
+
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < 0 ||
+    parsed > MAX_AMOUNT
+  ) {
+    return Number.NaN;
+  }
+
+  return Number(parsed.toFixed(4));
+}
 
 export default function Services() {
   const router = useRouter();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { formatCurrency } = usePOSFormatting();
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -57,12 +77,14 @@ export default function Services() {
   const [serviceName, setServiceName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  const [estimatedCost, setEstimatedCost] = useState("");
   const [formError, setFormError] = useState("");
 
   const resetForm = () => {
     setServiceName("");
     setDescription("");
     setPrice("");
+    setEstimatedCost("");
     setFormError("");
   };
 
@@ -105,6 +127,15 @@ export default function Services() {
       return;
     }
 
+    const parsedEstimatedCost = parseOptionalCost(estimatedCost);
+
+    if (Number.isNaN(parsedEstimatedCost)) {
+      setFormError(
+        "Estimated cost must be a non-negative amount with up to 4 decimal places.",
+      );
+      return;
+    }
+
     setFormError("");
 
     try {
@@ -112,6 +143,7 @@ export default function Services() {
         name: serviceName.trim(),
         description: description.trim(),
         price: Number(parsedPrice.toFixed(2)),
+        estimated_cost: parsedEstimatedCost,
       });
 
       setSearchQuery("");
@@ -271,7 +303,19 @@ export default function Services() {
                 </View>
 
                 <Text className="text-base font-inter-bold text-ctp-text">
-                  {formatPrice(item.price)}
+                  {formatCurrency(item.price)}
+                </Text>
+              </View>
+
+              <View className="mt-2 flex-row items-center justify-between">
+                <Text className="text-xs font-inter-medium text-ctp-subtext0">
+                  Estimated cost:
+                </Text>
+
+                <Text className="text-xs font-inter-semibold text-ctp-text">
+                  {item.estimated_cost === null
+                    ? "Not recorded"
+                    : formatCurrency(item.estimated_cost)}
                 </Text>
               </View>
 
@@ -354,7 +398,7 @@ export default function Services() {
                 </Text>
 
                 <Text className="mt-1 text-xs font-inter-regular text-ctp-subtext0">
-                  Add a motorcycle service and set its price.
+                  Add a motorcycle service and set its price and estimated cost.
                 </Text>
               </View>
 
@@ -397,7 +441,7 @@ export default function Services() {
                 </Text>
 
                 <Text className="mt-1 text-sm font-inter-regular text-ctp-subtext0">
-                  Enter the details for the new service.
+                  Enter the service details and its estimated direct cost.
                 </Text>
               </View>
 
@@ -444,7 +488,10 @@ export default function Services() {
 
               <TextInput
                 value={description}
-                onChangeText={setDescription}
+                onChangeText={(value) => {
+                  setDescription(value);
+                  setFormError("");
+                }}
                 editable={!creating}
                 placeholder="Describe what's included in the service..."
                 placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
@@ -459,7 +506,7 @@ export default function Services() {
                 Service Price (₱) *
               </Text>
 
-              <View className="mb-3 flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4">
+              <View className="mb-5 flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4">
                 <PhilippinePeso
                   size={18}
                   color={isDark ? "#A6ADC8" : "#6C6F85"}
@@ -479,6 +526,37 @@ export default function Services() {
                   className="flex-1 px-3 py-3 text-sm font-inter-regular text-ctp-text"
                 />
               </View>
+
+              <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
+                Estimated Cost per Service
+              </Text>
+
+              <View className="mb-2 flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4">
+                <PhilippinePeso
+                  size={18}
+                  color={isDark ? "#A6ADC8" : "#6C6F85"}
+                />
+
+                <TextInput
+                  value={estimatedCost}
+                  onChangeText={(value) => {
+                    setEstimatedCost(value);
+                    setFormError("");
+                  }}
+                  editable={!creating}
+                  placeholder="Optional"
+                  placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                  selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                  keyboardType="decimal-pad"
+                  className="flex-1 px-3 py-3 text-sm font-inter-regular text-ctp-text"
+                />
+              </View>
+
+              <Text className="mb-3 text-xs leading-5 font-inter-regular text-ctp-subtext0">
+                Optional estimated direct labour and material cost. This is
+                used for service profitability reports and does not deduct
+                parts from inventory.
+              </Text>
 
               {formError ? (
                 <Text className="mb-3 text-sm font-inter-medium text-ctp-red">

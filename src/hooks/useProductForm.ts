@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 
@@ -5,6 +6,7 @@ import { getImageUri } from "@/lib/products";
 import type { Product, ProductFormValues } from "@/types/product";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_UNIT_COST = 99999999.9999;
 
 export function useProductForm(
   product: Product | null,
@@ -14,6 +16,7 @@ export function useProductForm(
   const [category, setCategory] = useState("");
   const [stock, setStock] = useState("0");
   const [price, setPrice] = useState("");
+  const [initialUnitCost, setInitialUnitCost] = useState("");
   const [customPercent, setCustomPercent] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
@@ -40,11 +43,13 @@ export function useProductForm(
       setCategory(product.category);
       setStock(String(product.stock));
       setPrice(String(product.price));
+      setInitialUnitCost("");
     } else {
       setName("");
       setCategory("");
       setStock("0");
       setPrice("");
+      setInitialUnitCost("");
     }
 
     setCustomPercent("");
@@ -65,11 +70,21 @@ export function useProductForm(
 
   const changeStock = (value: string) => {
     setStock(value);
+
+    if (Number(value) <= 0) {
+      setInitialUnitCost("");
+    }
+
     setFormError("");
   };
 
   const changePrice = (value: string) => {
     setPrice(value);
+    setFormError("");
+  };
+
+  const changeInitialUnitCost = (value: string) => {
+    setInitialUnitCost(value);
     setFormError("");
   };
 
@@ -237,6 +252,27 @@ export function useProductForm(
       return null;
     }
 
+    let parsedInitialUnitCost: number | null = null;
+
+    if (parsedStock > 0 && initialUnitCost.trim() !== "") {
+      const costText = initialUnitCost.trim();
+      const cost = Number(costText);
+
+      if (
+        !/^\d+(\.\d{1,4})?$/.test(costText) ||
+        !Number.isFinite(cost) ||
+        cost < 0 ||
+        cost > MAX_UNIT_COST
+      ) {
+        setFormError(
+          "Purchase cost must be a valid non-negative amount with up to 4 decimal places.",
+        );
+        return null;
+      }
+
+      parsedInitialUnitCost = Number(cost.toFixed(4));
+    }
+
     setFormError("");
 
     return {
@@ -244,6 +280,7 @@ export function useProductForm(
       category: trimmedCategory,
       price: Number(parsedPrice.toFixed(2)),
       stock: parsedStock,
+      initial_unit_cost: parsedInitialUnitCost,
       image: selectedImage,
       removeImage: removeExistingImage,
     };
@@ -254,6 +291,7 @@ export function useProductForm(
     category,
     stock,
     price,
+    initialUnitCost,
     customPercent,
     newCategory,
     showNewCategory,
@@ -263,6 +301,7 @@ export function useProductForm(
     changeName,
     changeStock,
     changePrice,
+    changeInitialUnitCost,
     changeCustomPercent,
     changeNewCategory,
     selectCategory,

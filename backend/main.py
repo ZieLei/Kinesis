@@ -49,6 +49,7 @@ from overview_routes import router as overview_router
 logger = logging.getLogger(__name__)
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
+COST_QUANTUM = Decimal("0.0001")
 
 IMAGE_DIRECTORY = Path(
     os.getenv("KINESIS_IMAGE_DIRECTORY", "uploads/products")
@@ -146,6 +147,15 @@ class ProductCreate(BaseModel):
     sku: str | None = Field(default=None, max_length=64)
     howMuchSold: int = Field(default=0, ge=0)
 
+    # Optional acquisition cost for the initial stock quantity.
+    # Products can still be created with an unknown cost.
+    initial_unit_cost: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=4,
+    )
+
     @field_validator("name", "category")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
@@ -173,8 +183,10 @@ class ProductUpdate(BaseModel):
         max_digits=10,
         decimal_places=2,
     )
-    stock: int | None = Field(default=None, ge=0)
     sku: str | None = Field(default=None, max_length=64)
+
+    # Stock and average_cost are intentionally not editable here.
+    # Use inventory receipts for stock increases and cost updates.
 
     @field_validator("name", "category")
     @classmethod
@@ -406,6 +418,11 @@ def create_product(
         product_data.sku if product_data.sku is not None else generate_product_sku(db)
     )
 
+    initial_cost = None
+
+    if product_data.stock > 0 and product_data.initial_unit_cost is not None:
+        initial_cost = Decimal(product_data.initial_unit_cost).quantize(COST_QUANTUM)
+
     product = Product(
         name=product_data.name,
         category=product_data.category,
@@ -413,6 +430,7 @@ def create_product(
         stock=product_data.stock,
         sku=product_sku,
         how_much_sold=product_data.howMuchSold,
+        average_cost=initial_cost,
     )
 
     db.add(product)
@@ -459,7 +477,7 @@ def update_product(
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provide at least one field to update.",
+            detail="Provide at least one editable field to update.",
         )
 
     for field, value in updates.items():

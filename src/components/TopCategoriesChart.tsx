@@ -1,7 +1,9 @@
+
 import { useMemo } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { BarChart } from "react-native-gifted-charts";
 
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import type { ProductSalesReport } from "@/types/sale";
 
 type Props = {
@@ -29,15 +31,6 @@ function getChartStep(maximum: number) {
   return nice * magnitude;
 }
 
-function formatAxisValue(label: string) {
-  const value = Number(label);
-  if (!Number.isFinite(value)) return label;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000)
-    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
-  return Math.round(value).toString();
-}
-
 function getPointLabel(
   period: NonNullable<ProductSalesReport["period"]>,
   label: string,
@@ -45,19 +38,20 @@ function getPointLabel(
   length: number,
 ) {
   if (period === "daily") return index % 4 === 0 ? label.slice(0, 2) : "";
-  if (period === "monthly")
+  if (period === "monthly") {
     return index % 5 === 0 || index === length - 1 ? label : "";
+  }
   return label;
 }
 
 export default function TopCategoriesChart({ report, isDark }: Props) {
   const { width } = useWindowDimensions();
+  const { formatCompactCurrency } = usePOSFormatting();
 
   const palette = isDark ? PALETTE.mocha : PALETTE.latte;
   const colors = isDark ? COLORS.mocha : COLORS.latte;
 
-  // screen - px-5 (40) - card p-3 (24) - y axis gutter
-  const Y_LABEL_W = 44;
+  const Y_LABEL_W = 58;
   const availableWidth = Math.max(200, width - 64 - Y_LABEL_W);
 
   const chartData = useMemo(() => {
@@ -69,7 +63,7 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
       return null;
     }
 
-    const categoryNames = report.categories.map((c) => c.category);
+    const categoryNames = report.categories.map((item) => item.category);
 
     const stacks = report.category_series.map((point, index) => ({
       label: getPointLabel(
@@ -78,19 +72,25 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
         index,
         report.category_series.length,
       ),
-      stacks: categoryNames.map((category, ci) => ({
-        value: Math.max(0, Number(point.categories[category]) || 0),
-        color: palette[ci % palette.length],
+      stacks: categoryNames.map((category, categoryIndex) => ({
+        value: Math.max(
+          0,
+          Number(point.categories[category]) || 0,
+        ),
+        color: palette[categoryIndex % palette.length],
       })),
     }));
 
     const maximum = Math.max(
       0,
-      ...stacks.map((b) => b.stacks.reduce((t, s) => t + s.value, 0)),
+      ...stacks.map((bar) =>
+        bar.stacks.reduce((total, stack) => total + stack.value, 0),
+      ),
     );
 
     const stepValue = getChartStep(maximum);
-    const dense = report.period === "daily" || report.period === "monthly";
+    const dense =
+      report.period === "daily" || report.period === "monthly";
 
     const barWidth = dense ? 12 : 22;
     const spacing = dense ? 14 : 20;
@@ -164,8 +164,9 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
         xAxisColor={colors.axis}
         xAxisThickness={1}
         yAxisThickness={0}
-        yAxisLabelPrefix="₱"
-        formatYLabel={formatAxisValue}
+        formatYLabel={(label: string) =>
+          formatCompactCurrency(Number(label))
+        }
         yAxisLabelWidth={Y_LABEL_W}
         yAxisTextStyle={{
           color: colors.muted,

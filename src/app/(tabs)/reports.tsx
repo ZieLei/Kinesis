@@ -25,6 +25,8 @@ import {
   fetchSalesReport,
 } from "@/lib/salesApi";
 
+import { usePOSFormatting } from "@/hooks/usePOSFormatting";
+
 import type {
   ProductSalesReport,
   ReportPeriod,
@@ -42,14 +44,7 @@ const options = [
   { label: "Yearly", value: "yearly" },
 ] as const;
 
-const money = (amount: number) =>
-  `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-
-const number = (value: number) =>
-  value.toLocaleString("en-PH");
+const number = (value: number) => value.toLocaleString("en-PH");
 
 const periodLabels: Record<
   ReportPeriod,
@@ -156,8 +151,8 @@ function ComparisonCard({
 
       <View
         className={`self-start rounded-2xl border px-3 py-1 ${positive
-          ? "border-ctp-green/50 bg-ctp-green/15"
-          : "border-ctp-red/50 bg-ctp-red/15"
+            ? "border-ctp-green/50 bg-ctp-green/15"
+            : "border-ctp-red/50 bg-ctp-red/15"
           }`}
       >
         <Text
@@ -176,6 +171,7 @@ function ComparisonCard({
 export default function Reports() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { formatCurrency } = usePOSFormatting();
 
   const [selected, setSelected] = useState<"sale" | "product">("sale");
   const [open, setOpen] = useState<string | null>(null);
@@ -270,17 +266,17 @@ export default function Reports() {
       })}`,
       "",
       "LIFETIME TOTALS",
-      `Sales: ${money(salesReport.lifetime.sales)}`,
+      `Sales: ${formatCurrency(salesReport.lifetime.sales)}`,
       `Transactions: ${number(salesReport.lifetime.transactions)}`,
       `Items sold: ${number(salesReport.lifetime.items)}`,
       "",
       currentLabels.current,
-      `Sales: ${money(salesReport.current.sales)}`,
+      `Sales: ${formatCurrency(salesReport.current.sales)}`,
       `Transactions: ${number(salesReport.current.transactions)}`,
       `Items sold: ${number(salesReport.current.items)}`,
       "",
       currentLabels.previous,
-      `Sales: ${money(salesReport.previous.sales)}`,
+      `Sales: ${formatCurrency(salesReport.previous.sales)}`,
       `Transactions: ${number(salesReport.previous.transactions)}`,
       `Items sold: ${number(salesReport.previous.items)}`,
     ].join("\n");
@@ -374,15 +370,13 @@ export default function Reports() {
                 setSelected(tab);
                 setOpen(null);
               }}
-              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab
-                ? "bg-ctp-blue"
-                : "bg-ctp-mantle"
+              className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab ? "bg-ctp-blue" : "bg-ctp-mantle"
                 }`}
             >
               <Text
                 className={`font-inter-medium text-base ${selected === tab
-                  ? "text-ctp-crust"
-                  : "text-ctp-text"
+                    ? "text-ctp-crust"
+                    : "text-ctp-text"
                   }`}
               >
                 {tab === "sale" ? "Sale" : "Product"}
@@ -463,7 +457,7 @@ export default function Reports() {
                     current={salesReport.current.sales}
                     previous={salesReport.previous.sales}
                     period={period}
-                    format={money}
+                    format={formatCurrency}
                   />
 
                   <ComparisonCard
@@ -593,12 +587,12 @@ export default function Reports() {
                         `${product.category}-${product.name}`
                       }
                       className={`m-2 flex-row rounded-lg border-[1.5px] bg-ctp-base ${index === 0
-                        ? "border-ctp-yellow"
-                        : index === 1
-                          ? "border-ctp-rosewater/60"
-                          : index === 2
-                            ? "border-ctp-peach/90"
-                            : "border-transparent"
+                          ? "border-ctp-yellow"
+                          : index === 1
+                            ? "border-ctp-rosewater/60"
+                            : index === 2
+                              ? "border-ctp-peach/90"
+                              : "border-transparent"
                         }`}
                       style={{
                         boxShadow: "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
@@ -632,7 +626,7 @@ export default function Reports() {
                         </Text>
 
                         <Text className="text-right text-xs font-inter-medium text-ctp-subtext0">
-                          {money(product.revenue)}
+                          {formatCurrency(product.revenue)}
                         </Text>
                       </View>
                     </View>
