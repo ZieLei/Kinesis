@@ -28,6 +28,13 @@ def utc_now() -> datetime:
 class Product(Base):
     __tablename__ = "products"
 
+    __table_args__ = (
+        CheckConstraint(
+            "average_cost IS NULL OR average_cost >= 0",
+            name="ck_products_average_cost_nonnegative",
+        ),
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     sku: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -37,12 +44,23 @@ class Product(Base):
     how_much_sold: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Moving weighted-average acquisition cost.
+    # NULL means the existing inventory has not been costed yet.
+    average_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
+    )
+
 
 class Service(Base):
     __tablename__ = "services"
 
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_services_price_nonnegative"),
+        CheckConstraint(
+            "estimated_cost IS NULL OR estimated_cost >= 0",
+            name="ck_services_estimated_cost_nonnegative",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -54,6 +72,13 @@ class Service(Base):
         server_default="",
     )
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    # Estimated labor and materials cost per service.
+    # NULL means the service has not been costed.
+    estimated_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
+    )
 
 
 class Sale(Base):
@@ -178,6 +203,13 @@ class Sale(Base):
         order_by="SaleItem.id",
     )
 
+    service_items: Mapped[list["SaleServiceItem"]] = relationship(
+        back_populates="sale",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SaleServiceItem.id",
+    )
+
 
 class SaleItem(Base):
     __tablename__ = "sale_items"
@@ -191,6 +223,10 @@ class SaleItem(Base):
         CheckConstraint(
             "line_total >= 0",
             name="ck_sale_items_line_total_nonnegative",
+        ),
+        CheckConstraint(
+            "unit_cost IS NULL OR unit_cost >= 0",
+            name="ck_sale_items_unit_cost_nonnegative",
         ),
     )
 
@@ -212,10 +248,197 @@ class SaleItem(Base):
     sku: Mapped[str | None] = mapped_column(String(64), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    # Cost captured when the sale is completed.
+    # Existing sales remain NULL because their historical cost is unknown.
+    unit_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
+    )
+
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     sale: Mapped["Sale"] = relationship(back_populates="items")
+
+
+class SaleServiceItem(Base):
+    __tablename__ = "sale_service_items"
+
+    __table_args__ = (
+        CheckConstraint(
+            "quantity > 0",
+            name="ck_sale_service_items_quantity_positive",
+        ),
+        CheckConstraint(
+            "unit_price >= 0",
+            name="ck_sale_service_items_unit_price_nonnegative",
+        ),
+        CheckConstraint(
+            "line_total >= 0",
+            name="ck_sale_service_items_line_total_nonnegative",
+        ),
+        CheckConstraint(
+            "unit_cost IS NULL OR unit_cost >= 0",
+            name="ck_sale_service_items_unit_cost_nonnegative",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    sale_id: Mapped[int] = mapped_column(
+        ForeignKey("sales.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    service_id: Mapped[int | None] = mapped_column(
+        ForeignKey("services.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    service_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(
+        String(300),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    unit_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    sale: Mapped["Sale"] = relationship(back_populates="service_items")
+
+
+class InventoryReceipt(Base):
+    __tablename__ = "inventory_receipts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    reference_number: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+        index=True,
+    )
+
+    supplier_name: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    total_cost: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
+
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+    items: Mapped[list["InventoryReceiptItem"]] = relationship(
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InventoryReceiptItem.id",
+    )
+
+
+class InventoryReceiptItem(Base):
+    __tablename__ = "inventory_receipt_items"
+
+    __table_args__ = (
+        CheckConstraint(
+            "quantity > 0",
+            name="ck_inventory_receipt_items_quantity_positive",
+        ),
+        CheckConstraint(
+            "unit_cost >= 0",
+            name="ck_inventory_receipt_items_unit_cost_nonnegative",
+        ),
+        CheckConstraint(
+            "line_total >= 0",
+            name="ck_inventory_receipt_items_line_total_nonnegative",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    receipt_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_receipts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    product_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+    receipt: Mapped["InventoryReceipt"] = relationship(
+        back_populates="items",
+    )
+
+
+class StockoutPeriod(Base):
+    __tablename__ = "stockout_periods"
+
+    __table_args__ = (
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at >= started_at",
+            name="ck_stockout_periods_valid_dates",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    product_name: Mapped[str] = mapped_column(String(150), nullable=False)
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
 
 
 class Terminal(Base):

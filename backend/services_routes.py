@@ -20,10 +20,12 @@ router = APIRouter(prefix="/api/services", tags=["Services"])
 class ServiceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=300)
-    price: Decimal = Field(
+    price: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    estimated_cost: Decimal | None = Field(
+        default=None,
         ge=0,
-        max_digits=10,
-        decimal_places=2,
+        max_digits=12,
+        decimal_places=4,
     )
 
     @field_validator("name")
@@ -42,12 +44,52 @@ class ServiceCreate(BaseModel):
         return value.strip()
 
 
+class ServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=300)
+    price: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=10,
+        decimal_places=2,
+    )
+    estimated_cost: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=4,
+    )
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        value = value.strip()
+
+        if not value:
+            raise ValueError("Service name cannot be blank.")
+
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+
 def service_response(service: Service) -> dict:
     return {
         "id": service.id,
         "name": service.name,
         "description": service.description,
         "price": float(service.price),
+        "estimated_cost": (
+            float(service.estimated_cost)
+            if service.estimated_cost is not None
+            else None
+        ),
     }
 
 
@@ -116,6 +158,7 @@ def create_service(
         name=service_data.name,
         description=service_data.description,
         price=service_data.price,
+        estimated_cost=service_data.estimated_cost,
     )
 
     try:
@@ -132,4 +175,56 @@ def create_service(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The service could not be saved.",
+        ) from exc
+
+
+# --------------------------------------------------
+# Update a service
+# --------------------------------------------------
+
+
+@router.put(
+    "/{service_id}",
+    summary="Update a service",
+)
+def update_service(
+    service_id: int,
+    service_data: ServiceUpdate,
+    _terminal: object = Depends(require_writable_terminal),
+    db: Session = Depends(get_db),
+):
+    updates = service_data.model_dump(exclude_unset=True)
+
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide at least one field to update.",
+        )
+
+    service = db.scalar(
+        select(Service).where(Service.id == service_id).with_for_update()
+    )
+
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found.",
+        )
+
+    for field, value in updates.items():
+        setattr(service, field, value)
+
+    try:
+        db.commit()
+        db.refresh(service)
+
+        return service_response(service)
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Could not update service.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The service could not be updated.",
         ) from exc

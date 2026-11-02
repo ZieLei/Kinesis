@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 import { fetchAllProducts } from "@/lib/productsApi";
 import { fetchSalesList, fetchSalesReport } from "@/lib/salesApi";
+import WeeklyRevenueChart from "@/components/WeeklyRevenueChart";
 
 import type { Product } from "@/types/product";
 import type {

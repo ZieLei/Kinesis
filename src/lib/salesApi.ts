@@ -1,4 +1,3 @@
-
 import { apiRequest } from "@/lib/api";
 
 import type {
@@ -39,9 +38,10 @@ export function fetchSalesList(
     offset: String(offset),
   });
 
-  return apiRequest<SalesListResponse>(`/api/sales?${params.toString()}`, {
-    signal,
-  });
+  return apiRequest<SalesListResponse>(
+    `/api/sales?${params.toString()}`,
+    { signal },
+  );
 }
 
 export function fetchSalesReport(
@@ -57,9 +57,18 @@ export function fetchSalesReport(
 export function fetchProductSalesReport(
   limit = 5,
   signal?: AbortSignal,
+  period?: ReportPeriod,
 ): Promise<ProductSalesReport> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+  });
+
+  if (period) {
+    params.set("period", period);
+  }
+
   return apiRequest<ProductSalesReport>(
-    `/api/reports/products?limit=${limit}`,
+    `/api/reports/products?${params.toString()}`,
     { signal },
   );
 }

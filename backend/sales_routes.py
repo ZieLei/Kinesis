@@ -6,14 +6,22 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import Date as SQLDate, cast, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from cashier_routes import CashierPrincipal, require_cashier_principal
 from database import get_db
-from models import AppSettings, Product, Sale, SaleItem, Terminal
+from models import (
+    AppSettings,
+    Product,
+    Sale,
+    SaleItem,
+    SaleServiceItem,
+    Service,
+    Terminal,
+)
 from terminal_routes import require_admin_or_terminal, require_writable_terminal
 
 
@@ -24,6 +32,7 @@ router = APIRouter(prefix="/api", tags=["Sales"])
 REPORT_TIMEZONE = ZoneInfo("Asia/Manila")
 ZERO_MONEY = Decimal("0.00")
 CENT = Decimal("0.01")
+COST_PRECISION = Decimal("0.0001")
 DEFAULT_CASH_ROUNDING = Decimal("0.01")
 
 PaymentMethod = Literal["cash", "gcash"]
@@ -55,6 +64,11 @@ class CheckoutItem(BaseModel):
     quantity: int = Field(gt=0, le=10000)
 
 
+class CheckoutService(BaseModel):
+    service_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=10000)
+
+
 class CheckoutCreate(BaseModel):
     transaction_code: str = Field(
         min_length=8,
@@ -62,7 +76,11 @@ class CheckoutCreate(BaseModel):
         pattern=r"^[A-Za-z0-9-]+$",
     )
     payment_method: PaymentMethod
-    items: list[CheckoutItem] = Field(min_length=1, max_length=100)
+
+    # Defaults preserve compatibility with existing product-only clients.
+    items: list[CheckoutItem] = Field(default_factory=list, max_length=100)
+    services: list[CheckoutService] = Field(default_factory=list, max_length=100)
+
     amount_tendered: Decimal | None = Field(
         default=None,
         ge=0,
@@ -84,16 +102,24 @@ class CheckoutCreate(BaseModel):
     ) -> str | None:
         if value is None:
             return None
-
         return value.strip() or None
 
     @model_validator(mode="after")
     def validate_checkout(self):
+        if not self.items and not self.services:
+            raise ValueError("Add at least one product or service to checkout.")
+
         product_ids = [item.product_id for item in self.items]
+        service_ids = [item.service_id for item in self.services]
 
         if len(product_ids) != len(set(product_ids)):
             raise ValueError(
                 "Each product must appear only once in the checkout items."
+            )
+
+        if len(service_ids) != len(set(service_ids)):
+            raise ValueError(
+                "Each service must appear only once in the checkout services."
             )
 
         if self.payment_method == "cash":
@@ -117,13 +143,6 @@ class CheckoutCreate(BaseModel):
 def get_checkout_settings(
     db: Session,
 ) -> tuple[Decimal, Decimal, dict, bool]:
-    """
-    Load checkout settings under a shared row lock.
-
-    The shared lock prevents an admin settings update from changing
-    pricing or inventory policy halfway through a checkout.
-    """
-
     statement = (
         pg_insert(AppSettings)
         .values(
@@ -131,9 +150,7 @@ def get_checkout_settings(
             settings=DEFAULT_SETTINGS,
             version=1,
         )
-        .on_conflict_do_nothing(
-            index_elements=[AppSettings.id],
-        )
+        .on_conflict_do_nothing(index_elements=[AppSettings.id])
     )
 
     db.execute(statement)
@@ -159,10 +176,8 @@ def get_checkout_settings(
     try:
         tax_rate = Decimal(str(stored_settings.get("taxRate", "0")))
         cash_rounding = Decimal(str(stored_settings.get("cashRounding", "0.01")))
-
     except (InvalidOperation, ValueError, TypeError) as exc:
         logger.error("Invalid checkout pricing settings in the database.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The saved checkout pricing settings are invalid.",
@@ -213,37 +228,21 @@ def get_checkout_settings(
     )
 
     snapshot = {
-        key: stored_settings.get(
-            key,
-            DEFAULT_SETTINGS.get(key),
-        )
+        key: stored_settings.get(key, DEFAULT_SETTINGS.get(key))
         for key in snapshot_keys
     }
 
-    return (
-        tax_rate,
-        cash_rounding,
-        snapshot,
-        allow_negative_inventory,
-    )
+    return tax_rate, cash_rounding, snapshot, allow_negative_inventory
 
 
-def calculate_tax(
-    subtotal: Decimal,
-    tax_rate: Decimal,
-) -> Decimal:
+def calculate_tax(subtotal: Decimal, tax_rate: Decimal) -> Decimal:
     return (subtotal * tax_rate / Decimal("100")).quantize(
         CENT,
         rounding=ROUND_HALF_UP,
     )
 
 
-def round_cash_total(
-    amount: Decimal,
-    increment: Decimal,
-) -> Decimal:
-    """Round a cash amount to the nearest configured increment."""
-
+def round_cash_total(amount: Decimal, increment: Decimal) -> Decimal:
     if increment == CENT:
         return amount.quantize(CENT, rounding=ROUND_HALF_UP)
 
@@ -251,11 +250,7 @@ def round_cash_total(
         Decimal("1"),
         rounding=ROUND_HALF_UP,
     )
-
-    return (units * increment).quantize(
-        CENT,
-        rounding=ROUND_HALF_UP,
-    )
+    return (units * increment).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
 # --------------------------------------------------
@@ -297,15 +292,36 @@ def sale_response(sale: Sale) -> dict:
                 "sku": item.sku,
                 "category": item.category,
                 "unit_price": float(item.unit_price),
+                "unit_cost": (
+                    float(item.unit_cost) if item.unit_cost is not None else None
+                ),
                 "quantity": item.quantity,
                 "line_total": float(item.line_total),
             }
             for item in sale.items
         ],
+        "service_items": [
+            {
+                "id": item.id,
+                "service_id": item.service_id,
+                "service_name": item.service_name,
+                "description": item.description,
+                "unit_price": float(item.unit_price),
+                "unit_cost": (
+                    float(item.unit_cost) if item.unit_cost is not None else None
+                ),
+                "quantity": item.quantity,
+                "line_total": float(item.line_total),
+            }
+            for item in sale.service_items
+        ],
     }
 
 
 def sale_list_response(sale: Sale) -> dict:
+    item_count = sum(item.quantity for item in sale.items)
+    service_count = sum(item.quantity for item in sale.service_items)
+
     return {
         "id": sale.id,
         "transaction_code": sale.transaction_code,
@@ -314,7 +330,9 @@ def sale_list_response(sale: Sale) -> dict:
         "status": sale.status,
         "total": float(sale.total),
         "created_at": sale.created_at.isoformat(),
-        "item_count": sum(item.quantity for item in sale.items),
+        "item_count": item_count + service_count,
+        "product_count": item_count,
+        "service_count": service_count,
         "cashier_id": (str(sale.cashier_id) if sale.cashier_id is not None else None),
         "cashier_username": sale.cashier_username,
         "cashier_display_name": sale.cashier_display_name,
@@ -329,17 +347,15 @@ def get_sale_by_code(
 ) -> Sale | None:
     return db.scalar(
         select(Sale)
-        .options(selectinload(Sale.items))
+        .options(
+            selectinload(Sale.items),
+            selectinload(Sale.service_items),
+        )
         .where(Sale.transaction_code == transaction_code)
     )
 
 
-def checkout_matches_sale(
-    sale: Sale,
-    request: CheckoutCreate,
-) -> bool:
-    """Determine whether an existing transaction is a safe idempotent retry."""
-
+def checkout_matches_sale(sale: Sale, request: CheckoutCreate) -> bool:
     if sale.payment_method != request.payment_method:
         return False
 
@@ -347,10 +363,15 @@ def checkout_matches_sale(
         return False
 
     stored_items = {(item.product_id, item.quantity) for item in sale.items}
-
     requested_items = {(item.product_id, item.quantity) for item in request.items}
 
+    stored_services = {(item.service_id, item.quantity) for item in sale.service_items}
+    requested_services = {(item.service_id, item.quantity) for item in request.services}
+
     if stored_items != requested_items:
+        return False
+
+    if stored_services != requested_services:
         return False
 
     if request.payment_method == "cash":
@@ -363,11 +384,6 @@ def checkout_belongs_to_cashier(
     sale: Sale,
     principal: CashierPrincipal,
 ) -> bool:
-    """
-    Ensure an idempotent checkout retry belongs to the same
-    cashier and physical terminal as the original transaction.
-    """
-
     return (
         sale.cashier_id == principal.cashier.id
         and sale.terminal_id == principal.terminal.id
@@ -390,7 +406,10 @@ def list_sales(
 
     sales = db.scalars(
         select(Sale)
-        .options(selectinload(Sale.items))
+        .options(
+            selectinload(Sale.items),
+            selectinload(Sale.service_items),
+        )
         .order_by(Sale.created_at.desc(), Sale.id.desc())
         .offset(offset)
         .limit(limit)
@@ -424,21 +443,14 @@ def create_sale(
     db: Session = Depends(get_db),
 ):
     """
-    Complete a sale using an authenticated cashier and terminal.
+    Complete a product-only, service-only, or mixed checkout.
 
-    All requested product rows are locked in ascending ID order.
-    Stock checks, sale creation, sale items, and stock deductions
-    happen in one database transaction.
-
-    When negative inventory is disabled, concurrent checkouts
-    cannot sell more units than are available.
+    Product rows and service rows are locked in ascending ID order.
+    Product stock validation, cost snapshots, sale lines, and stock
+    deductions are committed in one database transaction.
     """
 
-    # Fast path for retries where the original sale already exists.
-    existing = get_sale_by_code(
-        db,
-        checkout.transaction_code,
-    )
+    existing = get_sale_by_code(db, checkout.transaction_code)
 
     if existing is not None:
         if checkout_matches_sale(existing, checkout) and checkout_belongs_to_cashier(
@@ -459,19 +471,34 @@ def create_sale(
             allow_negative_inventory,
         ) = get_checkout_settings(db)
 
-        # Lock all products in one ordered query.
-        # This reduces database round trips compared with one SELECT
-        # per cart item while keeping a consistent product lock order.
         requested_product_ids = sorted(item.product_id for item in checkout.items)
 
-        locked_products = db.scalars(
-            select(Product)
-            .where(Product.id.in_(requested_product_ids))
-            .order_by(Product.id.asc())
-            .with_for_update()
-        ).all()
+        requested_service_ids = sorted(item.service_id for item in checkout.services)
+
+        locked_products = (
+            db.scalars(
+                select(Product)
+                .where(Product.id.in_(requested_product_ids))
+                .order_by(Product.id.asc())
+                .with_for_update()
+            ).all()
+            if requested_product_ids
+            else []
+        )
+
+        locked_services = (
+            db.scalars(
+                select(Service)
+                .where(Service.id.in_(requested_service_ids))
+                .order_by(Service.id.asc())
+                .with_for_update()
+            ).all()
+            if requested_service_ids
+            else []
+        )
 
         products_by_id = {product.id: product for product in locked_products}
+        services_by_id = {service.id: service for service in locked_services}
 
         missing_product_ids = [
             product_id
@@ -482,15 +509,24 @@ def create_sale(
         if missing_product_ids:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=(f"Product ID {missing_product_ids[0]} does not exist."),
+                detail=f"Product ID {missing_product_ids[0]} does not exist.",
             )
 
-        # A competing request may have committed this transaction
-        # while this request was waiting for product locks.
-        existing = get_sale_by_code(
-            db,
-            checkout.transaction_code,
-        )
+        missing_service_ids = [
+            service_id
+            for service_id in requested_service_ids
+            if service_id not in services_by_id
+        ]
+
+        if missing_service_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Service ID {missing_service_ids[0]} does not exist.",
+            )
+
+        # Recheck after locks. This handles simultaneous requests using
+        # the same transaction code.
+        existing = get_sale_by_code(db, checkout.transaction_code)
 
         if existing is not None:
             if checkout_matches_sale(
@@ -505,8 +541,6 @@ def create_sale(
                 detail="This transaction code has already been used.",
             )
 
-        # The unique database constraint remains the final protection
-        # against duplicate GCash references submitted concurrently.
         if checkout.reference_number:
             duplicate_reference = db.scalar(
                 select(Sale.id).where(
@@ -517,11 +551,11 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=("This GCash reference number has already been recorded."),
+                    detail="This GCash reference number has already been recorded.",
                 )
 
-        calculated_items: list[tuple[CheckoutItem, Product, Decimal, Decimal]] = []
-
+        calculated_products = []
+        calculated_services = []
         subtotal = ZERO_MONEY
 
         for item in checkout.items:
@@ -532,34 +566,49 @@ def create_sale(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
                         f"Insufficient stock for '{product.name}'. "
-                        f"Available: {product.stock}; "
-                        f"requested: {item.quantity}."
+                        f"Available: {product.stock}; requested: {item.quantity}."
                     ),
                 )
 
             unit_price = Decimal(product.price).quantize(CENT)
-
             line_total = (unit_price * item.quantity).quantize(CENT)
+
+            unit_cost = (
+                Decimal(product.average_cost).quantize(COST_PRECISION)
+                if product.average_cost is not None
+                else None
+            )
 
             subtotal += line_total
 
-            calculated_items.append((item, product, unit_price, line_total))
+            calculated_products.append(
+                (item, product, unit_price, unit_cost, line_total)
+            )
+
+        for item in checkout.services:
+            service = services_by_id[item.service_id]
+
+            unit_price = Decimal(service.price).quantize(CENT)
+            line_total = (unit_price * item.quantity).quantize(CENT)
+
+            unit_cost = (
+                Decimal(service.estimated_cost).quantize(COST_PRECISION)
+                if service.estimated_cost is not None
+                else None
+            )
+
+            subtotal += line_total
+
+            calculated_services.append(
+                (item, service, unit_price, unit_cost, line_total)
+            )
 
         subtotal = subtotal.quantize(CENT)
-
-        tax_amount = calculate_tax(
-            subtotal,
-            tax_rate,
-        )
-
+        tax_amount = calculate_tax(subtotal, tax_rate)
         unrounded_total = (subtotal + tax_amount).quantize(CENT)
 
         if checkout.payment_method == "cash":
-            total = round_cash_total(
-                unrounded_total,
-                cash_rounding,
-            )
-
+            total = round_cash_total(unrounded_total, cash_rounding)
             amount_tendered = checkout.amount_tendered
 
             if amount_tendered is None or amount_tendered < total:
@@ -569,9 +618,7 @@ def create_sale(
                 )
 
             amount_tendered = amount_tendered.quantize(CENT)
-
             change_due = (amount_tendered - total).quantize(CENT)
-
         else:
             total = unrounded_total
             amount_tendered = total
@@ -588,7 +635,6 @@ def create_sale(
             amount_tendered=amount_tendered,
             change_due=change_due,
             settings_snapshot=settings_snapshot,
-            # Persist the authenticated identities.
             cashier_id=cashier.cashier.id,
             terminal_id=terminal.id,
             cashier_username=cashier.cashier.username,
@@ -599,7 +645,7 @@ def create_sale(
         db.add(sale)
         db.flush()
 
-        for item, product, unit_price, line_total in calculated_items:
+        for item, product, unit_price, unit_cost, line_total in calculated_products:
             db.add(
                 SaleItem(
                     sale_id=sale.id,
@@ -608,6 +654,7 @@ def create_sale(
                     sku=product.sku,
                     category=product.category,
                     unit_price=unit_price,
+                    unit_cost=unit_cost,
                     quantity=item.quantity,
                     line_total=line_total,
                 )
@@ -616,13 +663,30 @@ def create_sale(
             product.stock -= item.quantity
             product.how_much_sold += item.quantity
 
-        sale_id = sale.id
+        for item, service, unit_price, unit_cost, line_total in calculated_services:
+            db.add(
+                SaleServiceItem(
+                    sale_id=sale.id,
+                    service_id=service.id,
+                    service_name=service.name,
+                    description=service.description,
+                    unit_price=unit_price,
+                    unit_cost=unit_cost,
+                    quantity=item.quantity,
+                    line_total=line_total,
+                )
+            )
 
-        # Sale, sale items, and stock changes commit atomically.
+        sale_id = sale.id
         db.commit()
 
         saved_sale = db.scalar(
-            select(Sale).options(selectinload(Sale.items)).where(Sale.id == sale_id)
+            select(Sale)
+            .options(
+                selectinload(Sale.items),
+                selectinload(Sale.service_items),
+            )
+            .where(Sale.id == sale_id)
         )
 
         if saved_sale is None:
@@ -640,13 +704,7 @@ def create_sale(
     except IntegrityError as exc:
         db.rollback()
 
-        # Handle a duplicate transaction code caused by a concurrent
-        # retry. Only the original cashier on the original terminal
-        # may receive the saved sale as an idempotent result.
-        existing = get_sale_by_code(
-            db,
-            checkout.transaction_code,
-        )
+        existing = get_sale_by_code(db, checkout.transaction_code)
 
         if (
             existing is not None
@@ -665,7 +723,7 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=("This GCash reference number has already been recorded."),
+                    detail="This GCash reference number has already been recorded.",
                 ) from exc
 
         logger.warning("Checkout failed due to a database constraint.")
@@ -677,7 +735,6 @@ def create_sale(
 
     except SQLAlchemyError as exc:
         db.rollback()
-
         logger.exception("Could not complete checkout.")
 
         raise HTTPException(
@@ -740,7 +797,6 @@ def period_dates(
         return start, end
 
     start = date(reference_date.year, 1, 1)
-
     return start, date(reference_date.year + 1, 1, 1)
 
 
@@ -772,10 +828,7 @@ def sales_summary(
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict:
-    conditions = sale_conditions(
-        start_date,
-        end_date,
-    )
+    conditions = sale_conditions(start_date, end_date)
 
     transaction_count, revenue = db.execute(
         select(
@@ -784,16 +837,28 @@ def sales_summary(
         ).where(*conditions)
     ).one()
 
-    items_sold = db.scalar(
-        select(func.coalesce(func.sum(SaleItem.quantity), 0))
-        .join(Sale, Sale.id == SaleItem.sale_id)
-        .where(*conditions)
+    product_quantity = (
+        db.scalar(
+            select(func.coalesce(func.sum(SaleItem.quantity), 0))
+            .join(Sale, Sale.id == SaleItem.sale_id)
+            .where(*conditions)
+        )
+        or 0
+    )
+
+    service_quantity = (
+        db.scalar(
+            select(func.coalesce(func.sum(SaleServiceItem.quantity), 0))
+            .join(Sale, Sale.id == SaleServiceItem.sale_id)
+            .where(*conditions)
+        )
+        or 0
     )
 
     return {
         "sales": float(revenue or ZERO_MONEY),
         "transactions": int(transaction_count or 0),
-        "items": int(items_sold or 0),
+        "items": int(product_quantity) + int(service_quantity),
     }
 
 
@@ -802,10 +867,7 @@ def load_period_rows(
     start_date: date,
     end_date: date,
 ):
-    conditions = sale_conditions(
-        start_date,
-        end_date,
-    )
+    conditions = sale_conditions(start_date, end_date)
 
     sales = db.execute(
         select(Sale.id, Sale.total, Sale.created_at)
@@ -816,7 +878,7 @@ def load_period_rows(
     if not sales:
         return sales, {}
 
-    quantities = dict(
+    product_quantities = dict(
         db.execute(
             select(
                 SaleItem.sale_id,
@@ -827,6 +889,24 @@ def load_period_rows(
             .group_by(SaleItem.sale_id)
         ).all()
     )
+
+    service_quantities = dict(
+        db.execute(
+            select(
+                SaleServiceItem.sale_id,
+                func.sum(SaleServiceItem.quantity),
+            )
+            .join(Sale, Sale.id == SaleServiceItem.sale_id)
+            .where(*conditions)
+            .group_by(SaleServiceItem.sale_id)
+        ).all()
+    )
+
+    quantities = {
+        sale_id: int(product_quantities.get(sale_id, 0) or 0)
+        + int(service_quantities.get(sale_id, 0) or 0)
+        for sale_id in {row.id for row in sales}
+    }
 
     return sales, quantities
 
@@ -856,7 +936,6 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
-
             buckets.append(bucket)
             bucket_by_key[hour] = bucket
 
@@ -869,7 +948,6 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
-
             buckets.append(bucket)
             bucket_by_key[month] = bucket
 
@@ -886,10 +964,8 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
-
             buckets.append(bucket)
             bucket_by_key[cursor] = bucket
-
             cursor += timedelta(days=1)
 
     for row in sales:
@@ -897,10 +973,8 @@ def build_series(
 
         if period == "daily":
             key = created_at.hour
-
         elif period == "yearly":
             key = created_at.month
-
         else:
             key = created_at.date()
 
@@ -933,16 +1007,12 @@ def get_sales_report(
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
-    current_start, current_end = period_dates(
-        period,
-        selected_date,
-    )
+    current_start, current_end = period_dates(period, selected_date)
 
     previous_start, _ = period_dates(
         period,
         current_start - timedelta(days=1),
     )
-
     previous_end = current_start
 
     current_rows, current_quantities = load_period_rows(
@@ -951,24 +1021,36 @@ def get_sales_report(
         current_end,
     )
 
+    trailing_series = []
+
+    if period == "weekly":
+        trailing_start = selected_date - timedelta(days=6)
+        trailing_end = selected_date + timedelta(days=1)
+
+        trailing_rows, trailing_quantities = load_period_rows(
+            db,
+            trailing_start,
+            trailing_end,
+        )
+
+        trailing_series = build_series(
+            "weekly",
+            trailing_start,
+            trailing_end,
+            trailing_rows,
+            trailing_quantities,
+        )
+
     return {
         "period": period,
         "date": selected_date.isoformat(),
-        "timezone": "Asia/Manila",
+        "timezone": REPORT_TIMEZONE.key,
         "period_start": current_start.isoformat(),
         "period_end_exclusive": current_end.isoformat(),
         "previous_period_start": previous_start.isoformat(),
         "previous_period_end_exclusive": previous_end.isoformat(),
-        "current": sales_summary(
-            db,
-            current_start,
-            current_end,
-        ),
-        "previous": sales_summary(
-            db,
-            previous_start,
-            previous_end,
-        ),
+        "current": sales_summary(db, current_start, current_end),
+        "previous": sales_summary(db, previous_start, previous_end),
         "lifetime": sales_summary(db),
         "series": build_series(
             period,
@@ -977,6 +1059,7 @@ def get_sales_report(
             current_rows,
             current_quantities,
         ),
+        "trailing_series": trailing_series,
     }
 
 
@@ -985,13 +1068,128 @@ def get_sales_report(
 # --------------------------------------------------
 
 
+def normalize_category(value: str | None) -> str:
+    if value is None or not value.strip():
+        return "Uncategorized"
+    return value.strip()
+
+
+def build_category_series(
+    db: Session,
+    period: ReportPeriod,
+    start_date: date,
+    end_date: date,
+    selected_categories: list[str],
+) -> list[dict]:
+    if not selected_categories:
+        return []
+
+    conditions = sale_conditions(start_date, end_date)
+
+    local_created_at = func.timezone(
+        REPORT_TIMEZONE.key,
+        Sale.created_at,
+    )
+
+    if period == "daily":
+        bucket_expression = func.extract("hour", local_created_at)
+    elif period == "yearly":
+        bucket_expression = func.extract("month", local_created_at)
+    else:
+        bucket_expression = cast(local_created_at, SQLDate)
+
+    rows = db.execute(
+        select(
+            SaleItem.category,
+            bucket_expression.label("bucket"),
+            func.coalesce(
+                func.sum(SaleItem.line_total),
+                ZERO_MONEY,
+            ).label("revenue"),
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(*conditions)
+        .group_by(SaleItem.category, bucket_expression)
+    ).all()
+
+    selected_category_set = set(selected_categories)
+    revenue_by_bucket: dict[object, dict[str, Decimal]] = {}
+
+    for row in rows:
+        category = normalize_category(row.category)
+
+        if category not in selected_category_set:
+            continue
+
+        bucket_key = int(row.bucket) if period in ("daily", "yearly") else row.bucket
+
+        bucket_categories = revenue_by_bucket.setdefault(bucket_key, {})
+        bucket_categories[category] = bucket_categories.get(
+            category, ZERO_MONEY
+        ) + Decimal(row.revenue or ZERO_MONEY)
+
+    buckets: list[dict] = []
+    bucket_keys: list[object] = []
+
+    if period == "daily":
+        for hour in range(24):
+            bucket_keys.append(hour)
+            buckets.append({"label": f"{hour:02d}:00"})
+
+    elif period == "yearly":
+        for month in range(1, 13):
+            bucket_keys.append(month)
+            buckets.append({"label": date(start_date.year, month, 1).strftime("%b")})
+
+    else:
+        cursor = start_date
+
+        while cursor < end_date:
+            bucket_keys.append(cursor)
+            buckets.append(
+                {
+                    "label": (
+                        cursor.strftime("%a") if period == "weekly" else str(cursor.day)
+                    ),
+                    "date": cursor.isoformat(),
+                }
+            )
+            cursor += timedelta(days=1)
+
+    return [
+        {
+            **bucket,
+            "categories": {
+                category: float(
+                    revenue_by_bucket.get(bucket_key, {}).get(
+                        category,
+                        ZERO_MONEY,
+                    )
+                )
+                for category in selected_categories
+            },
+        }
+        for bucket_key, bucket in zip(bucket_keys, buckets)
+    ]
+
+
 @router.get("/reports/products", tags=["Reports"])
 def get_product_report(
     limit: int = Query(default=5, ge=1, le=100),
+    period: ReportPeriod | None = Query(default=None),
+    report_date: date | None = Query(default=None, alias="date"),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
-    completed_sale = Sale.status == "completed"
+    selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
+
+    if period is not None:
+        current_start, current_end = period_dates(period, selected_date)
+        conditions = sale_conditions(current_start, current_end)
+    else:
+        current_start = None
+        current_end = None
+        conditions = [Sale.status == "completed"]
 
     category_rows = db.execute(
         select(
@@ -1000,13 +1198,61 @@ def get_product_report(
             func.sum(SaleItem.line_total).label("revenue"),
         )
         .join(Sale, Sale.id == SaleItem.sale_id)
-        .where(completed_sale)
+        .where(*conditions)
         .group_by(SaleItem.category)
-        .order_by(
-            func.sum(SaleItem.quantity).desc(),
-            func.sum(SaleItem.line_total).desc(),
-        )
     ).all()
+
+    category_totals: dict[str, dict] = {}
+
+    for row in category_rows:
+        category = normalize_category(row.category)
+
+        total = category_totals.setdefault(
+            category,
+            {
+                "category": category,
+                "units_sold": 0,
+                "revenue": ZERO_MONEY,
+            },
+        )
+
+        total["units_sold"] += int(row.units_sold or 0)
+        total["revenue"] += Decimal(row.revenue or ZERO_MONEY)
+
+    sorted_categories = sorted(
+        category_totals.values(),
+        key=lambda item: (
+            -item["revenue"],
+            item["category"].casefold(),
+        ),
+    )
+
+    visible_categories = (
+        sorted_categories[:limit] if period is not None else sorted_categories
+    )
+
+    categories = [
+        {
+            "category": item["category"],
+            "units_sold": item["units_sold"],
+            "revenue": float(item["revenue"]),
+        }
+        for item in visible_categories
+    ]
+
+    top_category_names = [item["category"] for item in visible_categories[:limit]]
+
+    category_series = (
+        build_category_series(
+            db,
+            period,
+            current_start,
+            current_end,
+            top_category_names,
+        )
+        if period is not None
+        else []
+    )
 
     product_rows = db.execute(
         select(
@@ -1017,7 +1263,7 @@ def get_product_report(
             func.sum(SaleItem.line_total).label("revenue"),
         )
         .join(Sale, Sale.id == SaleItem.sale_id)
-        .where(completed_sale)
+        .where(*conditions)
         .group_by(
             SaleItem.product_id,
             SaleItem.product_name,
@@ -1032,19 +1278,18 @@ def get_product_report(
     ).all()
 
     return {
-        "categories": [
-            {
-                "category": row.category,
-                "units_sold": int(row.units_sold or 0),
-                "revenue": float(row.revenue or ZERO_MONEY),
-            }
-            for row in category_rows
-        ],
+        "period": period,
+        "date": selected_date.isoformat() if period is not None else None,
+        "timezone": REPORT_TIMEZONE.key,
+        "period_start": current_start.isoformat() if current_start else None,
+        "period_end_exclusive": current_end.isoformat() if current_end else None,
+        "categories": categories,
+        "category_series": category_series,
         "top_products": [
             {
                 "product_id": row.product_id,
                 "name": row.product_name,
-                "category": row.category,
+                "category": normalize_category(row.category),
                 "units_sold": int(row.units_sold or 0),
                 "revenue": float(row.revenue or ZERO_MONEY),
             }

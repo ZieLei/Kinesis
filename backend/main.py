@@ -25,6 +25,8 @@ from database import get_db
 from models import Product
 from sales_routes import router as sales_router
 from services_routes import router as services_router
+from inventory_routes import router as inventory_router
+from analytics_routes import router as analytics_router
 from terminal_routes import (
     require_admin_or_terminal,
     require_writable_terminal,
@@ -40,6 +42,7 @@ from auth.integration import install_admin_authentication
 from auth.config import auth_settings
 from cashier_routes import router as cashier_router
 from activity_tracking import install_activity_tracking
+from inventory_tracking import install_inventory_tracking
 from overview_routes import router as overview_router
 
 
@@ -64,6 +67,7 @@ IMAGE_FORMATS = {
 async def lifespan(app: FastAPI):
     initialize_application_logging()
     install_activity_tracking()
+    install_inventory_tracking()
     yield
 
 
@@ -85,8 +89,6 @@ app = FastAPI(
 
 origins = set(auth_settings.allowed_origins)
 
-# Expo web development origins are retained only in development.
-# Native mobile requests do not rely on browser CORS.
 if auth_settings.environment == "development":
     origins.update(
         {
@@ -120,6 +122,8 @@ install_admin_authentication(app)
 
 app.include_router(sales_router)
 app.include_router(services_router)
+app.include_router(inventory_router)
+app.include_router(analytics_router)
 app.include_router(terminal_router)
 app.include_router(terminal_pairing_router)
 app.include_router(console_router)
@@ -157,7 +161,6 @@ class ProductCreate(BaseModel):
     def normalize_sku(cls, value: str | None) -> str | None:
         if value is None:
             return None
-
         return value.strip() or None
 
 
@@ -191,7 +194,6 @@ class ProductUpdate(BaseModel):
     def normalize_sku(cls, value: str | None) -> str | None:
         if value is None:
             return None
-
         return value.strip() or None
 
 
@@ -209,6 +211,9 @@ def product_response(product: Product) -> dict:
         "price": product.price,
         "stock": product.stock,
         "howMuchSold": product.how_much_sold,
+        "average_cost": (
+            float(product.average_cost) if product.average_cost is not None else None
+        ),
         "image_path": product.image_path,
         "image_url": (
             f"/api/products/{product.id}/image" if product.image_path else None
@@ -222,7 +227,6 @@ def commit_or_raise_sku_conflict(db: Session) -> None:
 
     except IntegrityError as exc:
         db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="That SKU is already assigned to another product.",
@@ -231,7 +235,6 @@ def commit_or_raise_sku_conflict(db: Session) -> None:
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Database commit failed.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The database operation failed.",
@@ -239,8 +242,6 @@ def commit_or_raise_sku_conflict(db: Session) -> None:
 
 
 def resolve_image_path(relative_path: str) -> Path:
-    """Resolve a stored relative image path without allowing path traversal."""
-
     root = IMAGE_DIRECTORY.resolve()
     candidate = (root / relative_path).resolve()
 
@@ -254,8 +255,6 @@ def resolve_image_path(relative_path: str) -> Path:
 
 
 def detect_image(data: bytes) -> tuple[str, str] | None:
-    """Return the extension and media type for a supported image signature."""
-
     for signature, result in IMAGE_FORMATS.items():
         if data.startswith(signature):
             extension, media_type = result
@@ -272,8 +271,6 @@ def detect_image(data: bytes) -> tuple[str, str] | None:
 async def read_validated_image(
     file: UploadFile,
 ) -> tuple[bytes, str, str]:
-    """Read a bounded upload and validate its actual file signature."""
-
     data = await file.read(MAX_IMAGE_SIZE + 1)
 
     if not data:
@@ -297,7 +294,6 @@ async def read_validated_image(
         )
 
     extension, media_type = detected
-
     return data, extension, media_type
 
 
@@ -313,7 +309,6 @@ def health_check(db: Session = Depends(get_db)):
 
     except SQLAlchemyError as exc:
         logger.exception("Health check failed: database unavailable.")
-
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kinesis database is unavailable.",
@@ -360,7 +355,6 @@ def get_products(
         statement = statement.where(Product.category.ilike(category.strip()))
 
     statement = statement.order_by(Product.id).offset(offset).limit(limit)
-
     products = db.scalars(statement).all()
 
     return {
@@ -422,7 +416,6 @@ def create_product(
     )
 
     db.add(product)
-
     commit_or_raise_sku_conflict(db)
 
     try:
@@ -431,7 +424,6 @@ def create_product(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not refresh created product.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Product was saved, but its latest data could not be loaded.",
@@ -452,7 +444,9 @@ def update_product(
     _terminal: object = Depends(require_writable_terminal),
     db: Session = Depends(get_db),
 ):
-    product = db.get(Product, product_id)
+    product = db.scalar(
+        select(Product).where(Product.id == product_id).with_for_update()
+    )
 
     if product is None:
         raise HTTPException(
@@ -479,7 +473,6 @@ def update_product(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not refresh updated product.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Product was updated, but its latest data could not be loaded.",
@@ -525,7 +518,6 @@ async def upload_product_image(
 
     except OSError as exc:
         logger.exception("Could not store uploaded product image.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The image could not be stored.",
@@ -544,7 +536,6 @@ async def upload_product_image(
     except IntegrityError as exc:
         db.rollback()
         new_path.unlink(missing_ok=True)
-
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The image could not be associated with the product.",
@@ -554,7 +545,6 @@ async def upload_product_image(
         db.rollback()
         new_path.unlink(missing_ok=True)
         logger.exception("Could not save product image path.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The image path could not be saved.",
@@ -563,7 +553,6 @@ async def upload_product_image(
     if old_relative_path and old_relative_path != relative_path:
         try:
             resolve_image_path(old_relative_path).unlink(missing_ok=True)
-
         except OSError:
             logger.exception("Old product image could not be removed.")
 
@@ -605,7 +594,6 @@ def get_product_image(
             "Image file is missing for product ID %s",
             product_id,
         )
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="The product image file is missing.",
@@ -666,7 +654,6 @@ def delete_product_image(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not remove product image reference.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The product image could not be removed.",
@@ -674,7 +661,6 @@ def delete_product_image(
 
     try:
         resolve_image_path(old_relative_path).unlink(missing_ok=True)
-
     except OSError:
         logger.exception("Unreferenced product image could not be removed.")
 
@@ -715,7 +701,6 @@ def delete_product(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Could not delete product.")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The product could not be deleted.",
@@ -724,7 +709,6 @@ def delete_product(
     if image_path:
         try:
             resolve_image_path(image_path).unlink(missing_ok=True)
-
         except OSError:
             logger.exception(
                 "Product %s was deleted but its image file remains.",

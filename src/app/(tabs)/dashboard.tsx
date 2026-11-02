@@ -1,4 +1,3 @@
-
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -14,6 +13,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
 
 import { styledIcon } from "@/components/StyledIcon";
+import WeeklyRevenueChart from "@/components/WeeklyRevenueChart";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { LOW_STOCK_THRESHOLD } from "@/lib/products";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
@@ -494,7 +494,7 @@ export default function Dashboard() {
           </View>
         ) : null}
 
-        {/* Today's sales */}
+        {/* Today's sales with integrated weekly revenue chart */}
         <View className="relative min-h-[200px] overflow-hidden rounded-[10px]">
           {!isDark ? (
             <LinearGradient
@@ -573,6 +573,13 @@ export default function Dashboard() {
                 Compared with yesterday.
               </Text>
             </View>
+
+            {/* Weekly revenue spline chart */}
+            <WeeklyRevenueChart
+              report={data?.weeklyReport ?? null}
+              loading={loading}
+              isDark={isDark}
+            />
           </View>
         </View>
 

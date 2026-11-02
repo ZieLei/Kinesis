@@ -22,10 +22,12 @@ import {
   X,
   Clock,
   PhilippinePeso,
+  ShoppingCart,
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 
 import { useServices } from "@/hooks/useServices";
+import { useCart } from "@/app/context/CartContext";
 
 const formatPrice = (amount: number) =>
   `₱${amount.toLocaleString("en-PH", {
@@ -38,7 +40,6 @@ export default function Services() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  // Declare search state before passing it to useServices.
   const [searchQuery, setSearchQuery] = useState("");
 
   const {
@@ -49,6 +50,8 @@ export default function Services() {
     refreshServices,
     addService,
   } = useServices(searchQuery);
+
+  const { addServiceToCart, items } = useCart();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [serviceName, setServiceName] = useState("");
@@ -123,10 +126,24 @@ export default function Services() {
     }
   };
 
+  const addServiceToSale = (service: (typeof services)[number]) => {
+    addServiceToCart({
+      id: service.id,
+      name: service.name,
+      description: service.description,
+      price: service.price,
+    });
+  };
+
+  const serviceCartCount = items.reduce(
+    (count, item) =>
+      item.type === "service" ? count + item.quantity : count,
+    0,
+  );
+
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
-        {/* Header */}
         <View className="mb-6 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
@@ -144,10 +161,24 @@ export default function Services() {
             Services
           </Text>
 
-          <View className="h-9 w-9" />
+          <Pressable
+            onPress={() => router.push("/cart")}
+            className="h-9 min-w-9 flex-row items-center justify-center gap-1 rounded-lg"
+            accessibilityRole="button"
+            accessibilityLabel={`Open cart, ${serviceCartCount} services`}
+          >
+            <ShoppingCart
+              size={19}
+              color={isDark ? "#CDD6F4" : "#4C4F69"}
+            />
+            {serviceCartCount > 0 ? (
+              <Text className="font-inter-semibold text-xs text-ctp-blue">
+                {serviceCartCount}
+              </Text>
+            ) : null}
+          </Pressable>
         </View>
 
-        {/* Server-side search */}
         <View className="mb-5 h-12 flex-row items-center rounded-lg border-[1.5px] border-ctp-surface2 bg-ctp-mantle px-3">
           <View className="mr-2 h-full items-center justify-center">
             <Search
@@ -167,7 +198,7 @@ export default function Services() {
             autoCapitalize="none"
           />
 
-          {searchQuery.length > 0 && (
+          {searchQuery.length > 0 ? (
             <Pressable
               onPress={() => setSearchQuery("")}
               className="items-center justify-center p-1"
@@ -179,10 +210,9 @@ export default function Services() {
                 color={isDark ? "#A6ADC8" : "#6C6F85"}
               />
             </Pressable>
-          )}
+          ) : null}
         </View>
 
-        {/* Count */}
         <View className="mb-3 flex-row items-center justify-between">
           <Text className="text-sm font-inter-medium text-ctp-subtext1">
             Available Services
@@ -244,6 +274,21 @@ export default function Services() {
                   {formatPrice(item.price)}
                 </Text>
               </View>
+
+              <Pressable
+                onPress={() => addServiceToSale(item)}
+                className="mt-4 flex-row items-center justify-center gap-2 rounded-lg bg-ctp-blue px-4 py-3"
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${item.name} to sale`}
+              >
+                <Plus
+                  size={17}
+                  color={isDark ? "#11111B" : "#FFFFFF"}
+                />
+                <Text className="font-inter-semibold text-sm text-white">
+                  Add to Sale
+                </Text>
+              </Pressable>
             </View>
           )}
           ListEmptyComponent={
@@ -322,7 +367,6 @@ export default function Services() {
         />
       </View>
 
-      {/* Create Service Modal */}
       <Modal
         visible={modalVisible}
         transparent
@@ -342,12 +386,10 @@ export default function Services() {
           />
 
           <View className="max-h-[90%] rounded-t-3xl bg-ctp-base px-5 pb-8 pt-3">
-            {/* Modal handle */}
             <View className="mb-5 items-center">
               <View className="h-1.5 w-12 rounded-full bg-ctp-surface2" />
             </View>
 
-            {/* Modal header */}
             <View className="mb-6 flex-row items-center justify-between">
               <View className="flex-1">
                 <Text className="text-xl font-inter-bold text-ctp-text">
@@ -377,7 +419,6 @@ export default function Services() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Service name */}
               <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
                 Service Name *
               </Text>
@@ -397,7 +438,6 @@ export default function Services() {
                 returnKeyType="next"
               />
 
-              {/* Description */}
               <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
                 Description
               </Text>
@@ -415,7 +455,6 @@ export default function Services() {
                 maxLength={300}
               />
 
-              {/* Price */}
               <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
                 Service Price (₱) *
               </Text>
@@ -447,7 +486,6 @@ export default function Services() {
                 </Text>
               ) : null}
 
-              {/* Modal actions */}
               <View className="mt-4 flex-row gap-3">
                 <Pressable
                   onPress={closeModal}

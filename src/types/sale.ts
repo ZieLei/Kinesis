@@ -1,3 +1,4 @@
+
 export type PaymentMethod = "cash" | "gcash";
 
 export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
@@ -7,10 +8,16 @@ export type CheckoutItemInput = {
   quantity: number;
 };
 
+export type CheckoutServiceInput = {
+  service_id: number;
+  quantity: number;
+};
+
 export type CheckoutRequest = {
   transaction_code: string;
   payment_method: PaymentMethod;
   items: CheckoutItemInput[];
+  services: CheckoutServiceInput[];
   amount_tendered?: number;
   reference_number?: string;
 };
@@ -22,6 +29,18 @@ export type SaleItemRecord = {
   sku: string | null;
   category: string;
   unit_price: number;
+  unit_cost: number | null;
+  quantity: number;
+  line_total: number;
+};
+
+export type SaleServiceItemRecord = {
+  id: number;
+  service_id: number | null;
+  service_name: string;
+  description: string;
+  unit_price: number;
+  unit_cost: number | null;
   quantity: number;
   line_total: number;
 };
@@ -54,6 +73,7 @@ export type SaleRecord = {
   settings_snapshot: ReceiptSettingsSnapshot;
   created_at: string;
   items: SaleItemRecord[];
+  service_items: SaleServiceItemRecord[];
 };
 
 export type SaleListItem = {
@@ -65,6 +85,8 @@ export type SaleListItem = {
   total: number;
   created_at: string;
   item_count: number;
+  product_count?: number;
+  service_count?: number;
 };
 
 export type SalesListResponse = {
@@ -102,12 +124,19 @@ export type SalesReportResponse = {
   previous: SalesSummary;
   lifetime: SalesSummary;
   series: SalesSeriesPoint[];
+  trailing_series: SalesSeriesPoint[];
 };
 
 export type CategorySales = {
   category: string;
   units_sold: number;
   revenue: number;
+};
+
+export type CategorySalesSeriesPoint = {
+  label: string;
+  date?: string;
+  categories: Record<string, number>;
 };
 
 export type TopProductSales = {
@@ -119,6 +148,12 @@ export type TopProductSales = {
 };
 
 export type ProductSalesReport = {
+  period: ReportPeriod | null;
+  date: string | null;
+  timezone: string;
+  period_start: string | null;
+  period_end_exclusive: string | null;
   categories: CategorySales[];
+  category_series: CategorySalesSeriesPoint[];
   top_products: TopProductSales[];
 };

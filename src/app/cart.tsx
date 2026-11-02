@@ -1,11 +1,18 @@
-import { View, Text, Pressable, FlatList } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useCart } from '../app/context/CartContext';
+
+import { View, Text, Pressable, FlatList } from "react-native";
+import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useCart } from "@/app/context/CartContext";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import { styledIcon } from "@/components/StyledIcon";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
+
+const money = (amount: number) =>
+  `₱${amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export default function Cart() {
   const router = useRouter();
@@ -16,116 +23,136 @@ export default function Cart() {
     decreaseQuantity,
     removeFromCart,
     total,
+    itemCount,
   } = useCart();
 
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
-
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
-            className="h-5 w-5 items-center justify-center"
+            className="h-8 w-8 items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            <StyledChevronLeft
-              size={20}
-              className="text-ctp-text"
-            />
+            <StyledChevronLeft size={20} className="text-ctp-text" />
           </Pressable>
 
           <Text className="text-lg font-inter-semibold text-ctp-text">
             Cart
           </Text>
 
-          <Text className="rounded-md border-[1px] border-ctp-surface0 bg-ctp-surface0/50 px-2 py-1 text-base font-inter-semibold text-ctp-text">
-            {items.length}
+          <Text className="rounded-md border border-ctp-surface0 bg-ctp-surface0/50 px-2 py-1 text-base font-inter-semibold text-ctp-text">
+            {itemCount}
           </Text>
         </View>
 
         <FlatList
           className="flex-1"
           data={items}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => `${item.type}-${item.id}`}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: 16,
+          }}
+          ListEmptyComponent={
+            <View className="flex-1 items-center justify-center">
+              <Text className="font-inter-semibold text-base text-ctp-text">
+                Your cart is empty
+              </Text>
+              <Text className="mt-2 text-center font-inter-regular text-sm text-ctp-subtext0">
+                Add products or services to start a sale.
+              </Text>
+              <Pressable
+                onPress={() => router.replace("/new-sale")}
+                className="mt-5 rounded-lg bg-ctp-blue px-5 py-3"
+              >
+                <Text className="font-inter-semibold text-sm text-white">
+                  Browse Products
+                </Text>
+              </Pressable>
+            </View>
+          }
           renderItem={({ item }) => (
             <View
-              className="my-2 flex-row rounded-[12px] bg-ctp-mantle px-3 py-[10px]"
+              className="my-2 flex-row rounded-xl bg-ctp-mantle px-3 py-3"
               style={{
-                boxShadow: '0px 0px 15px 1px rgba(0, 0, 0, 0.05)',
+                boxShadow: "0px 0px 15px 1px rgba(0, 0, 0, 0.05)",
               }}
             >
-              <View className="h-20 w-20 rounded-lg bg-ctp-surface0" />
+              <View className="h-20 w-16 items-center justify-center rounded-lg bg-ctp-surface0">
+                <Text className="text-center text-[10px] font-inter-semibold text-ctp-subtext0">
+                  {item.type === "service" ? "SERVICE" : "PART"}
+                </Text>
+              </View>
 
-              <View className="pl-3">
-                <Text className="text-md font-inter-medium text-ctp-text">
+              <View className="ml-3 flex-1">
+                <Text
+                  numberOfLines={2}
+                  className="font-inter-medium text-base text-ctp-text"
+                >
                   {item.name}
                 </Text>
 
-                <Text className="text-sm font-inter-semibold text-ctp-subtext0">
-                  ₱ {item.price.toLocaleString('en-PH', {
-                    maximumFractionDigits: 2,
-                    minimumFractionDigits: 2,
-                  })}
+                <Text className="mt-1 text-sm font-inter-semibold text-ctp-subtext0">
+                  {money(item.price)}
                 </Text>
 
-                <View
-                  className="mt-auto self-start flex-row items-center justify-between rounded-md border-[1px] border-ctp-surface0 bg-ctp-base px-2 py-1"
-                  style={{ width: 90 }}
-                >
+                {item.type === "service" && item.description ? (
+                  <Text
+                    numberOfLines={1}
+                    className="mt-1 text-xs font-inter-regular text-ctp-subtext0"
+                  >
+                    {item.description}
+                  </Text>
+                ) : null}
+
+                <View className="mt-auto self-start flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-base px-2 py-1" style={{ width: 90 }}>
                   <Pressable
                     className="h-5 w-5 items-center justify-center"
-                    onPress={() => decreaseQuantity(item.id)}
+                    onPress={() => decreaseQuantity(item.type, item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Decrease ${item.name} quantity`}
                   >
-                    <Text
-                      className="text-base font-inter-semibold text-ctp-text"
-                      style={{ transform: [{ translateY: -1 }] }}
-                    >
+                    <Text className="text-base font-inter-semibold text-ctp-text">
                       −
                     </Text>
                   </Pressable>
 
-                  <Text
-                    className="text-base font-inter-regular text-ctp-text"
-                    selectable={false}
-                  >
+                  <Text className="text-base font-inter-regular text-ctp-text">
                     {item.quantity}
                   </Text>
 
                   <Pressable
                     className="h-5 w-5 items-center justify-center"
-                    onPress={() => increaseQuantity(item.id)}
+                    onPress={() => increaseQuantity(item.type, item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Increase ${item.name} quantity`}
                   >
-                    <Text
-                      className="text-base font-inter-semibold text-ctp-text"
-                      selectable={false}
-                      style={{ transform: [{ translateY: -1 }] }}
-                    >
+                    <Text className="text-base font-inter-semibold text-ctp-text">
                       +
                     </Text>
                   </Pressable>
                 </View>
               </View>
 
-              <View className="ml-auto flex-col">
-
+              <View className="ml-2 flex-col items-end">
                 <Pressable
-                  onPress={() => removeFromCart(item.id)}
-                  className="ml-auto h-6 w-6 items-center justify-center rounded-md border-[1px] border-ctp-surface0 bg-ctp-surface0/30"
+                  onPress={() => removeFromCart(item.type, item.id)}
+                  className="h-6 w-6 items-center justify-center rounded-md border border-ctp-surface0 bg-ctp-surface0/30"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${item.name}`}
                 >
-                  <Text
-                    className="text-base font-inter-medium text-ctp-subtext0"
-                    style={{ transform: [{ translateY: -1 }] }}
-                  >
+                  <Text className="text-base font-inter-medium text-ctp-subtext0">
                     ×
                   </Text>
                 </Pressable>
 
-                <Text className="mt-auto text-md font-inter-semibold text-ctp-text">
-                  ₱ {(item.price * item.quantity).toLocaleString('en-PH', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                <Text className="mt-auto text-right text-sm font-inter-semibold text-ctp-text">
+                  {money(item.price * item.quantity)}
                 </Text>
-
               </View>
             </View>
           )}
@@ -134,29 +161,29 @@ export default function Cart() {
         <View
           className="-mx-5 flex-row items-center rounded-tl-lg rounded-tr-lg bg-ctp-mantle px-5 py-5"
           style={{
-            boxShadow: '0px -4px 10px 1px rgba(0, 0, 0, 0.05)',
-            zIndex: 0,
-            elevation: 0,
+            boxShadow: "0px -4px 10px 1px rgba(0, 0, 0, 0.05)",
           }}
         >
-          <Text className="mr-1 text-lg font-inter-bold text-ctp-text">
-            Total:
-          </Text>
+          <View>
+            <Text className="text-sm font-inter-medium text-ctp-subtext0">
+              Total
+            </Text>
+            <Text className="text-base font-inter-bold text-ctp-text">
+              {money(total)}
+            </Text>
+          </View>
 
-          <Text className="text-base font-inter-semibold text-ctp-text">
-            ₱ {total.toLocaleString('en-PH', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </Text>
-
-          <Pressable className="ml-auto rounded-lg bg-ctp-blue px-2 py-2">
-            <Text className="text-sm font-inter-semibold text-ctp-crust">
+          <Pressable
+            onPress={() => router.push("/checkout")}
+            disabled={items.length === 0}
+            className={`ml-auto rounded-lg px-5 py-3 ${items.length === 0 ? "bg-ctp-blue/40" : "bg-ctp-blue"
+              }`}
+          >
+            <Text className="text-sm font-inter-semibold text-white">
               Checkout
             </Text>
           </Pressable>
         </View>
-
       </View>
     </SafeAreaView>
   );

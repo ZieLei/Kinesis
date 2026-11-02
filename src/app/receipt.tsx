@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -53,7 +54,6 @@ function formatDate(value: string) {
 
 function getReceiptSettings(sale: SaleRecord) {
   const snapshot = sale.settings_snapshot ?? {};
-
   const requestedPrecision = Number(snapshot.decimalPrecision ?? "2");
 
   const decimalPrecision =
@@ -75,10 +75,45 @@ function getReceiptSettings(sale: SaleRecord) {
   };
 }
 
+type ReceiptLine = {
+  key: string;
+  kind: "PART" | "SERVICE";
+  name: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+function getReceiptLines(sale: SaleRecord): ReceiptLine[] {
+  const productLines: ReceiptLine[] = sale.items.map((item) => ({
+    key: `product-${item.id}`,
+    kind: "PART",
+    name: item.product_name,
+    quantity: item.quantity,
+    unitPrice: item.unit_price,
+    lineTotal: item.line_total,
+  }));
+
+  const serviceLines: ReceiptLine[] = (
+    sale.service_items ?? []
+  ).map((item) => ({
+    key: `service-${item.id}`,
+    kind: "SERVICE",
+    name: item.service_name,
+    description: item.description,
+    quantity: item.quantity,
+    unitPrice: item.unit_price,
+    lineTotal: item.line_total,
+  }));
+
+  return [...productLines, ...serviceLines];
+}
+
 function createReceiptText(sale: SaleRecord): string {
   const { date, time } = formatDate(sale.created_at);
-
   const settings = getReceiptSettings(sale);
+  const receiptLines = getReceiptLines(sale);
 
   const money = (amount: number) =>
     formatMoney(
@@ -94,10 +129,17 @@ function createReceiptText(sale: SaleRecord): string {
     sale.rounding_adjustment ??
     sale.total - sale.subtotal - taxAmount;
 
-  const itemLines = sale.items.map(
-    (item) =>
-      `${item.product_name} — ${item.quantity} x ${money(item.unit_price)} = ${money(item.line_total)}`,
-  );
+  const itemLines = receiptLines.map((item) => {
+    const description =
+      item.kind === "SERVICE" && item.description
+        ? ` (${item.description})`
+        : "";
+
+    return (
+      `${item.kind}: ${item.name}${description} — ` +
+      `${item.quantity} x ${money(item.unitPrice)} = ${money(item.lineTotal)}`
+    );
+  });
 
   return [
     settings.receiptHeader,
@@ -153,14 +195,14 @@ export default function Receipt() {
     if (!transactionCode) {
       setError("No transaction code was provided for this receipt.");
       setLoading(false);
-
       return () => controller.abort();
     }
 
     void fetchSale(transactionCode, controller.signal)
       .then((savedSale) => {
-        if (controller.signal.aborted) return;
-        setSale(savedSale);
+        if (!controller.signal.aborted) {
+          setSale(savedSale);
+        }
       })
       .catch((requestError) => {
         if (controller.signal.aborted) return;
@@ -215,6 +257,8 @@ export default function Receipt() {
     sale.total - sale.subtotal - taxAmount
     : 0;
 
+  const receiptLines = sale ? getReceiptLines(sale) : [];
+
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
@@ -264,7 +308,6 @@ export default function Receipt() {
           </View>
         ) : sale && receiptSettings ? (
           <View className="w-full max-w-sm self-center rounded-lg border border-ctp-surface0 bg-ctp-mantle p-5">
-            {/* Receipt header */}
             <Text className="whitespace-pre-wrap text-center font-fredoka text-2xl font-bold text-ctp-text">
               {receiptSettings.receiptHeader}
             </Text>
@@ -275,7 +318,6 @@ export default function Receipt() {
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
-            {/* Sale information */}
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
@@ -320,7 +362,6 @@ export default function Receipt() {
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
-            {/* Line items */}
             <View className="gap-3">
               <View className="flex-row items-center">
                 <Text className="flex-1 text-[11px] font-inter-bold text-ctp-text">
@@ -336,18 +377,25 @@ export default function Receipt() {
                 </Text>
               </View>
 
-              {sale.items.map((item) => (
-                <View
-                  key={item.id}
-                  className="flex-row items-start"
-                >
+              {receiptLines.map((item) => (
+                <View key={item.key} className="flex-row items-start">
                   <View className="flex-1 pr-2">
-                    <Text className="text-[11px] font-inter-medium text-ctp-text">
-                      {item.product_name}
+                    <Text className="text-[9px] font-inter-semibold text-ctp-blue">
+                      {item.kind}
                     </Text>
 
+                    <Text className="text-[11px] font-inter-medium text-ctp-text">
+                      {item.name}
+                    </Text>
+
+                    {item.description ? (
+                      <Text className="mt-0.5 text-[9px] font-inter-regular text-ctp-subtext0">
+                        {item.description}
+                      </Text>
+                    ) : null}
+
                     <Text className="mt-0.5 text-[10px] font-inter-regular text-ctp-subtext0">
-                      {money(item.unit_price)} each
+                      {money(item.unitPrice)} each
                     </Text>
                   </View>
 
@@ -356,7 +404,7 @@ export default function Receipt() {
                   </Text>
 
                   <Text className="w-24 text-right text-[11px] font-inter-regular text-ctp-subtext0">
-                    {money(item.line_total)}
+                    {money(item.lineTotal)}
                   </Text>
                 </View>
               ))}
@@ -364,7 +412,6 @@ export default function Receipt() {
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
-            {/* Totals */}
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
@@ -386,7 +433,7 @@ export default function Receipt() {
                 </Text>
               </View>
 
-              {roundingAdjustment !== 0 && (
+              {roundingAdjustment !== 0 ? (
                 <View className="flex-row justify-between gap-3">
                   <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                     Cash rounding
@@ -397,12 +444,11 @@ export default function Receipt() {
                     {money(roundingAdjustment)}
                   </Text>
                 </View>
-              )}
+              ) : null}
             </View>
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
-            {/* Payment summary */}
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
                 <Text className="flex-1 text-xs font-inter-bold text-ctp-text">
@@ -479,7 +525,6 @@ export default function Receipt() {
               </Text>
             ) : null}
 
-            {/* Actions */}
             <View className="mt-5 items-center gap-2 pb-2">
               <Pressable
                 onPress={() => router.replace("/new-sale")}

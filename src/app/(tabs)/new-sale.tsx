@@ -1,3 +1,4 @@
+
 import {
   ActivityIndicator,
   Pressable,
@@ -16,7 +17,7 @@ import { router, useFocusEffect } from "expo-router";
 import Camera from "lucide-react-native/icons/focus";
 import RefreshCw from "lucide-react-native/icons/refresh-cw";
 
-import { useCart } from "@/app/context/CartContext";
+import { useCart, type ProductCartItem } from "@/app/context/CartContext";
 import CategoryTabs from "@/components/CategoryTabs";
 import CollapsibleSearchBar from "@/components/CollapsibleSearchBar";
 import CheckoutBar from "@/components/new-sale/CheckoutBar";
@@ -54,23 +55,33 @@ export default function NewSale() {
     filteredProducts,
   } = useSaleProducts(products);
 
-  const { addToCart, items, decreaseQuantity, total } = useCart();
+  const {
+    addProductToCart,
+    items,
+    decreaseQuantity,
+    total,
+  } = useCart();
 
-  const cartItemsById = useMemo(
-    () => new Map(items.map((item) => [item.id, item])),
+  const productCartItems = useMemo(
+    () =>
+      items.filter(
+        (item): item is ProductCartItem => item.type === "product",
+      ),
     [items],
   );
 
-  // Load when this screen is focused and cancel requests on blur/unmount.
+  const cartItemsById = useMemo(
+    () => new Map(productCartItems.map((item) => [item.id, item])),
+    [productCartItems],
+  );
+
   useFocusEffect(
     useCallback(() => {
       const controller = new AbortController();
 
       void fetchInventory(true, controller.signal);
 
-      return () => {
-        controller.abort();
-      };
+      return () => controller.abort();
     }, [fetchInventory]),
   );
 
@@ -84,20 +95,22 @@ export default function NewSale() {
     (product: Product) => {
       const existingCartItem = cartItemsById.get(product.id);
 
-      // Do not add more units than the inventory currently reports.
-      if (existingCartItem && existingCartItem.quantity >= product.stock) {
+      if (
+        existingCartItem &&
+        existingCartItem.quantity >= product.stock
+      ) {
         return;
       }
 
       if (product.stock <= 0) return;
 
-      addToCart({
+      addProductToCart({
         id: product.id,
         name: product.name,
         price: product.price,
       });
     },
-    [addToCart, cartItemsById],
+    [addProductToCart, cartItemsById],
   );
 
   return (
@@ -148,9 +161,11 @@ export default function NewSale() {
               <Text className="mb-2 text-center font-inter-semibold text-base text-ctp-text">
                 Could not load products
               </Text>
+
               <Text className="mb-4 text-center font-inter-regular text-sm text-ctp-subtext0">
                 {loadError}
               </Text>
+
               <Pressable
                 onPress={() => void fetchInventory()}
                 className="flex-row items-center gap-2 rounded-lg bg-ctp-blue px-4 py-3"
@@ -175,8 +190,8 @@ export default function NewSale() {
                   className="mb-2 rounded-lg border border-ctp-red/30 bg-ctp-red/10 p-3"
                 >
                   <Text className="font-inter-medium text-xs text-ctp-red">
-                    Refresh failed. Showing previously loaded products. Tap to
-                    retry.
+                    Refresh failed. Showing previously loaded products. Tap
+                    to retry.
                   </Text>
                 </Pressable>
               ) : null}
@@ -200,7 +215,9 @@ export default function NewSale() {
                     item={item}
                     cartQuantity={cartItemsById.get(item.id)?.quantity}
                     onAdd={handleAddToCart}
-                    onDecrease={decreaseQuantity}
+                    onDecrease={(id) =>
+                      decreaseQuantity("product", id)
+                    }
                   />
                 )}
                 ListEmptyComponent={

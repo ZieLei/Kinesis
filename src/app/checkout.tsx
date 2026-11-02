@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -54,10 +55,6 @@ function money(
     : `${formatted} ${currencySymbol}`;
 }
 
-/**
- * Calculate tax in integer cents to keep the preview aligned
- * with the backend's Decimal ROUND_HALF_UP calculation.
- */
 function calculateTaxCents(
   subtotalCents: number,
   taxRate: string,
@@ -112,6 +109,19 @@ export default function Checkout() {
   const currencyPlacement = settings?.currencyPlacement ?? "before";
   const decimalPrecision = settings?.decimalPrecision ?? "2";
 
+  const productItems = items.filter(
+    (item) => item.type === "product",
+  );
+
+  const serviceItems = items.filter(
+    (item) => item.type === "service",
+  );
+
+  const itemCount = items.reduce(
+    (sum, item) => sum + item.quantity,
+    0,
+  );
+
   const subtotalCents = Math.round(total * 100);
 
   const taxCents = settings
@@ -128,8 +138,7 @@ export default function Checkout() {
       )
       : unroundedTotalCents;
 
-  const estimatedTotalCents =
-    unroundedTotalCents;
+  const estimatedTotalCents = unroundedTotalCents;
 
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>("cash");
@@ -154,16 +163,13 @@ export default function Checkout() {
     ? Math.round(parsedReceived * 100)
     : 0;
 
-  const requiredCashCents = cashTotalCents;
-
   const changeCents = Math.max(
     0,
-    receivedCents - requiredCashCents,
+    receivedCents - cashTotalCents,
   );
 
   const hasEnoughCash =
-    validReceived &&
-    receivedCents >= requiredCashCents;
+    validReceived && receivedCents >= cashTotalCents;
 
   const amountDueCents =
     paymentMethod === "cash"
@@ -209,14 +215,13 @@ export default function Checkout() {
     }
 
     if (items.length === 0) {
-      setError("Your cart is empty. Add products before checking out.");
+      setError(
+        "Your cart is empty. Add products or services before checking out.",
+      );
       return;
     }
 
-    if (
-      paymentMethod === "cash" &&
-      !hasEnoughCash
-    ) {
+    if (paymentMethod === "cash" && !hasEnoughCash) {
       setError("Amount received must be at least the amount due.");
       return;
     }
@@ -237,15 +242,20 @@ export default function Checkout() {
     const checkout: CheckoutRequest = {
       transaction_code: transactionCode,
       payment_method: paymentMethod,
-      items: items.map((item) => ({
+
+      items: productItems.map((item) => ({
         product_id: item.id,
         quantity: item.quantity,
       })),
+
+      services: serviceItems.map((item) => ({
+        service_id: item.id,
+        quantity: item.quantity,
+      })),
+
       ...(paymentMethod === "cash"
         ? {
-          amount_tendered: Number(receivedCents / 100).toFixed(2)
-            ? receivedCents / 100
-            : 0,
+          amount_tendered: receivedCents / 100,
         }
         : {
           reference_number: referenceNumber.trim(),
@@ -258,14 +268,14 @@ export default function Checkout() {
       const savedSale = await createSale(checkout);
       finishSale(savedSale);
     } catch (requestError) {
-      // A connection may fail after the server has committed the sale.
-      // Check by transaction code before displaying a failure.
+      // The server may have committed the sale before the response
+      // was interrupted. Recover by checking the transaction code.
       try {
         const savedSale = await fetchSale(transactionCode);
         finishSale(savedSale);
         return;
       } catch {
-        // The sale could not be retrieved. Preserve the error below.
+        // Preserve the original request error.
       }
 
       setError(
@@ -283,7 +293,6 @@ export default function Checkout() {
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
-        {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
             onPress={() => router.back()}
@@ -307,8 +316,7 @@ export default function Checkout() {
           contentContainerStyle={{ paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Settings connection status */}
-          {!settingsReady && (
+          {!settingsReady ? (
             <View className="mb-5 rounded-lg border border-ctp-yellow/30 bg-ctp-yellow/10 p-3">
               <Text className="font-inter-semibold text-sm text-ctp-yellow">
                 {settingsStatus === "loading"
@@ -333,9 +341,8 @@ export default function Checkout() {
                 </Text>
               </Pressable>
             </View>
-          )}
+          ) : null}
 
-          {/* Amount due */}
           <View className="mb-8 py-4">
             <Text className="font-inter-semibold text-ctp-subtext0">
               Amount Due
@@ -346,10 +353,10 @@ export default function Checkout() {
             </Text>
 
             <Text className="mt-1 font-inter-regular text-sm text-ctp-subtext0">
-              {items.reduce((sum, item) => sum + item.quantity, 0)} items
+              {itemCount} items · {productItems.length} product lines ·{" "}
+              {serviceItems.length} service lines
             </Text>
 
-            {/* Pricing breakdown */}
             <View className="mt-5 gap-2">
               <View className="flex-row justify-between">
                 <Text className="font-inter-regular text-sm text-ctp-subtext0">
@@ -372,19 +379,19 @@ export default function Checkout() {
               </View>
 
               {paymentMethod === "cash" &&
-                cashTotalCents !== unroundedTotalCents && (
-                  <View className="flex-row justify-between">
-                    <Text className="font-inter-regular text-sm text-ctp-subtext0">
-                      Cash rounding
-                    </Text>
+                cashTotalCents !== unroundedTotalCents ? (
+                <View className="flex-row justify-between">
+                  <Text className="font-inter-regular text-sm text-ctp-subtext0">
+                    Cash rounding
+                  </Text>
 
-                    <Text className="font-inter-medium text-sm text-ctp-text">
-                      {formatMoney(
-                        cashTotalCents - unroundedTotalCents,
-                      )}
-                    </Text>
-                  </View>
-                )}
+                  <Text className="font-inter-medium text-sm text-ctp-text">
+                    {formatMoney(
+                      cashTotalCents - unroundedTotalCents,
+                    )}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <Text className="mt-3 font-inter-regular text-xs text-ctp-subtext0">
@@ -392,7 +399,6 @@ export default function Checkout() {
             </Text>
           </View>
 
-          {/* Payment method */}
           <Text className="mb-3 font-inter-semibold text-base text-ctp-text">
             Payment Method
           </Text>
