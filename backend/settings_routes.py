@@ -1,9 +1,22 @@
 import logging
+import os
+import re
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from fastapi.responses import FileResponse
 from pydantic import (
     AliasChoices,
     BaseModel,
@@ -30,6 +43,17 @@ from terminal_routes import require_admin_token, require_terminal
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Settings"])
+
+MAX_GCASH_QR_SIZE = 5 * 1024 * 1024
+
+GCASH_QR_DIRECTORY = Path(
+    os.getenv("KINESIS_GCASH_QR_DIRECTORY", "uploads/gcash")
+).resolve()
+
+GCASH_QR_FORMATS = {
+    b"\xff\xd8\xff": (".jpg", "image/jpeg"),
+    b"\x89PNG\r\n\x1a\n": (".png", "image/png"),
+}
 
 
 # --------------------------------------------------
@@ -113,6 +137,10 @@ class SettingsDocument(BaseModel):
         "disabled",
     ] = "5"
 
+    # Generated server-side filename of the uploaded GCash QR.
+    # Never stores the image bytes or an arbitrary filesystem path.
+    gcashQrImagePath: str | None = None
+
     listenAddress: Literal[
         "0.0.0.0",
         "127.0.0.1",
@@ -163,6 +191,23 @@ class SettingsDocument(BaseModel):
         "5000",
         "10000",
     ] = "1000"
+
+    @field_validator("gcashQrImagePath")
+    @classmethod
+    def validate_gcash_qr_filename(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        if not re.fullmatch(
+            r"[a-f0-9]{32}\.(?:jpg|png)",
+            value,
+        ):
+            raise ValueError("The GCash QR image reference is invalid.")
+
+        return value
 
     @field_validator("lowStockThreshold")
     @classmethod
@@ -296,6 +341,7 @@ TERMINAL_SETTING_KEYS = {
     "discountLimit",
     "inactivityLock",
     "offlineQueueStrategy",
+    "gcashQrImagePath",
 }
 
 
@@ -320,6 +366,10 @@ class SettingsUpdateRequest(BaseModel):
     )
 
     settings: SettingsDocument
+
+
+class GCashQrDeleteRequest(BaseModel):
+    expected_version: int = Field(ge=1)
 
 
 # --------------------------------------------------
@@ -368,6 +418,118 @@ def serialize_settings(row: AppSettings) -> dict:
         "version": row.version,
         "updated_at": row.updated_at.isoformat(),
     }
+
+
+def resolve_gcash_qr_path(filename: str) -> Path:
+    if not re.fullmatch(
+        r"[a-f0-9]{32}\.(?:jpg|png)",
+        filename,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The stored GCash QR image reference is invalid.",
+        )
+
+    root = GCASH_QR_DIRECTORY.resolve()
+    candidate = (root / filename).resolve()
+
+    if not candidate.is_relative_to(root):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The stored GCash QR image path is invalid.",
+        )
+
+    return candidate
+
+
+def detect_gcash_qr_image(data: bytes) -> tuple[str, str] | None:
+    for signature, result in GCASH_QR_FORMATS.items():
+        if data.startswith(signature):
+            return result
+
+    return None
+
+
+async def read_gcash_qr_image(
+    file: UploadFile,
+) -> tuple[bytes, str, str]:
+    try:
+        data = await file.read(MAX_GCASH_QR_SIZE + 1)
+    finally:
+        await file.close()
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded GCash QR image is empty.",
+        )
+
+    if len(data) > MAX_GCASH_QR_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="The GCash QR image must be 5 MiB or smaller.",
+        )
+
+    detected = detect_gcash_qr_image(data)
+
+    if detected is None:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only JPEG and PNG GCash QR images are supported.",
+        )
+
+    extension, media_type = detected
+
+    return data, extension, media_type
+
+
+async def notify_settings_updated(version: int) -> None:
+    try:
+        delivered = await broadcast_settings_updated(version)
+
+        logger.debug(
+            "Settings update notification sent to %s connection(s).",
+            delivered,
+        )
+
+    except Exception:
+        logger.exception(
+            "Settings were saved, but terminal notifications failed. "
+            "Periodic refresh will recover."
+        )
+
+
+def get_gcash_qr_file(
+    db: Session,
+) -> tuple[Path, str]:
+    row = get_or_create_settings(db)
+
+    document = SettingsDocument.model_validate(row.settings)
+
+    filename = document.gcashQrImagePath
+
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No GCash QR image has been uploaded.",
+        )
+
+    image_path = resolve_gcash_qr_path(filename)
+
+    if not image_path.is_file():
+        logger.error(
+            "The configured GCash QR image is missing: %s",
+            filename,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The configured GCash QR image file is missing.",
+        )
+
+    media_type = "image/png" if image_path.suffix == ".png" else "image/jpeg"
+
+    return image_path, media_type
 
 
 # --------------------------------------------------
@@ -428,7 +590,10 @@ async def update_admin_settings(
         )
 
     try:
-        row = get_or_create_settings(db, lock=True)
+        row = get_or_create_settings(
+            db,
+            lock=True,
+        )
 
         if row.version != payload.expected_version:
             current_version = row.version
@@ -460,21 +625,7 @@ async def update_admin_settings(
                 "could not be applied."
             )
 
-        # Notify connected terminals only after the database commit.
-        # A notification failure does not invalidate the successful save.
-        try:
-            delivered = await broadcast_settings_updated(row.version)
-
-            logger.debug(
-                "Settings update notification sent to %s connection(s).",
-                delivered,
-            )
-
-        except Exception:
-            logger.exception(
-                "Settings were saved, but terminal notifications failed. "
-                "The periodic refresh will recover."
-            )
+        await notify_settings_updated(row.version)
 
         logger.info(
             "Application settings updated. New version: %s",
@@ -497,6 +648,262 @@ async def update_admin_settings(
 
 
 # --------------------------------------------------
+# Admin: upload or replace the GCash QR image
+# --------------------------------------------------
+
+
+@router.post("/api/admin/settings/gcash-qr")
+async def upload_gcash_qr(
+    file: UploadFile = File(...),
+    expected_version: int = Form(ge=1),
+    _authorized: None = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+):
+    data, extension, _media_type = await read_gcash_qr_image(file)
+
+    new_filename = f"{uuid4().hex}{extension}"
+    new_path = resolve_gcash_qr_path(new_filename)
+
+    old_filename: str | None = None
+
+    try:
+        row = get_or_create_settings(
+            db,
+            lock=True,
+        )
+
+        if row.version != expected_version:
+            current_version = row.version
+            db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "Settings changed before the QR image was uploaded. "
+                        "Reload the latest settings and try again."
+                    ),
+                    "expected_version": expected_version,
+                    "current_version": current_version,
+                },
+            )
+
+        current_document = SettingsDocument.model_validate(row.settings)
+
+        old_filename = current_document.gcashQrImagePath
+
+        GCASH_QR_DIRECTORY.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        # A unique generated filename prevents overwriting the previous
+        # image before the database transaction commits successfully.
+        with new_path.open("xb") as image_file:
+            image_file.write(data)
+
+        updated_settings = current_document.model_dump(mode="json")
+
+        updated_settings["gcashQrImagePath"] = new_filename
+
+        row.settings = updated_settings
+        row.version += 1
+
+        db.commit()
+        db.refresh(row)
+
+    except HTTPException:
+        db.rollback()
+        new_path.unlink(missing_ok=True)
+        raise
+
+    except OSError as exc:
+        db.rollback()
+        new_path.unlink(missing_ok=True)
+
+        logger.exception("Could not store the GCash QR image.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The GCash QR image could not be stored.",
+        ) from exc
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        new_path.unlink(missing_ok=True)
+
+        logger.exception("Could not save the GCash QR image setting.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The GCash QR image setting could not be saved.",
+        ) from exc
+
+    # Remove the previous image only after the new setting has committed.
+    if old_filename and old_filename != new_filename:
+        try:
+            resolve_gcash_qr_path(old_filename).unlink(missing_ok=True)
+        except OSError:
+            logger.exception("The previous GCash QR image could not be removed.")
+
+    await notify_settings_updated(row.version)
+
+    logger.info(
+        "GCash QR image updated. Settings version: %s",
+        row.version,
+    )
+
+    return serialize_settings(row)
+
+
+# --------------------------------------------------
+# Admin: remove the GCash QR image
+# --------------------------------------------------
+
+
+@router.delete("/api/admin/settings/gcash-qr")
+async def delete_gcash_qr(
+    payload: GCashQrDeleteRequest,
+    _authorized: None = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+):
+    old_filename: str | None = None
+
+    try:
+        row = get_or_create_settings(
+            db,
+            lock=True,
+        )
+
+        if row.version != payload.expected_version:
+            current_version = row.version
+            db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "Settings changed before the QR image was removed. "
+                        "Reload the latest settings and try again."
+                    ),
+                    "expected_version": payload.expected_version,
+                    "current_version": current_version,
+                },
+            )
+
+        current_document = SettingsDocument.model_validate(row.settings)
+
+        old_filename = current_document.gcashQrImagePath
+
+        if old_filename is None:
+            db.rollback()
+            return serialize_settings(get_or_create_settings(db))
+
+        updated_settings = current_document.model_dump(mode="json")
+
+        updated_settings["gcashQrImagePath"] = None
+
+        row.settings = updated_settings
+        row.version += 1
+
+        db.commit()
+        db.refresh(row)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        logger.exception("Could not remove the GCash QR image setting.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The GCash QR image could not be removed.",
+        ) from exc
+
+    if old_filename:
+        try:
+            resolve_gcash_qr_path(old_filename).unlink(missing_ok=True)
+        except OSError:
+            logger.exception("The unreferenced GCash QR image could not be removed.")
+
+    await notify_settings_updated(row.version)
+
+    logger.info(
+        "GCash QR image removed. Settings version: %s",
+        row.version,
+    )
+
+    return serialize_settings(row)
+
+
+# --------------------------------------------------
+# Admin: retrieve the current GCash QR image
+# --------------------------------------------------
+
+
+@router.get("/api/admin/settings/gcash-qr")
+def get_admin_gcash_qr(
+    _authorized: None = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+):
+    try:
+        image_path, media_type = get_gcash_qr_file(db)
+
+        return FileResponse(
+            image_path,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "no-store, private",
+            },
+        )
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        logger.exception("Could not retrieve the GCash QR image.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The GCash QR image could not be loaded.",
+        ) from exc
+
+
+# --------------------------------------------------
+# Terminal: retrieve the GCash QR image
+# --------------------------------------------------
+
+
+@router.get("/api/terminals/gcash-qr")
+def get_terminal_gcash_qr(
+    _terminal=Depends(require_terminal),
+    db: Session = Depends(get_db),
+):
+    try:
+        image_path, media_type = get_gcash_qr_file(db)
+
+        return FileResponse(
+            image_path,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "no-store, private",
+            },
+        )
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        logger.exception("Could not retrieve the terminal GCash QR image.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The GCash QR image could not be loaded.",
+        ) from exc
+
+
+# --------------------------------------------------
 # Terminal: retrieve POS settings
 # --------------------------------------------------
 
@@ -510,6 +917,7 @@ def get_terminal_settings(
         row = get_or_create_settings(db)
 
         document = SettingsDocument.model_validate(row.settings)
+
         all_settings = document.model_dump(mode="json")
 
         return {
@@ -520,6 +928,7 @@ def get_terminal_settings(
 
     except SQLAlchemyError as exc:
         db.rollback()
+
         logger.exception("Could not retrieve terminal settings.")
 
         raise HTTPException(
@@ -529,6 +938,7 @@ def get_terminal_settings(
 
     except RuntimeError as exc:
         db.rollback()
+
         logger.exception("Terminal settings row is unavailable.")
 
         raise HTTPException(

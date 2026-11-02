@@ -1,3 +1,4 @@
+
 import type { SettingsState } from "../types/settings";
 
 export const defaultSettings: SettingsState = {
@@ -21,6 +22,7 @@ export const defaultSettings: SettingsState = {
   allowCustomLineItems: false,
   discountLimit: "10",
   inactivityLock: "5",
+  gcashQrImagePath: null,
   listenAddress: "0.0.0.0",
   httpPort: "8000",
   corsOrigins: "http://localhost:5173",

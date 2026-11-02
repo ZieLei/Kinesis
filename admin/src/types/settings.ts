@@ -1,3 +1,4 @@
+
 import type { LucideIcon } from "lucide-react";
 
 export type SettingsState = {
@@ -21,6 +22,7 @@ export type SettingsState = {
   allowCustomLineItems: boolean;
   discountLimit: string;
   inactivityLock: string;
+  gcashQrImagePath: string | null;
   listenAddress: string;
   httpPort: string;
   corsOrigins: string;
@@ -47,7 +49,10 @@ export type UpdateSetting = <K extends keyof SettingsState>(
   value: SettingsState[K],
 ) => void;
 
-export type Option = { label: string; value: string };
+export type Option = {
+  label: string;
+  value: string;
+};
 
 export type FieldDefinition = {
   key: keyof SettingsState;

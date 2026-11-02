@@ -98,6 +98,12 @@ export default function Settings() {
                       onUpdate={s.update}
                       currencyPreview={s.currencyPreview}
                       skuPreview={s.skuPreview}
+                      version={s.version}
+                      isUploadingGcashQr={s.isUploadingGcashQr}
+                      gcashQrError={s.gcashQrError}
+                      gcashQrNotice={s.gcashQrNotice}
+                      onUploadGcashQr={s.uploadGcashQr}
+                      onRemoveGcashQr={s.removeGcashQr}
                     />
                   </Section>
                 ))

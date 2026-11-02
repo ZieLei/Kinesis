@@ -1,8 +1,10 @@
+
 import type {
   SectionDefinition,
   SettingsState,
   UpdateSetting,
 } from "../../types/settings";
+
 import PosContent from "./sections/PosContent";
 import InventoryContent from "./sections/InventoryContent";
 import ReceiptsContent from "./sections/ReceiptsContent";
@@ -18,12 +20,24 @@ export default function SectionContent({
   onUpdate,
   currencyPreview,
   skuPreview,
+  version,
+  isUploadingGcashQr,
+  gcashQrError,
+  gcashQrNotice,
+  onUploadGcashQr,
+  onRemoveGcashQr,
 }: {
   section: SectionDefinition;
   settings: SettingsState;
   onUpdate: UpdateSetting;
   currencyPreview: string;
   skuPreview: string;
+  version: number | null;
+  isUploadingGcashQr: boolean;
+  gcashQrError: string;
+  gcashQrNotice: string;
+  onUploadGcashQr: (file: File) => Promise<void>;
+  onRemoveGcashQr: () => Promise<void>;
 }) {
   switch (section.id) {
     case "pos":
@@ -35,6 +49,7 @@ export default function SectionContent({
           currencyPreview={currencyPreview}
         />
       );
+
     case "inventory":
       return (
         <InventoryContent
@@ -44,6 +59,7 @@ export default function SectionContent({
           skuPreview={skuPreview}
         />
       );
+
     case "receipts":
       return (
         <ReceiptsContent
@@ -51,8 +67,15 @@ export default function SectionContent({
           settings={settings}
           onUpdate={onUpdate}
           currencyPreview={currencyPreview}
+          version={version}
+          isUploadingGcashQr={isUploadingGcashQr}
+          gcashQrError={gcashQrError}
+          gcashQrNotice={gcashQrNotice}
+          onUploadGcashQr={onUploadGcashQr}
+          onRemoveGcashQr={onRemoveGcashQr}
         />
       );
+
     case "permissions":
       return (
         <PermissionsContent
@@ -61,6 +84,7 @@ export default function SectionContent({
           onUpdate={onUpdate}
         />
       );
+
     case "server":
       return (
         <ServerContent
@@ -69,6 +93,7 @@ export default function SectionContent({
           onUpdate={onUpdate}
         />
       );
+
     case "backups":
       return (
         <BackupsContent
@@ -77,6 +102,7 @@ export default function SectionContent({
           onUpdate={onUpdate}
         />
       );
+
     case "diagnostics":
       return (
         <DiagnosticsContent
@@ -85,8 +111,10 @@ export default function SectionContent({
           onUpdate={onUpdate}
         />
       );
+
     case "security":
       return <SecurityContent />;
+
     default:
       return null;
   }

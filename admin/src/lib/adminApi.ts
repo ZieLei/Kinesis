@@ -1,3 +1,4 @@
+
 import { apiRequest } from "./api";
 
 import type {
@@ -203,6 +204,48 @@ export function saveAdminSettings(
     {
       method: "PUT",
       body: JSON.stringify(payload),
+    },
+  );
+}
+
+
+// --------------------------------------------------
+// GCash payment QR image
+// --------------------------------------------------
+
+
+export function uploadAdminGcashQr(
+  file: File,
+  expectedVersion: number,
+): Promise<SettingsApiResponse> {
+  const formData = new FormData();
+
+  formData.append("file", file);
+  formData.append(
+    "expected_version",
+    String(expectedVersion),
+  );
+
+  return apiRequest<SettingsApiResponse>(
+    "/api/admin/settings/gcash-qr",
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+}
+
+
+export function deleteAdminGcashQr(
+  expectedVersion: number,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>(
+    "/api/admin/settings/gcash-qr",
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        expected_version: expectedVersion,
+      }),
     },
   );
 }

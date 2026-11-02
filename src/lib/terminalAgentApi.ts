@@ -1,3 +1,4 @@
+
 import { apiRequest, API_BASE_URL } from "@/lib/api";
 
 export type TerminalRegistrationRequest = {
@@ -61,6 +62,7 @@ export type TerminalPOSSettings = {
   allowCustomLineItems: boolean;
   discountLimit: string;
   inactivityLock: string;
+  gcashQrImagePath: string | null;
   offlineQueueStrategy: string;
 };
 

@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useCallback,
@@ -9,7 +10,11 @@ import {
   type ReactNode,
 } from "react";
 
-import { AppState } from "react-native";
+import {
+  AppState,
+  type ImageURISource,
+} from "react-native";
+
 import * as SecureStore from "expo-secure-store";
 
 import {
@@ -19,7 +24,10 @@ import {
   type TerminalSettingsSocketMessage,
 } from "@/lib/terminalAgentApi";
 
-import { isNetworkError } from "@/lib/api";
+import {
+  API_BASE_URL,
+  isNetworkError,
+} from "@/lib/api";
 
 
 const SETTINGS_CACHE_KEY = "kinesis-terminal-pos-settings";
@@ -34,6 +42,12 @@ export type TerminalSettingsStatus =
   | "loading"
   | "synced"
   | "offline"
+  | "error";
+
+export type GCashQrImageStatus =
+  | "idle"
+  | "loading"
+  | "loaded"
   | "error";
 
 
@@ -51,6 +65,10 @@ type TerminalSettingsContextValue = {
   status: TerminalSettingsStatus;
   error: string | null;
   refreshSettings: () => Promise<void>;
+  gcashQrImageSource: ImageURISource | null;
+  gcashQrImageStatus: GCashQrImageStatus;
+  gcashQrImageError: string | null;
+  refreshGcashQrImage: () => void;
 };
 
 
@@ -81,6 +99,31 @@ function getErrorMessage(error: unknown): string {
 }
 
 
+function blobToDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(
+          new Error("The downloaded GCash QR image could not be decoded."),
+        );
+      }
+    };
+
+    reader.onerror = () => {
+      reject(
+        new Error("Could not read the downloaded GCash QR image."),
+      );
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
+
+
 type TerminalSettingsProviderProps = {
   sessionToken: string | null;
   children: ReactNode;
@@ -101,6 +144,17 @@ export function TerminalSettingsProvider({
     useState<TerminalSettingsStatus>("not-connected");
 
   const [error, setError] = useState<string | null>(null);
+
+  const [gcashQrImageUri, setGcashQrImageUri] =
+    useState<string | null>(null);
+
+  const [gcashQrImageStatus, setGcashQrImageStatus] =
+    useState<GCashQrImageStatus>("idle");
+
+  const [gcashQrImageError, setGcashQrImageError] =
+    useState<string | null>(null);
+
+  const [gcashQrReloadKey, setGcashQrReloadKey] = useState(0);
 
 
   // --------------------------------------------------
@@ -187,7 +241,6 @@ export function TerminalSettingsProvider({
       if (isNetworkError(fetchError)) {
         setStatus("offline");
 
-        // Log only the first failure in a continuous outage.
         if (!networkFailureLogged.current) {
           networkFailureLogged.current = true;
 
@@ -204,7 +257,6 @@ export function TerminalSettingsProvider({
         );
       }
     } finally {
-      // An old request must not modify the state of a newer request.
       if (requestGeneration.current === requestId) {
         refreshing.current = false;
         activeRequest.current = null;
@@ -235,6 +287,10 @@ export function TerminalSettingsProvider({
       setStatus("not-connected");
       setError(null);
 
+      setGcashQrImageUri(null);
+      setGcashQrImageStatus("idle");
+      setGcashQrImageError(null);
+
       refreshQueued.current = false;
       networkFailureLogged.current = false;
       socketFailureLogged.current = false;
@@ -249,8 +305,6 @@ export function TerminalSettingsProvider({
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
 
-    // Make this provider generation independent from any request
-    // left over from a previous terminal session.
     requestGeneration.current += 1;
 
     activeRequest.current?.abort();
@@ -353,7 +407,6 @@ export function TerminalSettingsProvider({
               "[Terminal Settings] Realtime connection restored.",
             );
 
-            // Fetch any updates that may have happened while offline.
             void refreshSettings();
 
             return;
@@ -457,8 +510,6 @@ export function TerminalSettingsProvider({
             setVersion(parsed.version);
             setUpdatedAt(parsed.updated_at);
 
-            // Cached data is usable, but it has not yet been
-            // confirmed against the current server state.
             setStatus("offline");
           }
         }
@@ -528,7 +579,6 @@ export function TerminalSettingsProvider({
     return () => {
       cancelled = true;
 
-      // Invalidate any outstanding HTTP settings request.
       requestGeneration.current += 1;
 
       activeRequest.current?.abort();
@@ -562,6 +612,147 @@ export function TerminalSettingsProvider({
 
 
   // --------------------------------------------------
+  // Authenticated GCash QR image download
+  // --------------------------------------------------
+
+
+  const refreshGcashQrImage = useCallback(() => {
+    setGcashQrReloadKey((current) => current + 1);
+  }, []);
+
+
+  useEffect(() => {
+    const filename = settings?.gcashQrImagePath;
+
+    if (
+      !sessionToken ||
+      !filename ||
+      version === null
+    ) {
+      setGcashQrImageUri(null);
+      setGcashQrImageStatus("idle");
+      setGcashQrImageError(null);
+
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function downloadGcashQr() {
+      setGcashQrImageUri(null);
+      setGcashQrImageStatus("loading");
+      setGcashQrImageError(null);
+
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/terminals/gcash-qr?version=${version}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${sessionToken}`,
+              Accept: "image/png,image/jpeg",
+            },
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok) {
+          let responseDetail = "";
+
+          try {
+            responseDetail = (await response.text()).slice(0, 300);
+          } catch {
+            // The HTTP status is still useful without a response body.
+          }
+
+          throw new Error(
+            `GCash QR request failed (${response.status})` +
+            (responseDetail ? `: ${responseDetail}` : ""),
+          );
+        }
+
+        const contentType = response.headers
+          .get("content-type")
+          ?.split(";")[0]
+          .trim()
+          .toLowerCase();
+
+        if (
+          contentType &&
+          contentType !== "image/png" &&
+          contentType !== "image/jpeg"
+        ) {
+          throw new Error(
+            `The server returned an unexpected image type: ${contentType}.`,
+          );
+        }
+
+        const blob = await response.blob();
+        const dataUri = await blobToDataUri(blob);
+
+        if (cancelled) return;
+
+        setGcashQrImageUri(dataUri);
+        setGcashQrImageStatus("loaded");
+
+        console.info(
+          "[Terminal Settings] GCash QR image downloaded successfully.",
+        );
+      } catch (downloadError) {
+        if (
+          cancelled ||
+          controller.signal.aborted
+        ) {
+          return;
+        }
+
+        const message = getErrorMessage(downloadError);
+
+        setGcashQrImageUri(null);
+        setGcashQrImageStatus("error");
+        setGcashQrImageError(message);
+
+        console.warn(
+          "[Terminal Settings] GCash QR image download failed:",
+          message,
+        );
+      }
+    }
+
+    void downloadGcashQr();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    sessionToken,
+    settings?.gcashQrImagePath,
+    version,
+    gcashQrReloadKey,
+  ]);
+
+
+  // --------------------------------------------------
+  // GCash QR image source
+  // --------------------------------------------------
+
+
+  const gcashQrImageSource = useMemo<ImageURISource | null>(() => {
+    if (!gcashQrImageUri) {
+      return null;
+    }
+
+    // Authentication has already been handled by fetch().
+    // Image receives a local data URI and needs no request headers.
+    return {
+      uri: gcashQrImageUri,
+    };
+  }, [gcashQrImageUri]);
+
+
+  // --------------------------------------------------
   // Context value
   // --------------------------------------------------
 
@@ -574,6 +765,10 @@ export function TerminalSettingsProvider({
       status,
       error,
       refreshSettings,
+      gcashQrImageSource,
+      gcashQrImageStatus,
+      gcashQrImageError,
+      refreshGcashQrImage,
     }),
     [
       settings,
@@ -582,6 +777,10 @@ export function TerminalSettingsProvider({
       status,
       error,
       refreshSettings,
+      gcashQrImageSource,
+      gcashQrImageStatus,
+      gcashQrImageError,
+      refreshGcashQrImage,
     ],
   );
 

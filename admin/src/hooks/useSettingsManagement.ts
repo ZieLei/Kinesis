@@ -1,12 +1,18 @@
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "../lib/api";
 import {
+  deleteAdminGcashQr,
   fetchAdminSettings,
   saveAdminSettings,
+  uploadAdminGcashQr,
 } from "../lib/adminApi";
 import { defaultSettings } from "../lib/settingsDefaults";
 import { sections } from "../lib/settingsSections";
-import type { SettingsState } from "../types/settings";
+import type {
+  SettingsApiResponse,
+  SettingsState,
+} from "../types/settings";
 
 export function useSettingsManagement() {
   const [settings, setSettings] =
@@ -19,18 +25,25 @@ export function useSettingsManagement() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingGcashQr, setIsUploadingGcashQr] = useState(false);
+
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasServerConflict, setHasServerConflict] = useState(false);
 
   const [showSaveNotice, setShowSaveNotice] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState("");
 
+  const [gcashQrError, setGcashQrError] = useState("");
+  const [gcashQrNotice, setGcashQrNotice] = useState("");
+
   const [search, setSearch] = useState("");
   const [activeSection, setActiveSection] = useState("pos");
+
 
   // --------------------------------------------------
   // Load settings from the backend
   // --------------------------------------------------
+
 
   const loadSettings = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -47,6 +60,8 @@ export function useSettingsManagement() {
       setHasServerConflict(false);
       setShowSaveNotice(false);
       setNoticeMessage("");
+      setGcashQrError("");
+      setGcashQrNotice("");
     } catch (error) {
       if (signal?.aborted) return;
 
@@ -71,9 +86,11 @@ export function useSettingsManagement() {
     return () => controller.abort();
   }, [loadSettings]);
 
+
   // --------------------------------------------------
   // Update individual settings
   // --------------------------------------------------
+
 
   const update = <K extends keyof SettingsState>(
     key: K,
@@ -87,12 +104,15 @@ export function useSettingsManagement() {
     setShowSaveNotice(false);
   };
 
+
   const hasChanges =
     JSON.stringify(settings) !== JSON.stringify(savedSettings);
+
 
   // --------------------------------------------------
   // Search and navigation
   // --------------------------------------------------
+
 
   const filteredSections = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -144,14 +164,22 @@ export function useSettingsManagement() {
     return () => observer.disconnect();
   }, [isLoading]);
 
+
   // --------------------------------------------------
   // Previews
   // --------------------------------------------------
 
+
   const currencyPreview = (() => {
+    const precision = Number(settings.decimalPrecision);
+    const safePrecision =
+      Number.isInteger(precision) && precision >= 0 && precision <= 4
+        ? precision
+        : 2;
+
     const amount = (1234.5).toLocaleString("en-PH", {
-      minimumFractionDigits: Number(settings.decimalPrecision),
-      maximumFractionDigits: Number(settings.decimalPrecision),
+      minimumFractionDigits: safePrecision,
+      maximumFractionDigits: safePrecision,
     });
 
     return settings.currencyPlacement === "before"
@@ -177,14 +205,144 @@ export function useSettingsManagement() {
     return `${settings.skuPrefix}-${year}PART-${sequence}`;
   })();
 
+
+  // --------------------------------------------------
+  // Apply a QR-specific settings response
+  // --------------------------------------------------
+
+
+  const applyGcashQrResponse = (
+    response: SettingsApiResponse,
+  ) => {
+    const nextPath = response.settings.gcashQrImagePath;
+
+    // Preserve unrelated unsaved settings edits. Only update the
+    // QR reference in the current and saved documents.
+    setSettings((current) => ({
+      ...current,
+      gcashQrImagePath: nextPath,
+    }));
+
+    setSavedSettings((current) => ({
+      ...current,
+      gcashQrImagePath: nextPath,
+    }));
+
+    // Upload and delete increment the shared settings version.
+    // Update it so subsequent settings saves don't conflict.
+    setVersion(response.version);
+    setHasServerConflict(false);
+
+    setGcashQrError("");
+  };
+
+
+  // --------------------------------------------------
+  // Upload GCash QR image
+  // --------------------------------------------------
+
+
+  const uploadGcashQr = async (file: File) => {
+    if (
+      isLoading ||
+      isSaving ||
+      isUploadingGcashQr ||
+      version === null
+    ) {
+      return;
+    }
+
+    setIsUploadingGcashQr(true);
+    setGcashQrError("");
+    setGcashQrNotice("");
+
+    try {
+      const response = await uploadAdminGcashQr(
+        file,
+        version,
+      );
+
+      applyGcashQrResponse(response);
+
+      setGcashQrNotice(
+        "GCash QR image uploaded and distributed to connected terminals.",
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setHasServerConflict(true);
+        setGcashQrError(
+          "Settings changed on the server. Reload the latest settings before uploading the QR image.",
+        );
+      } else {
+        setGcashQrError(
+          error instanceof Error
+            ? error.message
+            : "The GCash QR image could not be uploaded.",
+        );
+      }
+    } finally {
+      setIsUploadingGcashQr(false);
+    }
+  };
+
+
+  // --------------------------------------------------
+  // Remove GCash QR image
+  // --------------------------------------------------
+
+
+  const removeGcashQr = async () => {
+    if (
+      isLoading ||
+      isSaving ||
+      isUploadingGcashQr ||
+      version === null ||
+      !settings.gcashQrImagePath
+    ) {
+      return;
+    }
+
+    setIsUploadingGcashQr(true);
+    setGcashQrError("");
+    setGcashQrNotice("");
+
+    try {
+      const response = await deleteAdminGcashQr(version);
+
+      applyGcashQrResponse(response);
+
+      setGcashQrNotice(
+        "GCash QR image removed from the server.",
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setHasServerConflict(true);
+        setGcashQrError(
+          "Settings changed on the server. Reload the latest settings before removing the QR image.",
+        );
+      } else {
+        setGcashQrError(
+          error instanceof Error
+            ? error.message
+            : "The GCash QR image could not be removed.",
+        );
+      }
+    } finally {
+      setIsUploadingGcashQr(false);
+    }
+  };
+
+
   // --------------------------------------------------
   // Save settings to the backend
   // --------------------------------------------------
+
 
   const saveSettings = async () => {
     if (
       isLoading ||
       isSaving ||
+      isUploadingGcashQr ||
       version === null ||
       hasServerConflict ||
       !hasChanges
@@ -196,14 +354,19 @@ export function useSettingsManagement() {
     setShowSaveNotice(false);
 
     try {
-      const response = await saveAdminSettings(settings, version);
+      const response = await saveAdminSettings(
+        settings,
+        version,
+      );
 
       setSettings({ ...response.settings });
       setSavedSettings({ ...response.settings });
       setVersion(response.version);
       setHasServerConflict(false);
 
-      setNoticeMessage("Settings saved successfully to the Kinesis backend.");
+      setNoticeMessage(
+        "Settings saved successfully to the Kinesis backend.",
+      );
       setShowSaveNotice(true);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -226,17 +389,21 @@ export function useSettingsManagement() {
     }
   };
 
+
   // --------------------------------------------------
   // Reload the latest server settings
   // --------------------------------------------------
+
 
   const reloadSettings = async () => {
     await loadSettings();
   };
 
+
   // --------------------------------------------------
   // Local editing actions
   // --------------------------------------------------
+
 
   const resetSettings = () => {
     setSettings({ ...defaultSettings });
@@ -249,6 +416,7 @@ export function useSettingsManagement() {
     setShowSaveNotice(false);
     setNoticeMessage("");
   };
+
 
   return {
     settings,
@@ -264,10 +432,17 @@ export function useSettingsManagement() {
     currencyPreview,
     skuPreview,
 
+    version,
     isLoading,
     isSaving,
     loadError,
     hasServerConflict,
+
+    isUploadingGcashQr,
+    gcashQrError,
+    gcashQrNotice,
+    uploadGcashQr,
+    removeGcashQr,
 
     showSaveNotice,
     noticeMessage,

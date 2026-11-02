@@ -2,6 +2,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -14,7 +15,6 @@ import { useColorScheme } from "nativewind";
 
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Banknote from "lucide-react-native/icons/banknote";
-import GCashLogo from "@/assets/images/gcash-seeklogo-2.svg";
 
 import { styledIcon } from "@/components/StyledIcon";
 import { useCart } from "@/app/context/CartContext";
@@ -46,8 +46,11 @@ function money(
   decimalPrecision: string,
 ) {
   const precision = Number(decimalPrecision);
+
   const safePrecision =
-    Number.isInteger(precision) && precision >= 0 && precision <= 4
+    Number.isInteger(precision) &&
+      precision >= 0 &&
+      precision <= 4
       ? precision
       : 2;
 
@@ -67,7 +70,10 @@ function calculateTaxCents(
 ): number {
   const rateHundredths = Math.round(Number(taxRate) * 100);
 
-  if (!Number.isFinite(rateHundredths) || rateHundredths < 0) {
+  if (
+    !Number.isFinite(rateHundredths) ||
+    rateHundredths < 0
+  ) {
     return 0;
   }
 
@@ -80,7 +86,9 @@ function calculateDiscountCents(
   subtotalCents: number,
   discountPercent: number,
 ): number {
-  const percentageHundredths = Math.round(discountPercent * 100);
+  const percentageHundredths = Math.round(
+    discountPercent * 100,
+  );
 
   if (
     !Number.isFinite(percentageHundredths) ||
@@ -123,12 +131,14 @@ export default function Checkout() {
     status: settingsStatus,
     error: settingsError,
     refreshSettings,
+    gcashQrImageSource,
   } = useTerminalSettings();
 
   const isDark = colorScheme === "dark";
 
   const settingsReady =
-    settings !== null && settingsStatus === "synced";
+    settings !== null &&
+    settingsStatus === "synced";
 
   const currencySymbol = settings?.currencySymbol ?? "₱";
   const currencyPlacement = settings?.currencyPlacement ?? "before";
@@ -153,6 +163,7 @@ export default function Checkout() {
   const [amountReceived, setAmountReceived] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [gcashVerified, setGcashVerified] = useState(false);
+  const [gcashQrLoadFailed, setGcashQrLoadFailed] = useState(false);
 
   const [discountPercent, setDiscountPercent] = useState("0");
   const [supervisorUsername, setSupervisorUsername] = useState("");
@@ -163,17 +174,11 @@ export default function Checkout() {
   const [error, setError] = useState("");
   const [transactionCode] = useState(createTransactionCode);
 
-  const parsedReceived =
-    amountReceived.trim() === ""
-      ? Number.NaN
-      : Number(amountReceived);
 
-  const validReceived =
-    Number.isFinite(parsedReceived) && parsedReceived >= 0;
+  // --------------------------------------------------
+  // Discount calculations
+  // --------------------------------------------------
 
-  const receivedCents = validReceived
-    ? Math.round(parsedReceived * 100)
-    : 0;
 
   const discountValue =
     discountPercent.trim() === ""
@@ -188,10 +193,13 @@ export default function Checkout() {
       discountPercent.trim() || "0",
     );
 
-  const discountLimit = Number(settings?.discountLimit ?? "10");
+  const discountLimit = Number(
+    settings?.discountLimit ?? "10",
+  );
 
   const discountOverLimit =
-    discountInputValid && discountValue > discountLimit;
+    discountInputValid &&
+    discountValue > discountLimit;
 
   const supervisorRequired =
     discountOverLimit &&
@@ -204,6 +212,12 @@ export default function Checkout() {
   const supervisorCredentialsValid =
     supervisorUsername.trim().length >= 3 &&
     /^\d{6}$/.test(supervisorPin);
+
+
+  // --------------------------------------------------
+  // Sale totals
+  // --------------------------------------------------
+
 
   const grossSubtotalCents = Math.round(total * 100);
 
@@ -220,10 +234,14 @@ export default function Checkout() {
   );
 
   const taxCents = settings
-    ? calculateTaxCents(subtotalCents, settings.taxRate)
+    ? calculateTaxCents(
+      subtotalCents,
+      settings.taxRate,
+    )
     : 0;
 
-  const unroundedTotalCents = subtotalCents + taxCents;
+  const unroundedTotalCents =
+    subtotalCents + taxCents;
 
   const cashTotalCents =
     settings && settingsStatus === "synced"
@@ -235,18 +253,44 @@ export default function Checkout() {
 
   const estimatedTotalCents = unroundedTotalCents;
 
+
+  // --------------------------------------------------
+  // Payment calculations
+  // --------------------------------------------------
+
+
+  const parsedReceived =
+    amountReceived.trim() === ""
+      ? Number.NaN
+      : Number(amountReceived);
+
+  const validReceived =
+    Number.isFinite(parsedReceived) &&
+    parsedReceived >= 0;
+
+  const receivedCents = validReceived
+    ? Math.round(parsedReceived * 100)
+    : 0;
+
   const changeCents = Math.max(
     0,
     receivedCents - cashTotalCents,
   );
 
   const hasEnoughCash =
-    validReceived && receivedCents >= cashTotalCents;
+    validReceived &&
+    receivedCents >= cashTotalCents;
 
   const amountDueCents =
     paymentMethod === "cash"
       ? cashTotalCents
       : estimatedTotalCents;
+
+
+  // --------------------------------------------------
+  // Formatting
+  // --------------------------------------------------
+
 
   const formatMoney = (cents: number) =>
     money(
@@ -256,6 +300,12 @@ export default function Checkout() {
       decimalPrecision,
     );
 
+
+  // --------------------------------------------------
+  // Payment method
+  // --------------------------------------------------
+
+
   const updatePaymentMethod = (method: PaymentMethod) => {
     if (submitting) return;
 
@@ -263,6 +313,12 @@ export default function Checkout() {
     setError("");
     setRequestFailed(false);
   };
+
+
+  // --------------------------------------------------
+  // Sale completion
+  // --------------------------------------------------
+
 
   const finishSale = (sale: SaleRecord) => {
     clearCart();
@@ -274,6 +330,7 @@ export default function Checkout() {
       },
     });
   };
+
 
   const handleCompleteSale = async () => {
     setError("");
@@ -294,7 +351,9 @@ export default function Checkout() {
     }
 
     if (!discountInputValid) {
-      setError("Enter a valid discount percentage between 0 and 100.");
+      setError(
+        "Enter a valid discount percentage between 0 and 100.",
+      );
       return;
     }
 
@@ -315,8 +374,13 @@ export default function Checkout() {
       return;
     }
 
-    if (paymentMethod === "cash" && !hasEnoughCash) {
-      setError("Amount received must be at least the amount due.");
+    if (
+      paymentMethod === "cash" &&
+      !hasEnoughCash
+    ) {
+      setError(
+        "Amount received must be at least the amount due.",
+      );
       return;
     }
 
@@ -328,8 +392,13 @@ export default function Checkout() {
       return;
     }
 
-    if (paymentMethod === "gcash" && !gcashVerified) {
-      setError("Verify that the GCash payment was received first.");
+    if (
+      paymentMethod === "gcash" &&
+      !gcashVerified
+    ) {
+      setError(
+        "Verify that the GCash payment was received first.",
+      );
       return;
     }
 
@@ -350,7 +419,9 @@ export default function Checkout() {
 
       ...(supervisorRequired
         ? {
-          supervisor_username: supervisorUsername.trim().toLowerCase(),
+          supervisor_username: supervisorUsername
+            .trim()
+            .toLowerCase(),
           supervisor_pin: supervisorPin,
         }
         : {}),
@@ -392,6 +463,12 @@ export default function Checkout() {
     }
   };
 
+
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
+
+
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
@@ -403,7 +480,10 @@ export default function Checkout() {
             accessibilityLabel="Go back"
             className="h-8 w-8 items-center justify-center"
           >
-            <StyledChevronLeft size={22} className="text-ctp-text" />
+            <StyledChevronLeft
+              size={22}
+              className="text-ctp-text"
+            />
           </Pressable>
 
           <Text className="font-inter-semibold text-lg text-ctp-text">
@@ -445,6 +525,7 @@ export default function Checkout() {
             </View>
           ) : null}
 
+          {/* Sale summary */}
           <View className="mb-8 py-4">
             <Text className="font-inter-semibold text-ctp-subtext0">
               Amount Due
@@ -523,6 +604,7 @@ export default function Checkout() {
             </Text>
           </View>
 
+
           {/* Discount */}
           <View className="mb-7 rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
             <Text className="font-inter-semibold text-base text-ctp-text">
@@ -563,6 +645,7 @@ export default function Checkout() {
                 <Text className="font-inter-regular text-[10px] text-ctp-subtext0">
                   Discount amount
                 </Text>
+
                 <Text className="font-inter-semibold text-sm text-ctp-green">
                   {formatMoney(discountCents)}
                 </Text>
@@ -581,6 +664,7 @@ export default function Checkout() {
                   <Text className="font-inter-semibold text-sm text-ctp-yellow">
                     Supervisor authorization required
                   </Text>
+
                   <Text className="mt-1 font-inter-regular text-xs leading-5 text-ctp-subtext0">
                     This discount is above the cashier limit. A designated supervisor must authorize it.
                   </Text>
@@ -590,6 +674,7 @@ export default function Checkout() {
                   <Text className="font-inter-medium text-xs text-ctp-subtext1">
                     Supervisor username
                   </Text>
+
                   <TextInput
                     value={supervisorUsername}
                     onChangeText={(value) => {
@@ -611,6 +696,7 @@ export default function Checkout() {
                   <Text className="font-inter-medium text-xs text-ctp-subtext1">
                     Supervisor six-digit PIN
                   </Text>
+
                   <TextInput
                     value={supervisorPin}
                     onChangeText={(value) => {
@@ -646,6 +732,8 @@ export default function Checkout() {
             ) : null}
           </View>
 
+
+          {/* Payment method */}
           <Text className="mb-3 font-inter-semibold text-base text-ctp-text">
             Payment Method
           </Text>
@@ -655,14 +743,19 @@ export default function Checkout() {
               onPress={() => updatePaymentMethod("cash")}
               disabled={submitting}
               accessibilityRole="radio"
-              accessibilityState={{ selected: paymentMethod === "cash" }}
+              accessibilityState={{
+                selected: paymentMethod === "cash",
+              }}
               className={`flex-1 items-center gap-2 rounded-md border bg-ctp-mantle p-5 ${paymentMethod === "cash"
                   ? "border-ctp-blue"
                   : "border-ctp-surface1"
                 }`}
             >
               <View className="h-20 w-full items-center justify-center">
-                <StyledBanknote size={40} className="text-ctp-text" />
+                <StyledBanknote
+                  size={40}
+                  className="text-ctp-text"
+                />
               </View>
 
               <Text className="text-center font-inter-semibold text-ctp-text">
@@ -674,14 +767,18 @@ export default function Checkout() {
               onPress={() => updatePaymentMethod("gcash")}
               disabled={submitting}
               accessibilityRole="radio"
-              accessibilityState={{ selected: paymentMethod === "gcash" }}
+              accessibilityState={{
+                selected: paymentMethod === "gcash",
+              }}
               className={`flex-1 items-center gap-2 rounded-md border bg-ctp-mantle p-5 ${paymentMethod === "gcash"
                   ? "border-ctp-blue"
                   : "border-ctp-surface1"
                 }`}
             >
               <View className="h-20 w-full items-center justify-center">
-                <GCashLogo width={60} height={60} />
+                <Text className="font-inter-bold text-2xl text-ctp-blue">
+                  GCash
+                </Text>
               </View>
 
               <Text className="text-center font-inter-semibold text-ctp-blue">
@@ -690,6 +787,8 @@ export default function Checkout() {
             </Pressable>
           </View>
 
+
+          {/* Cash payment */}
           {paymentMethod === "cash" ? (
             <View className="mt-8 gap-5">
               <View className="gap-2">
@@ -724,6 +823,7 @@ export default function Checkout() {
               </View>
             </View>
           ) : (
+            /* GCash payment */
             <View className="mt-8 gap-5">
               <View>
                 <Text className="font-inter-semibold text-lg text-ctp-text">
@@ -735,15 +835,55 @@ export default function Checkout() {
                 </Text>
               </View>
 
-              <View className="items-center justify-center">
-                <View className="h-[200px] w-[200px] items-center justify-center rounded-md bg-ctp-surface0 p-4">
-                  <Text className="text-center font-inter-medium text-sm text-ctp-subtext0">
-                    GCash payment QR
-                  </Text>
+              <View className="items-center">
+                <View className="min-h-[220px] w-full items-center justify-center rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
+                  {gcashQrImageSource && !gcashQrLoadFailed ? (
+                    <>
+                      <Image
+                        key={gcashQrImageSource.uri}
+                        source={gcashQrImageSource}
+                        resizeMode="contain"
+                        onLoad={() => setGcashQrLoadFailed(false)}
+                        onError={() => setGcashQrLoadFailed(true)}
+                        style={{
+                          width: 200,
+                          height: 200,
+                        }}
+                      />
 
-                  <Text className="mt-1 text-center text-xs text-ctp-subtext0">
-                    Payment QR integration is not configured yet.
-                  </Text>
+                      <Text className="mt-3 text-center font-inter-medium text-xs text-ctp-subtext0">
+                        Scan this QR code using GCash.
+                      </Text>
+                    </>
+                  ) : (
+                    <View className="items-center px-3">
+                      <Text className="text-center font-inter-semibold text-sm text-ctp-subtext0">
+                        {gcashQrLoadFailed
+                          ? "Could not load the payment QR"
+                          : "No GCash payment QR configured"}
+                      </Text>
+
+                      <Text className="mt-2 text-center font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                        {gcashQrLoadFailed
+                          ? "Check the terminal connection and retry settings synchronization."
+                          : "Ask the shop administrator to upload the GCash QR code in Settings → Tax & receipts."}
+                      </Text>
+
+                      {gcashQrLoadFailed ? (
+                        <Pressable
+                          onPress={() => {
+                            setGcashQrLoadFailed(false);
+                            void refreshSettings();
+                          }}
+                          className="mt-3 rounded-lg border border-ctp-surface1 px-3 py-2"
+                        >
+                          <Text className="font-inter-semibold text-xs text-ctp-text">
+                            Retry
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  )}
                 </View>
               </View>
 
@@ -773,7 +913,9 @@ export default function Checkout() {
                 onPress={() => setGcashVerified((value) => !value)}
                 disabled={submitting}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: gcashVerified }}
+                accessibilityState={{
+                  checked: gcashVerified,
+                }}
                 className="flex-row items-start gap-3 rounded-lg border border-ctp-surface1 bg-ctp-mantle p-3"
               >
                 <View
@@ -796,6 +938,8 @@ export default function Checkout() {
             </View>
           )}
 
+
+          {/* Errors */}
           {error ? (
             <View className="mt-5 rounded-md border border-ctp-red/40 bg-ctp-red/10 p-3">
               <Text className="font-inter-medium text-sm leading-5 text-ctp-red">
@@ -804,6 +948,8 @@ export default function Checkout() {
             </View>
           ) : null}
 
+
+          {/* Complete sale */}
           <Pressable
             onPress={handleCompleteSale}
             disabled={
@@ -812,14 +958,20 @@ export default function Checkout() {
               !settingsReady ||
               !discountInputValid ||
               supervisorApprovalDisabled ||
-              (supervisorRequired && !supervisorCredentialsValid)
+              (
+                supervisorRequired &&
+                !supervisorCredentialsValid
+              )
             }
             className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting ||
                 items.length === 0 ||
                 !settingsReady ||
                 !discountInputValid ||
                 supervisorApprovalDisabled ||
-                (supervisorRequired && !supervisorCredentialsValid)
+                (
+                  supervisorRequired &&
+                  !supervisorCredentialsValid
+                )
                 ? "bg-ctp-blue/50"
                 : "bg-ctp-blue"
               }`}
