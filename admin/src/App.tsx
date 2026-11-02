@@ -15,17 +15,19 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import TopbarButtonProps from "./components/TopbarButtonProps.tsx";
-import Overview from "./views/Overview.tsx";
-import Terminals from "./views/Terminals.tsx";
-import Console from "./views/Console.tsx";
-import Database from "./views/Database.tsx";
-import Settings from "./views/Settings.tsx";
+import TopbarButtonProps from "./components/TopbarButtonProps";
+import Overview from "./views/Overview";
+import Cashiers from "./views/Cashiers";
+import Terminals from "./views/Terminals";
+import Console from "./views/Console";
+import Database from "./views/Database";
+import Settings from "./views/Settings";
 
 import { API_BASE_URL, apiRequest } from "./lib/api";
 
 const tabs = [
   "Overview",
+  "Cashiers",
   "Terminals",
   "Console",
   "Database",
@@ -36,12 +38,12 @@ type Tab = (typeof tabs)[number];
 type Theme = "light" | "dark";
 type ServerAction = "restart" | "shutdown";
 type BackendStatus = "checking" | "connected" | "disconnected";
+
 type BackendHealthResponse = {
   status: string;
   database: string;
   message: string;
 };
-
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
@@ -64,9 +66,10 @@ export default function Dashboard() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [pendingAction, setPendingAction] = useState<ServerAction | null>(
-    null,
-  );
+
+  const [pendingAction, setPendingAction] =
+    useState<ServerAction | null>(null);
+
   const [notice, setNotice] = useState("");
   const [compactHeader, setCompactHeader] = useState(false);
 
@@ -108,7 +111,6 @@ export default function Dashboard() {
           },
         );
 
-        // Both the API and PostgreSQL must report healthy.
         if (
           health.status !== "online" ||
           health.database !== "online"
@@ -125,7 +127,6 @@ export default function Dashboard() {
         }
       } finally {
         window.clearTimeout(timeout);
-
         requestInFlight = false;
 
         if (activeController === controller) {
@@ -155,7 +156,9 @@ export default function Dashboard() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setCompactHeader(!entry.isIntersecting && window.scrollY > 120);
+        setCompactHeader(
+          !entry.isIntersecting && window.scrollY > 120,
+        );
       },
       { threshold: 0 },
     );
@@ -168,7 +171,9 @@ export default function Dashboard() {
       );
     };
 
-    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
 
     return () => {
       observer.disconnect();
@@ -178,7 +183,10 @@ export default function Dashboard() {
 
   // Apply the selected theme to the entire application.
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.classList.toggle(
+      "dark",
+      theme === "dark",
+    );
 
     try {
       localStorage.setItem("kinesis-theme", theme);
@@ -219,10 +227,14 @@ export default function Dashboard() {
   }, [menuOpen]);
 
   const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
+    setTheme((current) =>
+      current === "dark" ? "light" : "dark",
+    );
   };
 
-  const handleServerAction = (action: "maintenance" | ServerAction) => {
+  const handleServerAction = (
+    action: "maintenance" | ServerAction,
+  ) => {
     setMenuOpen(false);
     setNotice("");
 
@@ -248,7 +260,6 @@ export default function Dashboard() {
   const confirmServerAction = () => {
     if (!pendingAction) return;
 
-    // Backend integration is intentionally not implemented yet.
     setNotice(
       pendingAction === "restart"
         ? "Restart was not performed. Connect this action to the backend first."
@@ -261,7 +272,11 @@ export default function Dashboard() {
   // Shared tab navigation for the full and compact headers.
   const renderTabs = (compact = false) => (
     <nav
-      aria-label={compact ? "Floating dashboard sections" : "Dashboard sections"}
+      aria-label={
+        compact
+          ? "Floating dashboard sections"
+          : "Dashboard sections"
+      }
       className={
         compact
           ? "min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
@@ -291,9 +306,11 @@ export default function Dashboard() {
       <button
         type="button"
         onClick={toggleTheme}
-        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"
+          } mode`}
         aria-pressed={theme === "dark"}
-        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"
+          } mode`}
         className={`flex items-center justify-center rounded-lg border border-ctp-surface1 bg-ctp-mantle text-ctp-text transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve ${compact ? "h-9 w-9" : "h-11 gap-2 px-3"
           }`}
       >
@@ -315,7 +332,9 @@ export default function Dashboard() {
         aria-label="Notifications"
         title="Notifications"
         onClick={() =>
-          setNotice("Notifications are not connected to the backend yet.")
+          setNotice(
+            "Notifications are not connected to the backend yet.",
+          )
         }
         className={`relative flex items-center justify-center rounded-lg border border-ctp-surface1 bg-ctp-mantle text-ctp-subtext1 transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve ${compact ? "h-9 w-9" : "h-11 w-11"
           }`}
@@ -378,10 +397,12 @@ export default function Dashboard() {
                 size={17}
                 className="mt-0.5 shrink-0 text-ctp-blue"
               />
+
               <span>
                 <span className="block text-sm font-medium text-ctp-text">
                   Restart server
                 </span>
+
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
                   Restart the API service
                 </span>
@@ -391,23 +412,28 @@ export default function Dashboard() {
             <button
               type="button"
               role="menuitem"
-              onClick={() => handleServerAction("maintenance")}
+              onClick={() =>
+                handleServerAction("maintenance")
+              }
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve"
             >
               <Wrench
                 size={17}
                 className="mt-0.5 shrink-0 text-ctp-yellow"
               />
+
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-ctp-text">
                   Maintenance mode
                 </span>
+
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
                   {maintenanceMode
                     ? "Currently enabled in preview"
                     : "Temporarily restrict terminal operations"}
                 </span>
               </span>
+
               {maintenanceMode && (
                 <Check
                   size={16}
@@ -428,10 +454,12 @@ export default function Dashboard() {
                 size={17}
                 className="mt-0.5 shrink-0 text-ctp-red"
               />
+
               <span>
                 <span className="block text-sm font-medium text-ctp-red">
                   Shut down server
                 </span>
+
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
                   Stop the backend service
                 </span>
@@ -464,27 +492,33 @@ export default function Dashboard() {
     },
   };
 
-  const currentBackendStatus = backendStatusStyles[backendStatus];
+  const currentBackendStatus =
+    backendStatusStyles[backendStatus];
 
   return (
     <div className="min-h-screen bg-ctp-base p-5 text-ctp-text transition-colors duration-200 sm:p-8 lg:p-10">
       {/* Compact floating navigation */}
       <div
         className={`fixed inset-x-0 top-0 z-[60] px-3 pt-3 sm:px-6 ${compactHeader
-          ? "pointer-events-auto"
-          : "pointer-events-none"
+            ? "pointer-events-auto"
+            : "pointer-events-none"
           }`}
       >
         <div
           className={`mx-auto flex max-w-7xl items-center gap-3 rounded-2xl border border-ctp-surface1/80 bg-ctp-mantle/95 p-2 shadow-xl shadow-black/10 backdrop-blur-xl transition-[opacity,transform] duration-300 ease-out ${compactHeader
-            ? "translate-y-0 scale-100 opacity-100"
-            : "-translate-y-5 scale-[0.98] opacity-0"
+              ? "translate-y-0 scale-100 opacity-100"
+              : "-translate-y-5 scale-[0.98] opacity-0"
             }`}
           aria-hidden={!compactHeader}
         >
           <button
             type="button"
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            onClick={() =>
+              window.scrollTo({
+                top: 0,
+                behavior: "smooth",
+              })
+            }
             tabIndex={compactHeader ? 0 : -1}
             className="hidden shrink-0 px-2 sm:block"
             title="Back to top"
@@ -523,7 +557,10 @@ export default function Dashboard() {
         className="flex flex-wrap items-center justify-between gap-4"
       >
         <div>
-          <p className="font-fredoka text-2xl text-ctp-text">Kinesis</p>
+          <p className="font-fredoka text-2xl text-ctp-text">
+            Kinesis
+          </p>
+
           <p className="mt-1 text-xs text-ctp-subtext0">
             Server administration
           </p>
@@ -536,6 +573,7 @@ export default function Dashboard() {
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Users size={16} className="text-ctp-subtext0" />
+
           <p className="text-sm text-ctp-subtext1">
             2 users connected
           </p>
@@ -558,6 +596,7 @@ export default function Dashboard() {
             <span
               className={`h-1.5 w-1.5 rounded-full ${currentBackendStatus.dot}`}
             />
+
             {currentBackendStatus.label}
           </span>
         </div>
@@ -570,7 +609,11 @@ export default function Dashboard() {
           className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-ctp-blue/20 bg-ctp-blue/5 px-4 py-3"
         >
           <div className="flex items-start gap-2.5">
-            <Server size={16} className="mt-0.5 shrink-0 text-ctp-blue" />
+            <Server
+              size={16}
+              className="mt-0.5 shrink-0 text-ctp-blue"
+            />
+
             <p className="text-sm leading-relaxed text-ctp-subtext1">
               {notice}
             </p>
@@ -593,6 +636,7 @@ export default function Dashboard() {
       {/* Active page */}
       <main>
         {activeTab === "Overview" && <Overview />}
+        {activeTab === "Cashiers" && <Cashiers />}
         {activeTab === "Terminals" && <Terminals />}
         {activeTab === "Console" && <Console />}
         {activeTab === "Database" && <Database />}
@@ -618,8 +662,8 @@ export default function Dashboard() {
           >
             <div
               className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${pendingAction === "shutdown"
-                ? "bg-ctp-red/10 text-ctp-red"
-                : "bg-ctp-yellow/10 text-ctp-yellow"
+                  ? "bg-ctp-red/10 text-ctp-red"
+                  : "bg-ctp-yellow/10 text-ctp-yellow"
                 }`}
             >
               {pendingAction === "shutdown" ? (
@@ -652,6 +696,7 @@ export default function Dashboard() {
                 size={16}
                 className="mt-0.5 shrink-0 text-ctp-yellow"
               />
+
               <p className="text-xs leading-relaxed text-ctp-subtext0">
                 Backend actions are not implemented yet. Confirming here will
                 only display a notice; it will not stop or restart anything.
@@ -671,8 +716,8 @@ export default function Dashboard() {
                 type="button"
                 onClick={confirmServerAction}
                 className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-ctp-base transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 ${pendingAction === "shutdown"
-                  ? "bg-ctp-red focus-visible:ring-ctp-red"
-                  : "bg-ctp-yellow focus-visible:ring-ctp-yellow"
+                    ? "bg-ctp-red focus-visible:ring-ctp-red"
+                    : "bg-ctp-yellow focus-visible:ring-ctp-yellow"
                   }`}
               >
                 {pendingAction === "shutdown"

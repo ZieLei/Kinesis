@@ -7,6 +7,7 @@ from database import Base, DATABASE_URL
 
 import models  # noqa: F401 — existing application models
 import admin_models  # noqa: F401 — administrator authentication models
+import cashier_models  # noqa: F401 — cashier authentication models
 
 
 config = context.config

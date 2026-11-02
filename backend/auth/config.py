@@ -11,12 +11,7 @@ BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
 
 class AdminAuthSettings(BaseSettings):
     """
-    Authentication configuration for the Kinesis admin website.
-
-    Development defaults support the local Vite development server.
-
-    Production deployments require an explicit signing secret, HTTPS,
-    a secure __Host- cookie, and HTTPS-only allowed origins.
+    Authentication configuration for Kinesis administrator and cashier sessions.
     """
 
     environment: Literal["development", "production"] = "development"
@@ -66,6 +61,44 @@ class AdminAuthSettings(BaseSettings):
     )
 
     admin_login_lockout_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=1440,
+    )
+
+    # Cashier sessions are independent of administrator browser sessions.
+
+    cashier_session_idle_minutes: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+    )
+
+    cashier_session_absolute_hours: int = Field(
+        default=12,
+        ge=1,
+        le=168,
+    )
+
+    cashier_session_touch_interval_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=600,
+    )
+
+    cashier_login_attempt_window_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=120,
+    )
+
+    cashier_login_max_attempts: int = Field(
+        default=5,
+        ge=3,
+        le=50,
+    )
+
+    cashier_login_lockout_minutes: int = Field(
         default=15,
         ge=1,
         le=1440,
@@ -126,7 +159,16 @@ class AdminAuthSettings(BaseSettings):
 
         if self.admin_session_idle_minutes >= self.admin_session_absolute_hours * 60:
             raise ValueError(
-                "The idle session lifetime must be shorter "
+                "The admin idle session lifetime must be shorter "
+                "than the absolute session lifetime."
+            )
+
+        if (
+            self.cashier_session_idle_minutes
+            >= self.cashier_session_absolute_hours * 60
+        ):
+            raise ValueError(
+                "The cashier idle session lifetime must be shorter "
                 "than the absolute session lifetime."
             )
 
@@ -150,14 +192,9 @@ class AdminAuthSettings(BaseSettings):
                     "at least 32 characters."
                 )
 
-            origins = self.allowed_origins
-
-            if not origins:
-                raise ValueError(
-                    "Production requires at least one allowed admin origin."
-                )
-
-            if any(not origin.startswith("https://") for origin in origins):
+            if any(
+                not origin.startswith("https://") for origin in self.allowed_origins
+            ):
                 raise ValueError("Production admin origins must use HTTPS.")
 
         return self

@@ -11,8 +11,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from cashier_routes import CashierPrincipal, require_cashier_principal
 from database import get_db
-from models import AppSettings, Product, Sale, SaleItem
+from models import AppSettings, Product, Sale, SaleItem, Terminal
 from terminal_routes import require_admin_or_terminal, require_writable_terminal
 
 
@@ -231,7 +232,10 @@ def calculate_tax(
     subtotal: Decimal,
     tax_rate: Decimal,
 ) -> Decimal:
-    return (subtotal * tax_rate / Decimal("100")).quantize(CENT, rounding=ROUND_HALF_UP)
+    return (subtotal * tax_rate / Decimal("100")).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
 
 
 def round_cash_total(
@@ -280,6 +284,11 @@ def sale_response(sale: Sale) -> dict:
         "change_due": float(sale.change_due),
         "settings_snapshot": sale.settings_snapshot or {},
         "created_at": sale.created_at.isoformat(),
+        "cashier_id": (str(sale.cashier_id) if sale.cashier_id is not None else None),
+        "cashier_username": sale.cashier_username,
+        "cashier_display_name": sale.cashier_display_name,
+        "terminal_id": sale.terminal_id,
+        "terminal_device_id": sale.terminal_device_id,
         "items": [
             {
                 "id": item.id,
@@ -306,6 +315,11 @@ def sale_list_response(sale: Sale) -> dict:
         "total": float(sale.total),
         "created_at": sale.created_at.isoformat(),
         "item_count": sum(item.quantity for item in sale.items),
+        "cashier_id": (str(sale.cashier_id) if sale.cashier_id is not None else None),
+        "cashier_username": sale.cashier_username,
+        "cashier_display_name": sale.cashier_display_name,
+        "terminal_id": sale.terminal_id,
+        "terminal_device_id": sale.terminal_device_id,
     }
 
 
@@ -333,6 +347,7 @@ def checkout_matches_sale(
         return False
 
     stored_items = {(item.product_id, item.quantity) for item in sale.items}
+
     requested_items = {(item.product_id, item.quantity) for item in request.items}
 
     if stored_items != requested_items:
@@ -342,6 +357,21 @@ def checkout_matches_sale(
         return sale.amount_tendered == request.amount_tendered
 
     return True
+
+
+def checkout_belongs_to_cashier(
+    sale: Sale,
+    principal: CashierPrincipal,
+) -> bool:
+    """
+    Ensure an idempotent checkout retry belongs to the same
+    cashier and physical terminal as the original transaction.
+    """
+
+    return (
+        sale.cashier_id == principal.cashier.id
+        and sale.terminal_id == principal.terminal.id
+    )
 
 
 # --------------------------------------------------
@@ -389,13 +419,31 @@ def list_sales(
 @router.post("/sales", tags=["Sales"])
 def create_sale(
     checkout: CheckoutCreate,
-    _terminal: object = Depends(require_writable_terminal),
+    terminal: Terminal = Depends(require_writable_terminal),
+    cashier: CashierPrincipal = Depends(require_cashier_principal),
     db: Session = Depends(get_db),
 ):
-    existing = get_sale_by_code(db, checkout.transaction_code)
+    """
+    Complete a sale using an authenticated cashier and terminal.
+
+    All requested product rows are locked in ascending ID order.
+    Stock checks, sale creation, sale items, and stock deductions
+    happen in one database transaction.
+
+    When negative inventory is disabled, concurrent checkouts
+    cannot sell more units than are available.
+    """
+
+    # Fast path for retries where the original sale already exists.
+    existing = get_sale_by_code(
+        db,
+        checkout.transaction_code,
+    )
 
     if existing is not None:
-        if checkout_matches_sale(existing, checkout):
+        if checkout_matches_sale(existing, checkout) and checkout_belongs_to_cashier(
+            existing, cashier
+        ):
             return sale_response(existing)
 
         raise HTTPException(
@@ -411,30 +459,43 @@ def create_sale(
             allow_negative_inventory,
         ) = get_checkout_settings(db)
 
-        products_by_id: dict[int, Product] = {}
+        # Lock all products in one ordered query.
+        # This reduces database round trips compared with one SELECT
+        # per cart item while keeping a consistent product lock order.
+        requested_product_ids = sorted(item.product_id for item in checkout.items)
 
-        # Lock products in a consistent order to reduce deadlock risk.
-        for item in sorted(
-            checkout.items,
-            key=lambda entry: entry.product_id,
-        ):
-            product = db.scalar(
-                select(Product).where(Product.id == item.product_id).with_for_update()
+        locked_products = db.scalars(
+            select(Product)
+            .where(Product.id.in_(requested_product_ids))
+            .order_by(Product.id.asc())
+            .with_for_update()
+        ).all()
+
+        products_by_id = {product.id: product for product in locked_products}
+
+        missing_product_ids = [
+            product_id
+            for product_id in requested_product_ids
+            if product_id not in products_by_id
+        ]
+
+        if missing_product_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(f"Product ID {missing_product_ids[0]} does not exist."),
             )
 
-            if product is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Product ID {item.product_id} does not exist.",
-                )
-
-            products_by_id[product.id] = product
-
-        # Recheck idempotency after acquiring product locks.
-        existing = get_sale_by_code(db, checkout.transaction_code)
+        # A competing request may have committed this transaction
+        # while this request was waiting for product locks.
+        existing = get_sale_by_code(
+            db,
+            checkout.transaction_code,
+        )
 
         if existing is not None:
-            if checkout_matches_sale(existing, checkout):
+            if checkout_matches_sale(
+                existing, checkout
+            ) and checkout_belongs_to_cashier(existing, cashier):
                 result = sale_response(existing)
                 db.rollback()
                 return result
@@ -444,6 +505,8 @@ def create_sale(
                 detail="This transaction code has already been used.",
             )
 
+        # The unique database constraint remains the final protection
+        # against duplicate GCash references submitted concurrently.
         if checkout.reference_number:
             duplicate_reference = db.scalar(
                 select(Sale.id).where(
@@ -454,7 +517,7 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="This GCash reference number has already been recorded.",
+                    detail=("This GCash reference number has already been recorded."),
                 )
 
         calculated_items: list[tuple[CheckoutItem, Product, Decimal, Decimal]] = []
@@ -464,8 +527,6 @@ def create_sale(
         for item in checkout.items:
             product = products_by_id[item.product_id]
 
-            # Only enforce stock availability when negative inventory
-            # is disabled in the current server settings.
             if not allow_negative_inventory and product.stock < item.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -477,6 +538,7 @@ def create_sale(
                 )
 
             unit_price = Decimal(product.price).quantize(CENT)
+
             line_total = (unit_price * item.quantity).quantize(CENT)
 
             subtotal += line_total
@@ -484,7 +546,12 @@ def create_sale(
             calculated_items.append((item, product, unit_price, line_total))
 
         subtotal = subtotal.quantize(CENT)
-        tax_amount = calculate_tax(subtotal, tax_rate)
+
+        tax_amount = calculate_tax(
+            subtotal,
+            tax_rate,
+        )
+
         unrounded_total = (subtotal + tax_amount).quantize(CENT)
 
         if checkout.payment_method == "cash":
@@ -502,6 +569,7 @@ def create_sale(
                 )
 
             amount_tendered = amount_tendered.quantize(CENT)
+
             change_due = (amount_tendered - total).quantize(CENT)
 
         else:
@@ -520,6 +588,12 @@ def create_sale(
             amount_tendered=amount_tendered,
             change_due=change_due,
             settings_snapshot=settings_snapshot,
+            # Persist the authenticated identities.
+            cashier_id=cashier.cashier.id,
+            terminal_id=terminal.id,
+            cashier_username=cashier.cashier.username,
+            cashier_display_name=cashier.cashier.display_name,
+            terminal_device_id=terminal.device_id,
         )
 
         db.add(sale)
@@ -543,6 +617,8 @@ def create_sale(
             product.how_much_sold += item.quantity
 
         sale_id = sale.id
+
+        # Sale, sale items, and stock changes commit atomically.
         db.commit()
 
         saved_sale = db.scalar(
@@ -564,9 +640,19 @@ def create_sale(
     except IntegrityError as exc:
         db.rollback()
 
-        existing = get_sale_by_code(db, checkout.transaction_code)
+        # Handle a duplicate transaction code caused by a concurrent
+        # retry. Only the original cashier on the original terminal
+        # may receive the saved sale as an idempotent result.
+        existing = get_sale_by_code(
+            db,
+            checkout.transaction_code,
+        )
 
-        if existing is not None and checkout_matches_sale(existing, checkout):
+        if (
+            existing is not None
+            and checkout_matches_sale(existing, checkout)
+            and checkout_belongs_to_cashier(existing, cashier)
+        ):
             return sale_response(existing)
 
         if checkout.reference_number:
@@ -579,7 +665,7 @@ def create_sale(
             if duplicate_reference is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="This GCash reference number has already been recorded.",
+                    detail=("This GCash reference number has already been recorded."),
                 ) from exc
 
         logger.warning("Checkout failed due to a database constraint.")
@@ -591,7 +677,8 @@ def create_sale(
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not complete checkout")
+
+        logger.exception("Could not complete checkout.")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -653,6 +740,7 @@ def period_dates(
         return start, end
 
     start = date(reference_date.year, 1, 1)
+
     return start, date(reference_date.year + 1, 1, 1)
 
 
@@ -684,7 +772,10 @@ def sales_summary(
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict:
-    conditions = sale_conditions(start_date, end_date)
+    conditions = sale_conditions(
+        start_date,
+        end_date,
+    )
 
     transaction_count, revenue = db.execute(
         select(
@@ -711,7 +802,10 @@ def load_period_rows(
     start_date: date,
     end_date: date,
 ):
-    conditions = sale_conditions(start_date, end_date)
+    conditions = sale_conditions(
+        start_date,
+        end_date,
+    )
 
     sales = db.execute(
         select(Sale.id, Sale.total, Sale.created_at)
@@ -762,6 +856,7 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
+
             buckets.append(bucket)
             bucket_by_key[hour] = bucket
 
@@ -774,6 +869,7 @@ def build_series(
                 "transactions": 0,
                 "items": 0,
             }
+
             buckets.append(bucket)
             bucket_by_key[month] = bucket
 
@@ -793,6 +889,7 @@ def build_series(
 
             buckets.append(bucket)
             bucket_by_key[cursor] = bucket
+
             cursor += timedelta(days=1)
 
     for row in sales:
@@ -800,8 +897,10 @@ def build_series(
 
         if period == "daily":
             key = created_at.hour
+
         elif period == "yearly":
             key = created_at.month
+
         else:
             key = created_at.date()
 
@@ -834,7 +933,10 @@ def get_sales_report(
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
-    current_start, current_end = period_dates(period, selected_date)
+    current_start, current_end = period_dates(
+        period,
+        selected_date,
+    )
 
     previous_start, _ = period_dates(
         period,
@@ -857,8 +959,16 @@ def get_sales_report(
         "period_end_exclusive": current_end.isoformat(),
         "previous_period_start": previous_start.isoformat(),
         "previous_period_end_exclusive": previous_end.isoformat(),
-        "current": sales_summary(db, current_start, current_end),
-        "previous": sales_summary(db, previous_start, previous_end),
+        "current": sales_summary(
+            db,
+            current_start,
+            current_end,
+        ),
+        "previous": sales_summary(
+            db,
+            previous_start,
+            previous_end,
+        ),
         "lifetime": sales_summary(db),
         "series": build_series(
             period,

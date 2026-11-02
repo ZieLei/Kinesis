@@ -14,10 +14,10 @@ from fastapi import (
     Request,
     status,
 )
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -35,8 +35,6 @@ BACKEND_DIRECTORY = Path(__file__).resolve().parent
 
 
 class TerminalSettings(BaseSettings):
-    terminal_enrollment_key: SecretStr | None = None
-
     terminal_heartbeat_timeout_seconds: int = Field(
         default=90,
         ge=15,
@@ -57,59 +55,6 @@ settings = TerminalSettings()
 # --------------------------------------------------
 # Request schemas
 # --------------------------------------------------
-
-
-class TerminalRegistrationRequest(BaseModel):
-    device_id: str = Field(
-        min_length=8,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9._:-]+$",
-    )
-
-    name: str = Field(
-        min_length=1,
-        max_length=100,
-    )
-
-    device_type: str = Field(
-        min_length=1,
-        max_length=60,
-    )
-
-    platform: str = Field(
-        min_length=1,
-        max_length=32,
-    )
-
-    app_version: str | None = Field(
-        default=None,
-        max_length=50,
-    )
-
-    @field_validator(
-        "name",
-        "device_type",
-        "platform",
-    )
-    @classmethod
-    def normalize_required_text(cls, value: str) -> str:
-        value = value.strip()
-
-        if not value:
-            raise ValueError("This field cannot be blank.")
-
-        return value
-
-    @field_validator("app_version")
-    @classmethod
-    def normalize_app_version(
-        cls,
-        value: str | None,
-    ) -> str | None:
-        if value is None:
-            return None
-
-        return value.strip() or None
 
 
 class TerminalHeartbeatRequest(BaseModel):
@@ -192,30 +137,6 @@ def require_admin_token() -> None:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Administrator browser authentication is required.",
     )
-
-
-def require_enrollment_key(
-    x_terminal_enrollment_key: str | None = Header(
-        default=None,
-        alias="X-Terminal-Enrollment-Key",
-    ),
-) -> None:
-    configured_key = settings.terminal_enrollment_key
-
-    if configured_key is None or not configured_key.get_secret_value():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Terminal registration is not configured on the server.",
-        )
-
-    if not x_terminal_enrollment_key or not secrets.compare_digest(
-        x_terminal_enrollment_key,
-        configured_key.get_secret_value(),
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="A valid terminal enrollment key is required.",
-        )
 
 
 def require_terminal(
@@ -307,8 +228,8 @@ def require_writable_terminal(
     """
     Require an enabled terminal that is not in maintenance mode.
 
-    This remains terminal-only. Administrator browser sessions do not
-    bypass the POS terminal's maintenance restrictions.
+    Administrator browser sessions do not bypass the POS terminal's
+    maintenance restrictions.
     """
 
     if terminal.maintenance_mode:
@@ -415,105 +336,30 @@ def terminal_command_response(
 
 
 # --------------------------------------------------
-# Register a new terminal
+# Retired legacy registration endpoint
 # --------------------------------------------------
 
 
 @router.post(
     "/terminals/register",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_410_GONE,
+    deprecated=True,
 )
-def register_terminal(
-    registration: TerminalRegistrationRequest,
-    request: Request,
-    _authorized: None = Depends(require_enrollment_key),
-    db: Session = Depends(get_db),
-):
-    existing = db.scalar(
-        select(Terminal).where(
-            Terminal.device_id == registration.device_id,
-        )
-    )
+def register_terminal_legacy():
+    """
+    The shared enrollment-key registration flow has been retired.
 
-    if existing is not None:
-        message = (
-            "This terminal is disabled. An administrator must re-enable it."
-            if not existing.is_enabled
-            else (
-                "This device is already registered. Reuse its stored "
-                "terminal credentials instead of registering it again."
-            )
-        )
+    New terminals must use the administrator-issued, single-use
+    QR pairing flow at POST /api/terminals/pair.
+    """
 
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=message,
-        )
-
-    raw_token = secrets.token_urlsafe(32)
-
-    token_hash = hashlib.sha256(
-        raw_token.encode("utf-8"),
-    ).hexdigest()
-
-    now = utc_now()
-
-    terminal = Terminal(
-        device_id=registration.device_id,
-        name=registration.name,
-        device_type=registration.device_type,
-        platform=registration.platform,
-        app_version=registration.app_version,
-        ip_address=get_request_ip(request),
-        session_token_hash=token_hash,
-        is_enabled=True,
-        maintenance_mode=False,
-        first_seen_at=now,
-        last_seen_at=now,
-        created_at=now,
-        updated_at=now,
-    )
-
-    try:
-        db.add(terminal)
-        db.commit()
-        db.refresh(terminal)
-
-    except IntegrityError as exc:
-        db.rollback()
-
-        logger.warning("Terminal registration conflicted with an existing record.")
-
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This terminal is already registered.",
-        ) from exc
-
-    except SQLAlchemyError as exc:
-        db.rollback()
-
-        logger.exception("Terminal registration failed.")
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The terminal could not be registered.",
-        ) from exc
-
-    # Return the raw token only once. The database stores only its hash.
-    return {
-        "terminal_id": terminal.id,
-        "device_id": terminal.device_id,
-        "session_token": raw_token,
-        "is_enabled": terminal.is_enabled,
-        "maintenance_mode": terminal.maintenance_mode,
-        "heartbeat_interval_seconds": max(
-            5,
-            min(
-                30,
-                settings.terminal_heartbeat_timeout_seconds // 3,
-            ),
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Shared-key terminal registration has been retired. "
+            "Use the QR pairing flow provided by Terminal Management."
         ),
-    }
+    )
 
 
 # --------------------------------------------------
@@ -885,7 +731,7 @@ def broadcast_to_terminals(
         ) from exc
 
     return {
-        "message": ("Broadcast queued. Delivery is pending terminal acknowledgement."),
+        "message": "Broadcast queued. Delivery is pending terminal acknowledgement.",
         "recipient_count": len(terminals),
         "commands_created": len(commands),
         "created_at": now.isoformat(),

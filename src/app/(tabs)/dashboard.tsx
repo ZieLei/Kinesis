@@ -1,5 +1,13 @@
-import { useCallback, useMemo } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
+
+import { useCallback, useMemo, useState } from "react";
+import {
+  Alert,
+  ActivityIndicator,
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
@@ -9,6 +17,8 @@ import { styledIcon } from "@/components/StyledIcon";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { LOW_STOCK_THRESHOLD } from "@/lib/products";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
+import { useCashierAuth } from "@/app/context/CashierAuthContext";
+import { useCart } from "@/app/context/CartContext";
 
 import SunIcon from "lucide-react-native/icons/sun";
 import MoonIcon from "lucide-react-native/icons/moon";
@@ -17,6 +27,8 @@ import LayoutGridIcon from "lucide-react-native/icons/layout-grid";
 import ShoppingCartIcon from "lucide-react-native/icons/shopping-cart";
 import DollarSignIcon from "lucide-react-native/icons/dollar-sign";
 import UserIcon from "lucide-react-native/icons/user";
+import UsersRoundIcon from "lucide-react-native/icons/users-round";
+import LogOutIcon from "lucide-react-native/icons/log-out";
 
 import type { SaleListItem } from "@/types/sale";
 
@@ -27,6 +39,8 @@ const DollarSign = styledIcon(DollarSignIcon);
 const User = styledIcon(UserIcon);
 const Sun = styledIcon(SunIcon);
 const Moon = styledIcon(MoonIcon);
+const UsersRound = styledIcon(UsersRoundIcon);
+const LogOut = styledIcon(LogOutIcon);
 
 const money = (amount: number) =>
   `₱${amount.toLocaleString("en-PH", {
@@ -81,7 +95,10 @@ function getStatusPresentation(status: string) {
     case "completed":
     case "confirmed":
       return {
-        label: status.toLowerCase() === "completed" ? "Completed" : "Confirmed",
+        label:
+          status.toLowerCase() === "completed"
+            ? "Completed"
+            : "Confirmed",
         style: "bg-ctp-green/15 text-ctp-green",
       };
 
@@ -110,15 +127,35 @@ export default function Dashboard() {
   const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  const { data, loading, error, loadDashboard } = useDashboardData();
+  const {
+    cashier,
+    logout,
+  } = useCashierAuth();
+
+  const {
+    items: cartItems,
+    clearCart,
+  } = useCart();
+
+  const [endingSession, setEndingSession] = useState(false);
+
+  const {
+    data,
+    loading,
+    error,
+    loadDashboard,
+  } = useDashboardData();
 
   // Read the low-stock threshold synchronized with the backend.
   const { settings } = useTerminalSettings();
 
-  const configuredThreshold = Number(settings?.lowStockThreshold);
+  const configuredThreshold = Number(
+    settings?.lowStockThreshold,
+  );
 
   const lowStockThreshold =
-    Number.isInteger(configuredThreshold) && configuredThreshold >= 0
+    Number.isInteger(configuredThreshold) &&
+      configuredThreshold >= 0
       ? configuredThreshold
       : LOW_STOCK_THRESHOLD;
 
@@ -135,6 +172,69 @@ export default function Dashboard() {
 
   const toggleTheme = () => {
     setColorScheme(isDark ? "light" : "dark");
+  };
+
+  // --------------------------------------------------
+  // Cashier session management
+  // --------------------------------------------------
+
+  const endCashierSession = async () => {
+    if (endingSession) return;
+
+    setEndingSession(true);
+
+    // Never allow an unfinished cart to be inherited by another cashier.
+    clearCart();
+
+    try {
+      await logout();
+
+      router.replace("/login");
+    } finally {
+      setEndingSession(false);
+    }
+  };
+
+  const confirmEndCashierSession = (
+    action: "switch" | "logout",
+  ) => {
+    if (endingSession) return;
+
+    const hasCartItems = cartItems.length > 0;
+
+    const title =
+      action === "switch"
+        ? "Switch cashier?"
+        : "Log out of Kinesis?";
+
+    const message = hasCartItems
+      ? action === "switch"
+        ? "Your current cart will be cleared. The current cashier session will end, and another cashier can sign in."
+        : "Your current cart will be cleared and your cashier session will end."
+      : action === "switch"
+        ? "Your cashier session will end so another employee can sign in."
+        : "Your cashier session will end and you will return to the login screen.";
+
+    Alert.alert(
+      title,
+      message,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text:
+            action === "switch"
+              ? "Switch cashier"
+              : "Log out",
+          style: "destructive",
+          onPress: () => {
+            void endCashierSession();
+          },
+        },
+      ],
+    );
   };
 
   const stats = useMemo(() => {
@@ -161,11 +261,17 @@ export default function Dashboard() {
 
     return {
       todaySales,
-      todayChange: percentageChange(todaySales, previousDaySales),
+      todayChange: percentageChange(
+        todaySales,
+        previousDaySales,
+      ),
       lowStockCount,
       outOfStockCount,
       thisWeekItems,
-      itemsChange: percentageChange(thisWeekItems, lastWeekItems),
+      itemsChange: percentageChange(
+        thisWeekItems,
+        lastWeekItems,
+      ),
       monthlySales,
       monthlyChange: percentageChange(
         monthlySales,
@@ -249,35 +355,119 @@ export default function Dashboard() {
             Kinesis
           </Text>
 
-          <View className="flex-row items-center gap-3">
-            <Pressable
-              onPress={toggleTheme}
-              accessibilityRole="button"
-              accessibilityLabel={
-                isDark ? "Switch to light mode" : "Switch to dark mode"
-              }
-              className="h-10 flex-row items-center justify-center gap-2 rounded-full border border-ctp-surface1 bg-ctp-mantle px-3"
-            >
-              {isDark ? (
-                <Sun size={18} className="text-ctp-yellow" />
-              ) : (
-                <Moon size={18} className="text-ctp-text" />
-              )}
+          <Pressable
+            onPress={toggleTheme}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isDark
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
+            className="h-10 flex-row items-center justify-center gap-2 rounded-full border border-ctp-surface1 bg-ctp-mantle px-3"
+          >
+            {isDark ? (
+              <Sun
+                size={18}
+                className="text-ctp-yellow"
+              />
+            ) : (
+              <Moon
+                size={18}
+                className="text-ctp-text"
+              />
+            )}
 
-              <Text className="text-sm font-inter-semibold text-ctp-text">
-                {isDark ? "Light" : "Dark"}
+            <Text className="text-sm font-inter-semibold text-ctp-text">
+              {isDark ? "Light" : "Dark"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Cashier identity and session controls */}
+        <View className="mt-6 rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
+          <View className="flex-row items-center">
+            <View className="h-11 w-11 items-center justify-center rounded-full bg-ctp-blue/15">
+              <User
+                size={22}
+                className="text-ctp-blue"
+              />
+            </View>
+
+            <View className="ml-3 flex-1">
+              <Text className="font-inter-medium text-xs text-ctp-subtext0">
+                Currently signed in as
+              </Text>
+
+              <Text
+                numberOfLines={1}
+                className="mt-0.5 font-inter-semibold text-base text-ctp-text"
+              >
+                {cashier?.display_name ?? "Cashier"}
+              </Text>
+
+              <Text className="mt-0.5 font-inter-regular text-xs text-ctp-subtext0">
+                @{cashier?.username ?? "unknown"}
+              </Text>
+            </View>
+
+            <View className="rounded-full bg-ctp-green/10 px-2.5 py-1">
+              <Text className="font-inter-semibold text-[10px] text-ctp-green">
+                ACTIVE
+              </Text>
+            </View>
+          </View>
+
+          <View className="mt-4 flex-row gap-2">
+            <Pressable
+              onPress={() =>
+                confirmEndCashierSession("switch")
+              }
+              disabled={endingSession}
+              accessibilityRole="button"
+              accessibilityLabel="Switch cashier"
+              className="min-h-10 flex-1 flex-row items-center justify-center gap-2 rounded-lg border border-ctp-surface1 bg-ctp-base px-3"
+            >
+              <UsersRound
+                size={16}
+                className="text-ctp-text"
+              />
+
+              <Text className="font-inter-semibold text-xs text-ctp-text">
+                Switch Cashier
               </Text>
             </Pressable>
 
-            <View className="h-10 w-10 items-center justify-center rounded-full border border-ctp-surface1 bg-ctp-mantle">
-              <User size={20} className="text-ctp-text" />
-            </View>
+            <Pressable
+              onPress={() =>
+                confirmEndCashierSession("logout")
+              }
+              disabled={endingSession}
+              accessibilityRole="button"
+              accessibilityLabel="Log out"
+              className="min-h-10 flex-1 flex-row items-center justify-center gap-2 rounded-lg bg-ctp-red/10 px-3"
+            >
+              {endingSession ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#F38BA8"
+                />
+              ) : (
+                <LogOut
+                  size={16}
+                  className="text-ctp-red"
+                />
+              )}
+
+              <Text className="font-inter-semibold text-xs text-ctp-red">
+                {endingSession ? "Signing out..." : "Log Out"}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
-        <View className="flex-row items-center justify-between py-6">
+        <View className="flex-row items-center justify-between py-5">
           <Text className="text-lg font-inter-medium text-ctp-text">
-            Welcome, User!
+            Welcome, {cashier?.display_name ?? "User"}!
           </Text>
 
           {stats ? (
@@ -328,24 +518,34 @@ export default function Dashboard() {
 
           <View className="px-5 py-[15px]">
             <Text
-              className={`text-md font-inter ${isDark ? "text-[#4C4F69]" : "text-white/90"
+              className={`text-md font-inter ${isDark
+                  ? "text-[#4C4F69]"
+                  : "text-white/90"
                 }`}
             >
               Today's Sales
             </Text>
 
             <Text
-              className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark ? "text-[#4C4F69]" : "text-white"
+              className={`my-3 text-2xl tracking-[1px] font-inter-semibold ${isDark
+                  ? "text-[#4C4F69]"
+                  : "text-white"
                 }`}
             >
-              {stats ? money(stats.todaySales) : loading ? "Loading..." : "—"}
+              {stats
+                ? money(stats.todaySales)
+                : loading
+                  ? "Loading..."
+                  : "—"}
             </Text>
 
             <View className="flex-row items-center">
               {stats?.todayChange !== null &&
                 stats?.todayChange !== undefined ? (
                 <Text
-                  className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark ? "bg-ctp-surface2/30" : "bg-white"
+                  className={`rounded-full px-2 py-1 text-xs font-inter-extrabold ${isDark
+                      ? "bg-ctp-surface2/30"
+                      : "bg-white"
                     } ${stats.todayChange.startsWith("-")
                       ? "text-[#D20F39]"
                       : "text-[#40A02B]"
@@ -365,7 +565,9 @@ export default function Dashboard() {
               )}
 
               <Text
-                className={`ml-2 font-inter ${isDark ? "text-[#6C6F85]" : "text-white/80"
+                className={`ml-2 font-inter ${isDark
+                    ? "text-[#6C6F85]"
+                    : "text-white/80"
                   }`}
               >
                 Compared with yesterday.
@@ -382,12 +584,17 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark
+                    ? "bg-ctp-surface0"
+                    : "bg-white"
                   }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon size={20} className="text-ctp-text" />
+                    <Icon
+                      size={20}
+                      className="text-ctp-text"
+                    />
                   </View>
 
                   <Text className="text-md font-inter-semibold text-ctp-text">
@@ -418,12 +625,17 @@ export default function Dashboard() {
             return (
               <View
                 key={card.title}
-                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark ? "bg-ctp-surface0" : "bg-white"
+                className={`h-[149px] w-[48%] flex-col rounded-lg px-[15px] py-[15px] ${isDark
+                    ? "bg-ctp-surface0"
+                    : "bg-white"
                   }`}
               >
                 <View className="flex-row items-center gap-1.5">
                   <View className="h-8 w-8 items-center justify-center rounded-full">
-                    <Icon size={20} className="text-ctp-text" />
+                    <Icon
+                      size={20}
+                      className="text-ctp-text"
+                    />
                   </View>
 
                   <Text className="text-md font-inter-semibold text-ctp-text">
@@ -463,7 +675,9 @@ export default function Dashboard() {
 
         {/* Recent transactions */}
         <View
-          className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark ? "bg-ctp-surface0" : "bg-white"
+          className={`mt-[20px] min-h-[300px] w-full flex-col rounded-[10px] px-5 py-4 ${isDark
+              ? "bg-ctp-surface0"
+              : "bg-white"
             }`}
         >
           <View className="mb-3 flex-row items-center">
@@ -505,7 +719,8 @@ export default function Dashboard() {
           ) : (
             recentTransactions.map((transaction) => {
               const date = new Date(transaction.created_at);
-              const status = getStatusPresentation(transaction.status);
+              const transactionStatus =
+                getStatusPresentation(transaction.status);
 
               return (
                 <View
@@ -513,7 +728,10 @@ export default function Dashboard() {
                   className="my-2 min-h-[70px] w-full flex-row items-center"
                 >
                   <View className="aspect-square rounded-lg bg-ctp-base p-3">
-                    <ShoppingCart size={24} className="text-ctp-text" />
+                    <ShoppingCart
+                      size={24}
+                      className="text-ctp-text"
+                    />
                   </View>
 
                   <View className="ml-2 flex-1 flex-col gap-2">
@@ -540,9 +758,9 @@ export default function Dashboard() {
                     </Text>
 
                     <Text
-                      className={`min-w-[80px] rounded-full px-2 py-1 text-center text-xs font-inter-semibold ${status.style}`}
+                      className={`min-w-[80px] rounded-full px-2 py-1 text-center text-xs font-inter-semibold ${transactionStatus.style}`}
                     >
-                      {status.label}
+                      {transactionStatus.label}
                     </Text>
                   </View>
                 </View>

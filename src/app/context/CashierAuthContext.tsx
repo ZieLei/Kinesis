@@ -1,0 +1,406 @@
+
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import {
+  Redirect,
+  usePathname,
+} from "expo-router";
+import * as SecureStore from "expo-secure-store";
+
+import { ApiError, apiRequest } from "@/lib/api";
+
+export const CASHIER_SESSION_TOKEN_KEY =
+  "kinesis-cashier-session-token";
+
+export type CashierAccount = {
+  id: string;
+  username: string;
+  display_name: string;
+};
+
+type CashierLoginResponse = {
+  authenticated: boolean;
+  cashier: CashierAccount;
+  session_token: string;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+};
+
+type CashierSessionResponse = {
+  authenticated: boolean;
+  cashier: CashierAccount;
+  terminal_id: number;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+};
+
+export type CashierAuthStatus =
+  | "terminal-unavailable"
+  | "loading"
+  | "unauthenticated"
+  | "authenticated"
+  | "unavailable";
+
+type CashierAuthContextValue = {
+  status: CashierAuthStatus;
+  cashier: CashierAccount | null;
+  error: string | null;
+  login: (username: string, pin: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+};
+
+const CashierAuthContext =
+  createContext<CashierAuthContextValue | null>(null);
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "Cashier authentication failed.";
+}
+
+type CashierAuthProviderProps = {
+  terminalSessionToken: string | null;
+  children: ReactNode;
+};
+
+export function CashierAuthProvider({
+  terminalSessionToken,
+  children,
+}: CashierAuthProviderProps) {
+  const [status, setStatus] =
+    useState<CashierAuthStatus>("loading");
+
+  const [cashier, setCashier] =
+    useState<CashierAccount | null>(null);
+
+  const [sessionToken, setSessionToken] =
+    useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+
+  const refreshSession = useCallback(async () => {
+    if (!terminalSessionToken) {
+      setStatus("terminal-unavailable");
+      setCashier(null);
+      setSessionToken(null);
+      setError(null);
+      return;
+    }
+
+    setStatus("loading");
+    setError(null);
+
+    try {
+      const storedToken = await SecureStore.getItemAsync(
+        CASHIER_SESSION_TOKEN_KEY,
+      );
+
+      if (!storedToken) {
+        setCashier(null);
+        setSessionToken(null);
+        setStatus("unauthenticated");
+        return;
+      }
+
+      const response = await apiRequest<CashierSessionResponse>(
+        "/api/cashier-auth/session",
+        {
+          headers: {
+            "X-Cashier-Session": storedToken,
+          },
+        },
+      );
+
+      setCashier(response.cashier);
+      setSessionToken(storedToken);
+      setStatus("authenticated");
+    } catch (requestError) {
+      if (
+        requestError instanceof ApiError &&
+        [401, 403].includes(requestError.status)
+      ) {
+        try {
+          await SecureStore.deleteItemAsync(
+            CASHIER_SESSION_TOKEN_KEY,
+          );
+        } catch (storageError) {
+          console.error(
+            "[Cashier Auth] Could not clear expired credentials:",
+            storageError,
+          );
+        }
+
+        setCashier(null);
+        setSessionToken(null);
+        setStatus("unauthenticated");
+        setError(null);
+        return;
+      }
+
+      setError(getErrorMessage(requestError));
+      setStatus("unavailable");
+    }
+  }, [terminalSessionToken]);
+
+  useEffect(() => {
+    void refreshSession();
+  }, [refreshSession]);
+
+  const login = useCallback(
+    async (username: string, pin: string) => {
+      if (!terminalSessionToken) {
+        throw new Error(
+          "This terminal is not connected to the Kinesis server.",
+        );
+      }
+
+      setError(null);
+
+      try {
+        const response = await apiRequest<CashierLoginResponse>(
+          "/api/cashier-auth/login",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              username,
+              pin,
+            }),
+          },
+        );
+
+        try {
+          await SecureStore.setItemAsync(
+            CASHIER_SESSION_TOKEN_KEY,
+            response.session_token,
+          );
+        } catch (storageError) {
+          // Do not leave an inaccessible session active on the server.
+          try {
+            await apiRequest(
+              "/api/cashier-auth/logout",
+              {
+                method: "POST",
+                headers: {
+                  "X-Cashier-Session": response.session_token,
+                },
+              },
+            );
+          } catch (logoutError) {
+            console.error(
+              "[Cashier Auth] Could not revoke session after storage failure:",
+              logoutError,
+            );
+          }
+
+          throw new Error(
+            "The cashier session could not be saved securely on this device.",
+          );
+        }
+
+        setCashier(response.cashier);
+        setSessionToken(response.session_token);
+        setStatus("authenticated");
+        setError(null);
+      } catch (loginError) {
+        setError(getErrorMessage(loginError));
+        setStatus("unauthenticated");
+        setCashier(null);
+        setSessionToken(null);
+
+        throw loginError;
+      }
+    },
+    [terminalSessionToken],
+  );
+
+  const logout = useCallback(async () => {
+    let token = sessionToken;
+
+    try {
+      token ??= await SecureStore.getItemAsync(
+        CASHIER_SESSION_TOKEN_KEY,
+      );
+    } catch (storageError) {
+      console.error(
+        "[Cashier Auth] Could not read session token during logout:",
+        storageError,
+      );
+    }
+
+    try {
+      if (token && terminalSessionToken) {
+        await apiRequest(
+          "/api/cashier-auth/logout",
+          {
+            method: "POST",
+            headers: {
+              "X-Cashier-Session": token,
+            },
+          },
+        );
+      }
+    } catch (logoutError) {
+      console.warn(
+        "[Cashier Auth] Server-side logout could not be confirmed:",
+        getErrorMessage(logoutError),
+      );
+    } finally {
+      try {
+        await SecureStore.deleteItemAsync(
+          CASHIER_SESSION_TOKEN_KEY,
+        );
+      } catch (storageError) {
+        console.error(
+          "[Cashier Auth] Could not remove the local cashier session:",
+          storageError,
+        );
+      }
+
+      setCashier(null);
+      setSessionToken(null);
+      setStatus("unauthenticated");
+      setError(null);
+    }
+  }, [sessionToken, terminalSessionToken]);
+
+  const value = useMemo<CashierAuthContextValue>(
+    () => ({
+      status,
+      cashier,
+      error,
+      login,
+      logout,
+      refreshSession,
+    }),
+    [
+      status,
+      cashier,
+      error,
+      login,
+      logout,
+      refreshSession,
+    ],
+  );
+
+  return (
+    <CashierAuthContext.Provider value={value}>
+      {children}
+    </CashierAuthContext.Provider>
+  );
+}
+
+export function useCashierAuth() {
+  const context = useContext(CashierAuthContext);
+
+  if (!context) {
+    throw new Error(
+      "useCashierAuth must be used inside CashierAuthProvider.",
+    );
+  }
+
+  return context;
+}
+
+/**
+ * Globally protects POS routes while leaving the landing page,
+ * cashier login screen, and feature exploration accessible.
+ */
+export function CashierRouteGuard({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+
+  const {
+    status,
+    refreshSession,
+  } = useCashierAuth();
+
+  const publicRoutes = [
+    "/",
+    "/login",
+    "/explore",
+  ];
+
+  const isPublicRoute = publicRoutes.includes(pathname);
+
+  if (pathname === "/login" && status === "authenticated") {
+    return <Redirect href="/dashboard" />;
+  }
+
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
+
+  if (
+    status === "terminal-unavailable" ||
+    status === "loading"
+  ) {
+    return (
+      <View className="flex-1 items-center justify-center bg-ctp-base px-6">
+        <ActivityIndicator
+          size="large"
+          color="#89b4fa"
+        />
+
+        <Text className="mt-4 font-line-seed text-sm text-ctp-subtext0">
+          Verifying your Kinesis session...
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === "unavailable") {
+    return (
+      <View className="flex-1 items-center justify-center bg-ctp-base px-6">
+        <View className="w-full max-w-sm rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-5">
+          <Text className="font-line-seed text-lg font-bold text-ctp-text">
+            Cannot verify your session
+          </Text>
+
+          <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
+            Kinesis could not contact the server to verify your cashier
+            session. Reconnect to the store network and try again.
+          </Text>
+
+          {!!useCashierAuth().error && (
+            <Text className="mt-3 font-line-seed text-xs text-ctp-red">
+              {useCashierAuth().error}
+            </Text>
+          )}
+
+          <Pressable
+            onPress={() => void refreshSession()}
+            className="mt-5 min-h-12 items-center justify-center rounded-lg bg-ctp-blue"
+          >
+            <Text className="font-line-seed text-sm font-bold text-ctp-crust">
+              Retry connection
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (status !== "authenticated") {
+    return <Redirect href="/login" />;
+  }
+
+  return <>{children}</>;
+}

@@ -1,23 +1,25 @@
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import {
-  KeyRound,
-  ShieldCheck,
+  CameraView,
+  useCameraPermissions,
+  type BarcodeScanningResult,
+} from "expo-camera";
+import {
+  Check,
+  MessageSquareText,
+  QrCode,
   ShieldAlert,
+  ShieldCheck,
   Smartphone,
   Wrench,
-  MessageSquareText,
-  Check,
 } from "lucide-react-native";
 
 import { useTerminalAgent } from "@/hooks/useTerminalAgent";
@@ -25,6 +27,9 @@ import { useTerminalAgent } from "@/hooks/useTerminalAgent";
 type TerminalAgentProps = {
   onSessionTokenChange: (token: string | null) => void;
 };
+
+const PAIRING_TOKEN_PATTERN =
+  /^KINESIS-PAIRING:v1:([A-Za-z0-9_-]{43})$/;
 
 export function TerminalAgent({
   onSessionTokenChange,
@@ -37,18 +42,74 @@ export function TerminalAgent({
     maintenanceMode,
     broadcastQueue,
     dismissBroadcast,
-    enroll,
+    pair,
   } = useTerminalAgent(onSessionTokenChange);
 
-  const [enrollmentKey, setEnrollmentKey] = useState("");
+  const [permission, requestPermission] =
+    useCameraPermissions();
+
+  const [scanEnabled, setScanEnabled] = useState(true);
+  const [scanError, setScanError] = useState("");
+
+  const scanLocked = useRef(false);
 
   const activeBroadcast = broadcastQueue[0] ?? null;
 
-  let blockingScreen: ReactNode = null;
+  const registering = status === "registering";
+  const initializing = status === "initializing";
 
   // --------------------------------------------------
-  // Disabled terminal
+  // QR scanner
   // --------------------------------------------------
+
+  const handleBarcodeScanned = async (
+    result: BarcodeScanningResult,
+  ) => {
+    if (
+      scanLocked.current ||
+      registering ||
+      !scanEnabled
+    ) {
+      return;
+    }
+
+    scanLocked.current = true;
+    setScanEnabled(false);
+    setScanError("");
+
+    const match = PAIRING_TOKEN_PATTERN.exec(
+      result.data.trim(),
+    );
+
+    if (!match) {
+      setScanError(
+        "This isn't a Kinesis pairing QR code. Scan the code displayed by Terminal Management.",
+      );
+
+      return;
+    }
+
+    const paired = await pair(match[1]);
+
+    if (paired) {
+      return;
+    }
+
+    // Keep scanning paused so an expired QR is not repeatedly submitted.
+    scanLocked.current = false;
+  };
+
+  function resumeScanning() {
+    scanLocked.current = false;
+    setScanEnabled(true);
+    setScanError("");
+  }
+
+  // --------------------------------------------------
+  // Full-screen terminal state
+  // --------------------------------------------------
+
+  let blockingScreen: ReactNode = null;
 
   if (accessDisabled) {
     blockingScreen = (
@@ -94,13 +155,7 @@ export function TerminalAgent({
         </View>
       </View>
     );
-  }
-
-  // --------------------------------------------------
-  // Maintenance mode
-  // --------------------------------------------------
-
-  else if (maintenanceMode) {
+  } else if (maintenanceMode) {
     blockingScreen = (
       <View className="absolute inset-0 z-[100] flex-1 items-center justify-center bg-ctp-base px-6">
         <View className="w-full max-w-md rounded-2xl border border-ctp-yellow/30 bg-ctp-mantle p-5">
@@ -145,25 +200,19 @@ export function TerminalAgent({
         </View>
       </View>
     );
-  }
-
-  // --------------------------------------------------
-  // Secure storage error
-  // --------------------------------------------------
-
-  else if (status === "storage-error") {
+  } else if (status === "storage-error") {
     blockingScreen = (
       <View className="absolute inset-0 z-[100] flex-1 items-center justify-center bg-ctp-base px-6">
         <View className="w-full max-w-md rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-5">
-          <ShieldCheck size={32} color="#f38ba8" />
+          <ShieldAlert size={32} color="#f38ba8" />
 
           <Text className="mt-4 font-line-seed text-xl font-bold text-ctp-text">
             Secure storage unavailable
           </Text>
 
           <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
-            Kinesis could not safely initialize this device's identity and
-            session credentials. Restart the app and try again.
+            Kinesis could not safely access its saved device credentials.
+            Restart the app and try again.
           </Text>
 
           {!!message && (
@@ -174,27 +223,20 @@ export function TerminalAgent({
         </View>
       </View>
     );
-  }
-
-  // --------------------------------------------------
-  // Enrollment
-  // --------------------------------------------------
-
-  else if (
-    status !== "active" &&
-    status !== "initializing"
-  ) {
-    const registering = status === "registering";
-
+  } else if (status !== "active") {
     blockingScreen = (
       <View className="absolute inset-0 z-[100] flex-1 justify-center bg-ctp-base px-5">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          className="w-full items-center"
-        >
+        <View className="w-full items-center">
           <View className="w-full max-w-md rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-5">
             <View className="mb-4 h-12 w-12 items-center justify-center rounded-xl bg-ctp-mauve/15">
-              <Smartphone size={24} color="#cba6f7" />
+              {initializing ? (
+                <ActivityIndicator
+                  size="large"
+                  color="#cba6f7"
+                />
+              ) : (
+                <QrCode size={25} color="#cba6f7" />
+              )}
             </View>
 
             <Text className="font-fredoka text-2xl text-ctp-text">
@@ -202,13 +244,19 @@ export function TerminalAgent({
             </Text>
 
             <Text className="mt-2 font-line-seed text-lg font-bold text-ctp-text">
-              Register this terminal
+              {initializing
+                ? "Preparing terminal"
+                : registering
+                  ? "Pairing terminal..."
+                  : "Pair this terminal"}
             </Text>
 
             <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
-              Enter the enrollment key configured on your Kinesis backend.
-              This registers the device so it can appear in the admin's
-              Terminal Management page.
+              {initializing
+                ? "Restoring this device's terminal identity and checking its saved credentials."
+                : registering
+                  ? "The pairing code is being verified and your terminal is being registered."
+                  : "Open Terminal Management on your administrator computer, select Add Terminal, and scan the QR code displayed there."}
             </Text>
 
             <View className="mt-4 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
@@ -220,38 +268,123 @@ export function TerminalAgent({
                 selectable
                 className="mt-1 break-all font-line-seed text-xs text-ctp-text"
               >
-                {deviceId || "Preparing device identity…"}
+                {deviceId || "Preparing device identity..."}
               </Text>
             </View>
 
-            <Text className="mb-2 mt-4 font-line-seed text-sm font-semibold text-ctp-text">
-              Terminal enrollment key
-            </Text>
+            {/* Camera permission */}
+            {!initializing &&
+              !registering &&
+              !permission?.granted && (
+                <View className="mt-4 overflow-hidden rounded-xl border border-ctp-surface1 bg-ctp-base p-5">
+                  <View className="items-center">
+                    <Smartphone
+                      size={30}
+                      color="#cba6f7"
+                    />
 
-            <View className="flex-row items-center rounded-lg border border-ctp-surface1 bg-ctp-base px-3">
-              <KeyRound size={17} color="#a6adc8" />
+                    <Text className="mt-3 font-line-seed text-sm font-semibold text-ctp-text">
+                      Camera permission required
+                    </Text>
 
-              <TextInput
-                value={enrollmentKey}
-                onChangeText={setEnrollmentKey}
-                placeholder="Enter enrollment key"
-                placeholderTextColor="#7f849c"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-                editable={!registering}
-                returnKeyType="done"
-                onSubmitEditing={() => {
-                  if (enrollmentKey.trim() && !registering) {
-                    void enroll(enrollmentKey);
-                  }
-                }}
-                className="min-h-12 flex-1 px-3 font-line-seed text-sm text-ctp-text"
-              />
-            </View>
+                    <Text className="mt-2 text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
+                      Kinesis needs camera access to scan your administrator's
+                      one-time pairing QR code.
+                    </Text>
 
-            {!!message && (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void requestPermission()}
+                      className="mt-4 min-h-11 w-full items-center justify-center rounded-lg bg-ctp-mauve px-4"
+                    >
+                      <Text className="font-line-seed text-sm font-bold text-ctp-crust">
+                        Allow camera access
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+            {/* QR camera */}
+            {!initializing &&
+              !registering &&
+              permission?.granted && (
+                <View className="mt-4 overflow-hidden rounded-xl border border-ctp-surface1 bg-black">
+                  {scanEnabled ? (
+                    <CameraView
+                      style={{
+                        width: "100%",
+                        height: 280,
+                      }}
+                      facing="back"
+                      barcodeScannerSettings={{
+                        barcodeTypes: ["qr"],
+                      }}
+                      onBarcodeScanned={handleBarcodeScanned}
+                      onMountError={(event) => {
+                        setScanEnabled(false);
+                        setScanError(
+                          `Camera could not start: ${event.message}`,
+                        );
+                      }}
+                    />
+                  ) : (
+                    <View className="h-[280px] items-center justify-center px-5">
+                      {registering ? (
+                        <>
+                          <ActivityIndicator
+                            size="large"
+                            color="#cba6f7"
+                          />
+
+                          <Text className="mt-3 font-line-seed text-sm text-white">
+                            Pairing terminal...
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode
+                            size={30}
+                            color="#cba6f7"
+                          />
+
+                          <Text className="mt-3 text-center font-line-seed text-sm font-semibold text-white">
+                            Scanner paused
+                          </Text>
+
+                          <Text className="mt-2 text-center font-line-seed text-xs leading-5 text-white/60">
+                            {scanError ||
+                              message ||
+                              "Resume scanning when you are ready."}
+                          </Text>
+
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={resumeScanning}
+                            className="mt-4 min-h-11 items-center justify-center rounded-lg bg-ctp-mauve px-5"
+                          >
+                            <Text className="font-line-seed text-xs font-bold text-ctp-crust">
+                              Scan again
+                            </Text>
+                          </Pressable>
+                        </>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+
+            {!!scanError &&
+              scanEnabled && (
+                <Text
+                  accessibilityRole="alert"
+                  className="mt-3 font-line-seed text-xs leading-5 text-ctp-red"
+                >
+                  {scanError}
+                </Text>
+              )}
+
+            {!!message && !scanError && (
               <Text
                 accessibilityRole="alert"
                 className="mt-3 font-line-seed text-xs leading-5 text-ctp-red"
@@ -260,36 +393,20 @@ export function TerminalAgent({
               </Text>
             )}
 
-            <Pressable
-              accessibilityRole="button"
-              disabled={
-                !enrollmentKey.trim() ||
-                registering ||
-                !deviceId
-              }
-              onPress={() => void enroll(enrollmentKey)}
-              className={`mt-4 min-h-12 flex-row items-center justify-center gap-2 rounded-lg px-4 ${!enrollmentKey.trim() || registering || !deviceId
-                  ? "bg-ctp-surface1"
-                  : "bg-ctp-mauve active:opacity-80"
-                }`}
-            >
-              {registering ? (
-                <ActivityIndicator color="#1e1e2e" />
-              ) : (
-                <ShieldCheck size={17} color="#1e1e2e" />
-              )}
+            <View className="mt-4 flex-row items-start gap-2">
+              <ShieldCheck
+                size={15}
+                color="#a6e3a1"
+              />
 
-              <Text className="font-line-seed text-sm font-bold text-ctp-crust">
-                {registering ? "Registering…" : "Register terminal"}
+              <Text className="flex-1 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
+                Pairing codes expire after five minutes and can only be used
+                once. Your permanent terminal credential is stored securely
+                after pairing.
               </Text>
-            </Pressable>
-
-            <Text className="mt-4 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
-              Enrollment is required once per installation. After successful
-              registration, the session token is kept in secure device storage.
-            </Text>
+            </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </View>
     );
   }

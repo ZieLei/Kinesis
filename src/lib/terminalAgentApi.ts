@@ -1,4 +1,3 @@
-
 import { apiRequest, API_BASE_URL } from "@/lib/api";
 
 export type TerminalRegistrationRequest = {
@@ -9,7 +8,7 @@ export type TerminalRegistrationRequest = {
   app_version: string | null;
 };
 
-export type TerminalRegistrationResponse = {
+export type TerminalPairingResponse = {
   terminal_id: number;
   device_id: string;
   session_token: string;
@@ -85,18 +84,18 @@ export type TerminalSettingsSocketMessage =
     ping_id: string;
   };
 
-export function registerTerminal(
+export function pairTerminal(
   registration: TerminalRegistrationRequest,
-  enrollmentKey: string,
-): Promise<TerminalRegistrationResponse> {
-  return apiRequest<TerminalRegistrationResponse>(
-    "/api/terminals/register",
+  pairingToken: string,
+): Promise<TerminalPairingResponse> {
+  return apiRequest<TerminalPairingResponse>(
+    "/api/terminals/pair",
     {
       method: "POST",
-      headers: {
-        "X-Terminal-Enrollment-Key": enrollmentKey,
-      },
-      body: JSON.stringify(registration),
+      body: JSON.stringify({
+        pairing_token: pairingToken,
+        registration,
+      }),
     },
   );
 }

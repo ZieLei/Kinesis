@@ -8,14 +8,25 @@ import type {
   TerminalListResponse,
 } from "../types/terminal";
 
-
 const PAGE_SIZE = 100;
 
+export type TerminalPairingChallenge = {
+  id: number;
+  pairing_payload: string;
+  created_at: string;
+  expires_at: string;
+  expires_in_seconds: number;
+};
+
+export type TerminalPairingRevokeResponse = {
+  id: number;
+  revoked: boolean;
+  message: string;
+};
 
 // --------------------------------------------------
 // Fetch registered terminals
 // --------------------------------------------------
-
 
 async function fetchTerminalPage(
   search: string,
@@ -39,7 +50,6 @@ async function fetchTerminalPage(
     },
   );
 }
-
 
 export async function fetchAdminTerminals(
   search = "",
@@ -89,11 +99,33 @@ export async function fetchAdminTerminals(
   };
 }
 
+// --------------------------------------------------
+// Terminal pairing
+// --------------------------------------------------
+
+export function createTerminalPairingChallenge(): Promise<TerminalPairingChallenge> {
+  return apiRequest<TerminalPairingChallenge>(
+    "/api/admin/terminals/pairing-challenges",
+    {
+      method: "POST",
+    },
+  );
+}
+
+export function revokeTerminalPairingChallenge(
+  challengeId: number,
+): Promise<TerminalPairingRevokeResponse> {
+  return apiRequest<TerminalPairingRevokeResponse>(
+    `/api/admin/terminals/pairing-challenges/${challengeId}/revoke`,
+    {
+      method: "POST",
+    },
+  );
+}
 
 // --------------------------------------------------
 // Terminal connection metrics
 // --------------------------------------------------
-
 
 export function fetchTerminalConnectionMetrics(
   signal?: AbortSignal,
@@ -107,11 +139,9 @@ export function fetchTerminalConnectionMetrics(
   );
 }
 
-
 // --------------------------------------------------
 // Request terminal synchronization
 // --------------------------------------------------
-
 
 export function requestTerminalSync(
   terminalId: number,
@@ -124,11 +154,9 @@ export function requestTerminalSync(
   );
 }
 
-
 // --------------------------------------------------
 // Terminal maintenance
 // --------------------------------------------------
-
 
 export function updateTerminalMaintenance(
   terminalId: number,
@@ -145,11 +173,9 @@ export function updateTerminalMaintenance(
   );
 }
 
-
 // --------------------------------------------------
 // Broadcast
 // --------------------------------------------------
-
 
 export function broadcastToTerminals(
   message: string,
@@ -165,11 +191,9 @@ export function broadcastToTerminals(
   );
 }
 
-
 // --------------------------------------------------
 // Disable terminal access
 // --------------------------------------------------
-
 
 export function disableTerminal(
   terminalId: number,
@@ -182,11 +206,9 @@ export function disableTerminal(
   );
 }
 
-
 // --------------------------------------------------
 // Enable terminal access
 // --------------------------------------------------
-
 
 export function enableTerminal(
   terminalId: number,

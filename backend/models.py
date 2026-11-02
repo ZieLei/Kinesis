@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    Uuid,
     func,
     text,
 )
@@ -73,17 +75,21 @@ class Sale(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
     transaction_code: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         unique=True,
         index=True,
     )
+
     payment_method: Mapped[str] = mapped_column(String(32), nullable=False)
+
     reference_number: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
     )
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -91,26 +97,66 @@ class Sale(Base):
         server_default="completed",
         index=True,
     )
+
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
     tax_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
         default=Decimal("0.00"),
         server_default=text("0.00"),
     )
+
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
     amount_tendered: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
     )
+
     change_due: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
         default=Decimal("0.00"),
     )
 
-    # Settings used when this transaction was completed.
-    # Historical receipts must not depend on the current settings.
+    cashier_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "cashiers.id",
+            ondelete="SET NULL",
+            name="fk_sales_cashier_id_cashiers",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    terminal_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "terminals.id",
+            ondelete="SET NULL",
+            name="fk_sales_terminal_id_terminals",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    cashier_username: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    cashier_display_name: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    terminal_device_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
     settings_snapshot: Mapped[dict[str, object]] = mapped_column(
         JSONB,
         nullable=False,
@@ -149,16 +195,19 @@ class SaleItem(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
     sale_id: Mapped[int] = mapped_column(
         ForeignKey("sales.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+
     product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
+
     product_name: Mapped[str] = mapped_column(String(150), nullable=False)
     sku: Mapped[str | None] = mapped_column(String(64), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -173,41 +222,48 @@ class Terminal(Base):
     __tablename__ = "terminals"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
     device_id: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         unique=True,
         index=True,
     )
+
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     device_type: Mapped[str] = mapped_column(String(60), nullable=False)
     platform: Mapped[str] = mapped_column(String(32), nullable=False)
     app_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
     session_token_hash: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         unique=True,
         index=True,
     )
+
     is_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
         server_default=text("true"),
     )
+
     maintenance_mode: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,
         server_default=text("false"),
     )
+
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,
         server_default=func.now(),
     )
+
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -215,22 +271,75 @@ class Terminal(Base):
         server_default=func.now(),
         index=True,
     )
+
     last_sync_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,
         server_default=func.now(),
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
         server_default=func.now(),
+    )
+
+
+class TerminalPairingChallenge(Base):
+    """
+    Temporary, one-time credentials created by an administrator
+    to pair a new or existing physical terminal.
+
+    Only the SHA-256 digest of the pairing token is persisted.
+    """
+
+    __tablename__ = "terminal_pairing_challenges"
+
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_terminal_pairing_challenges_expiry",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
 
@@ -249,13 +358,16 @@ class TerminalCommand(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
     terminal_id: Mapped[int] = mapped_column(
         ForeignKey("terminals.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+
     command_type: Mapped[str] = mapped_column(String(20), nullable=False)
     payload: Mapped[str | None] = mapped_column(String(250), nullable=True)
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -263,10 +375,12 @@ class TerminalCommand(Base):
         server_default=text("'pending'"),
         index=True,
     )
+
     result_message: Mapped[str | None] = mapped_column(
         String(300),
         nullable=True,
     )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -274,6 +388,7 @@ class TerminalCommand(Base):
         server_default=func.now(),
         index=True,
     )
+
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -303,18 +418,21 @@ class AppSettings(Base):
         default=1,
         server_default=text("1"),
     )
+
     settings: Mapped[dict[str, object]] = mapped_column(
         JSONB,
         nullable=False,
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+
     version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=1,
         server_default=text("1"),
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

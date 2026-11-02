@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
@@ -32,6 +30,7 @@ from terminal_routes import (
     require_writable_terminal,
     router as terminal_router,
 )
+from terminal_pairing_routes import router as terminal_pairing_router
 from console_routes import router as console_router
 from database_routes import router as database_router
 from settings_routes import router as settings_router
@@ -39,6 +38,7 @@ from sku_generator import generate_product_sku
 from logging_config import initialize_application_logging
 from auth.integration import install_admin_authentication
 from auth.config import auth_settings
+from cashier_routes import router as cashier_router
 
 
 logger = logging.getLogger(__name__)
@@ -118,9 +118,11 @@ install_admin_authentication(app)
 app.include_router(sales_router)
 app.include_router(services_router)
 app.include_router(terminal_router)
+app.include_router(terminal_pairing_router)
 app.include_router(console_router)
 app.include_router(database_router)
 app.include_router(settings_router)
+app.include_router(cashier_router)
 
 
 # --------------------------------------------------

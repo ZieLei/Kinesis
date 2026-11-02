@@ -15,7 +15,7 @@ import { useCatalog } from "@/app/context/CatalogContext";
 
 import {
   acknowledgeTerminalCommand,
-  registerTerminal,
+  pairTerminal,
   sendTerminalHeartbeat,
   type TerminalCommand,
 } from "@/lib/terminalAgentApi";
@@ -67,7 +67,7 @@ function getAppVersion(): string | null {
 function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : "An unexpected terminal registration error occurred.";
+    : "An unexpected terminal pairing error occurred.";
 }
 
 export type TerminalAgentStatus =
@@ -88,7 +88,8 @@ export function useTerminalAgent(
 
   const [deviceId, setDeviceId] = useState("");
   const [message, setMessage] = useState("");
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] =
+    useState<string | null>(null);
 
   const [accessDisabled, setAccessDisabled] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
@@ -96,9 +97,11 @@ export function useTerminalAgent(
   const [broadcastQueue, setBroadcastQueue] =
     useState<TerminalBroadcastNotice[]>([]);
 
-  // Prevent a pending command from executing twice when it is returned
-  // by multiple consecutive heartbeat responses.
   const processingCommandIds = useRef<Set<number>>(new Set());
+
+  // --------------------------------------------------
+  // Initialize device identity and saved credentials
+  // --------------------------------------------------
 
   useEffect(() => {
     let cancelled = false;
@@ -150,27 +153,69 @@ export function useTerminalAgent(
     };
   }, [onSessionTokenChange]);
 
-  const enroll = useCallback(
-    async (enrollmentKey: string) => {
+  // --------------------------------------------------
+  // Return an invalidated terminal to QR pairing
+  // --------------------------------------------------
+
+  const clearInvalidTerminalSession = useCallback(async () => {
+    try {
+      await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
+    } catch (error) {
+      console.error(
+        "[Terminal] Could not remove invalid terminal credentials:",
+        errorMessage(error),
+      );
+
+      setMessage(
+        "The saved terminal credential is invalid, but secure storage could not clear it. Restart the app and try again.",
+      );
+
+      setStatus("storage-error");
+      return;
+    }
+
+    processingCommandIds.current.clear();
+
+    setSessionToken(null);
+    setAccessDisabled(false);
+    setMaintenanceMode(false);
+
+    setMessage(
+      "This terminal is no longer registered. Scan a new pairing QR code from Terminal Management.",
+    );
+
+    onSessionTokenChange?.(null);
+    setStatus("enrollment-required");
+  }, [onSessionTokenChange]);
+
+  // --------------------------------------------------
+  // Pair using an administrator-issued QR token
+  // --------------------------------------------------
+
+  const pair = useCallback(
+    async (pairingToken: string): Promise<boolean> => {
       if (!deviceId) {
-        setMessage("The device identity is not ready. Restart the app.");
+        setMessage(
+          "The device identity is not ready. Restart the app.",
+        );
+
         setStatus("registration-error");
-        return;
+        return false;
       }
 
-      const key = enrollmentKey.trim();
+      const token = pairingToken.trim();
 
-      if (!key) {
-        setMessage("Enter the terminal enrollment key.");
+      if (!token) {
+        setMessage("The QR pairing code is empty.");
         setStatus("registration-error");
-        return;
+        return false;
       }
 
       setMessage("");
       setStatus("registering");
 
       try {
-        const registration = await registerTerminal(
+        const registration = await pairTerminal(
           {
             device_id: deviceId,
             name: getDeviceName(),
@@ -178,13 +223,16 @@ export function useTerminalAgent(
             platform: getPlatformName(),
             app_version: getAppVersion(),
           },
-          key,
+          token,
         );
 
+        // Save the permanent credential before activating the terminal.
         await SecureStore.setItemAsync(
           SESSION_TOKEN_KEY,
           registration.session_token,
         );
+
+        processingCommandIds.current.clear();
 
         setSessionToken(registration.session_token);
         setAccessDisabled(false);
@@ -194,9 +242,13 @@ export function useTerminalAgent(
 
         setStatus("active");
         setMessage("");
+
+        return true;
       } catch (error) {
         setMessage(errorMessage(error));
         setStatus("registration-error");
+
+        return false;
       }
     },
     [deviceId, onSessionTokenChange],
@@ -442,23 +494,24 @@ export function useTerminalAgent(
         }
       } catch (error) {
         if (!cancelled) {
-          if (error instanceof ApiError && error.status === 403) {
+          if (
+            error instanceof ApiError &&
+            error.status === 401
+          ) {
+            console.warn(
+              "[Terminal] Saved credentials are no longer registered. Returning to QR pairing.",
+            );
+
+            await clearInvalidTerminalSession();
+          } else if (
+            error instanceof ApiError &&
+            error.status === 403
+          ) {
             setAccessDisabled(true);
             setMaintenanceMode(false);
 
             setMessage(
               "This terminal has been disabled by an administrator.",
-            );
-
-            intervalMs = DISABLED_RETRY_INTERVAL_MS;
-          } else if (
-            error instanceof ApiError &&
-            error.status === 401
-          ) {
-            setAccessDisabled(true);
-
-            setMessage(
-              "Terminal credentials are invalid. Contact an administrator.",
             );
 
             intervalMs = DISABLED_RETRY_INTERVAL_MS;
@@ -471,7 +524,10 @@ export function useTerminalAgent(
         }
       } finally {
         running = false;
-        scheduleNextHeartbeat();
+
+        if (!cancelled) {
+          scheduleNextHeartbeat();
+        }
       }
     }
 
@@ -499,6 +555,7 @@ export function useTerminalAgent(
     sessionToken,
     status,
     processCommands,
+    clearInvalidTerminalSession,
   ]);
 
   return {
@@ -509,6 +566,6 @@ export function useTerminalAgent(
     maintenanceMode,
     broadcastQueue,
     dismissBroadcast,
-    enroll,
+    pair,
   };
 }

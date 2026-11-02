@@ -8,9 +8,13 @@ export const API_BASE_URL = (
 export const TERMINAL_SESSION_TOKEN_KEY =
   "kinesis-terminal-session-token";
 
+export const CASHIER_SESSION_TOKEN_KEY =
+  "kinesis-cashier-session-token";
+
 const REQUEST_TIMEOUT_MS = 15000;
 
 const ENROLLMENT_PATH = "/api/terminals/register";
+const CASHIER_LOGIN_PATH = "/api/cashier-auth/login";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -41,7 +45,8 @@ async function getAuthenticatedHeaders(
 
   const requestPath = path.split("?")[0];
 
-  // Enrollment uses the enrollment key, not an existing session token.
+  // Terminal enrollment uses the enrollment key instead of
+  // an existing terminal session token.
   if (
     requestPath !== ENROLLMENT_PATH &&
     !headers.has("Authorization")
@@ -67,6 +72,38 @@ async function getAuthenticatedHeaders(
       headers.set(
         "Authorization",
         `Bearer ${sessionToken}`,
+      );
+    }
+  }
+
+  // PIN login does not require an existing cashier session.
+  // Other requests automatically include the current cashier session
+  // when one is available.
+  if (
+    requestPath !== CASHIER_LOGIN_PATH &&
+    !headers.has("X-Cashier-Session")
+  ) {
+    let cashierToken: string | null;
+
+    try {
+      cashierToken = await SecureStore.getItemAsync(
+        CASHIER_SESSION_TOKEN_KEY,
+      );
+    } catch (error) {
+      console.error(
+        "[API] Could not read cashier credentials:",
+        error,
+      );
+
+      throw new Error(
+        "Could not access cashier credentials in secure storage.",
+      );
+    }
+
+    if (cashierToken) {
+      headers.set(
+        "X-Cashier-Session",
+        cashierToken,
       );
     }
   }
@@ -113,7 +150,10 @@ async function sendRequest(
       error,
     });
 
-    if (error instanceof Error && error.name === "AbortError") {
+    if (
+      error instanceof Error &&
+      error.name === "AbortError"
+    ) {
       throw new Error(
         "The request timed out. Check your connection and try again.",
       );
@@ -140,7 +180,10 @@ async function readErrorMessage(
       message = body.detail;
     } else if (Array.isArray(body.detail)) {
       message = body.detail
-        .map((item: { msg?: string }) => item.msg || "Invalid input")
+        .map(
+          (item: { msg?: string }) =>
+            item.msg || "Invalid input",
+        )
         .join("\n");
     } else if (
       typeof body.detail === "object" &&

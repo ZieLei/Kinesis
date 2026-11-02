@@ -1,5 +1,6 @@
 
 import { useEffect, useState, type FormEvent } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 import {
   Activity,
@@ -23,6 +24,10 @@ import {
   Users,
   Server,
   Gauge,
+  Plus,
+  QrCode,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 
 import type { LucideIcon } from "lucide-react";
@@ -31,10 +36,16 @@ import { useTerminalManagement } from "../hooks/useTerminalManagement";
 
 import {
   broadcastToTerminals,
+  createTerminalPairingChallenge,
   disableTerminal,
   enableTerminal,
   requestTerminalSync,
+  revokeTerminalPairingChallenge,
   updateTerminalMaintenance,
+} from "../lib/terminalApi";
+
+import type {
+  TerminalPairingChallenge,
 } from "../lib/terminalApi";
 
 import type {
@@ -42,23 +53,17 @@ import type {
   TerminalConnectionHealth,
 } from "../types/terminal";
 
-
 type Notice = {
   message: string;
   error: boolean;
 };
-
 
 const statusStyles = {
   Connected: "bg-ctp-green/10 text-ctp-green",
   Disconnected: "bg-ctp-red/10 text-ctp-red",
 } as const;
 
-
-const healthStyles: Record<
-  TerminalConnectionHealth,
-  string
-> = {
+const healthStyles: Record<TerminalConnectionHealth, string> = {
   Healthy: "bg-ctp-green/10 text-ctp-green",
   Degraded: "bg-ctp-yellow/10 text-ctp-yellow",
   Poor: "bg-ctp-red/10 text-ctp-red",
@@ -66,11 +71,7 @@ const healthStyles: Record<
   Measuring: "bg-ctp-blue/10 text-ctp-blue",
 };
 
-
-const healthDotStyles: Record<
-  TerminalConnectionHealth,
-  string
-> = {
+const healthDotStyles: Record<TerminalConnectionHealth, string> = {
   Healthy: "bg-ctp-green",
   Degraded: "bg-ctp-yellow",
   Poor: "bg-ctp-red",
@@ -78,15 +79,11 @@ const healthDotStyles: Record<
   Measuring: "bg-ctp-blue",
 };
 
-
 // --------------------------------------------------
 // Date helpers
 // --------------------------------------------------
 
-
-function parseDateTime(
-  value: string | null,
-): Date | null {
+function parseDateTime(value: string | null): Date | null {
   if (!value) return null;
 
   const hasTimezone =
@@ -105,7 +102,6 @@ function parseDateTime(
   return date;
 }
 
-
 function isHeartbeatFresh(
   lastSeenAt: string | null,
   timeoutSeconds: number,
@@ -116,22 +112,13 @@ function isHeartbeatFresh(
   if (!lastSeen) return false;
 
   const age = now - lastSeen.getTime();
-
   const allowedFutureSkew = 30_000;
+  const timeoutMs = Math.max(1, timeoutSeconds) * 1000;
 
-  const timeoutMs =
-    Math.max(1, timeoutSeconds) * 1000;
-
-  return (
-    age >= -allowedFutureSkew &&
-    age <= timeoutMs
-  );
+  return age >= -allowedFutureSkew && age <= timeoutMs;
 }
 
-
-function formatDateTime(
-  value: string | null,
-): string {
+function formatDateTime(value: string | null): string {
   const date = parseDateTime(value);
 
   if (!date) {
@@ -146,7 +133,6 @@ function formatDateTime(
     minute: "2-digit",
   });
 }
-
 
 function formatRelativeTime(
   value: string | null,
@@ -183,10 +169,7 @@ function formatRelativeTime(
   return `${Math.floor(hours / 24)} day(s) ago`;
 }
 
-
-function formatLatency(
-  latency: number | null,
-): string {
+function formatLatency(latency: number | null): string {
   if (latency === null) return "—";
 
   if (!Number.isFinite(latency)) {
@@ -196,11 +179,25 @@ function formatLatency(
   return `${Math.round(latency)} ms`;
 }
 
+function formatCountdown(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  return error instanceof Error
+    ? error.message
+    : fallback;
+}
 
 // --------------------------------------------------
 // Status badges
 // --------------------------------------------------
-
 
 function StatusBadge({
   connected,
@@ -225,7 +222,6 @@ function StatusBadge({
   );
 }
 
-
 function HealthBadge({
   health,
 }: {
@@ -244,7 +240,6 @@ function HealthBadge({
   );
 }
 
-
 function WebSocketBadge({
   connected,
 }: {
@@ -253,8 +248,8 @@ function WebSocketBadge({
   return (
     <span
       className={`inline-flex items-center gap-1.5 font-line-seed text-xs font-semibold ${connected
-        ? "text-ctp-green"
-        : "text-ctp-overlay1"
+          ? "text-ctp-green"
+          : "text-ctp-overlay1"
         }`}
     >
       {connected ? (
@@ -268,11 +263,9 @@ function WebSocketBadge({
   );
 }
 
-
 // --------------------------------------------------
 // Shared components
 // --------------------------------------------------
-
 
 function StatCard({
   label,
@@ -312,7 +305,6 @@ function StatCard({
   );
 }
 
-
 function StatusMessage({
   notice,
 }: {
@@ -322,8 +314,8 @@ function StatusMessage({
     <div
       role="status"
       className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${notice.error
-        ? "border-ctp-red/20 bg-ctp-red/5"
-        : "border-ctp-green/20 bg-ctp-green/5"
+          ? "border-ctp-red/20 bg-ctp-red/5"
+          : "border-ctp-green/20 bg-ctp-green/5"
         }`}
     >
       {notice.error ? (
@@ -344,7 +336,6 @@ function StatusMessage({
     </div>
   );
 }
-
 
 function TerminalDetail({
   label,
@@ -379,11 +370,219 @@ function TerminalDetail({
   );
 }
 
+// --------------------------------------------------
+// Terminal pairing dialog
+// --------------------------------------------------
+
+function TerminalPairingDialog({
+  challenge,
+  remainingSeconds,
+  busy,
+  error,
+  onGenerate,
+  onClose,
+}: {
+  challenge: TerminalPairingChallenge | null;
+  remainingSeconds: number;
+  busy: boolean;
+  error: string | null;
+  onGenerate: () => void;
+  onClose: () => void;
+}) {
+  const expired =
+    challenge !== null && remainingSeconds <= 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-black/60 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="terminal-pairing-title"
+        className="my-auto w-full max-w-md rounded-xl border border-ctp-surface1 bg-ctp-mantle p-5 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ctp-mauve/10 text-ctp-mauve">
+              <QrCode size={21} />
+            </div>
+
+            <div className="min-w-0">
+              <h2
+                id="terminal-pairing-title"
+                className="font-line-seed text-base font-bold text-ctp-text"
+              >
+                Pair a new terminal
+              </h2>
+
+              <p className="mt-0.5 font-line-seed text-xs text-ctp-subtext0">
+                Scan this code using the Kinesis mobile app.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close pairing dialog"
+            className="rounded-md p-1.5 text-ctp-subtext0 transition-colors hover:bg-ctp-surface0 hover:text-ctp-text disabled:opacity-40"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
+          {challenge && !expired ? (
+            <>
+              <div className="rounded-lg bg-white p-3">
+                <QRCodeSVG
+                  value={challenge.pairing_payload}
+                  size={248}
+                  level="M"
+                  includeMargin
+                  title="Kinesis one-time terminal pairing QR code"
+                />
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 rounded-full bg-ctp-yellow/10 px-3 py-1.5">
+                <Clock
+                  size={14}
+                  className="text-ctp-yellow"
+                />
+
+                <span className="font-line-seed text-sm font-bold tabular-nums text-ctp-yellow">
+                  Expires in {formatCountdown(remainingSeconds)}
+                </span>
+              </div>
+
+              <p className="mt-3 text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
+                Keep this dialog open while the mobile terminal scans the
+                code. It can only be redeemed once.
+              </p>
+            </>
+          ) : expired ? (
+            <>
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ctp-yellow/10 text-ctp-yellow">
+                <Clock size={27} />
+              </div>
+
+              <p className="mt-4 font-line-seed text-sm font-bold text-ctp-text">
+                Pairing code expired
+              </p>
+
+              <p className="mt-2 max-w-xs text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
+                This QR code is no longer valid. Generate a new one to
+                continue pairing.
+              </p>
+            </>
+          ) : busy ? (
+            <>
+              <RefreshCw
+                size={26}
+                className="animate-spin text-ctp-mauve"
+              />
+
+              <p className="mt-3 font-line-seed text-sm text-ctp-subtext0">
+                Creating secure pairing code…
+              </p>
+            </>
+          ) : (
+            <>
+              <QrCode
+                size={32}
+                className="text-ctp-overlay1"
+              />
+
+              <p className="mt-3 font-line-seed text-sm text-ctp-subtext0">
+                No pairing code generated.
+              </p>
+            </>
+          )}
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-3 flex items-start gap-2 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-2.5"
+          >
+            <CircleAlert
+              size={15}
+              className="mt-0.5 shrink-0 text-ctp-red"
+            />
+
+            <p className="break-words font-line-seed text-xs leading-relaxed text-ctp-red">
+              {error}
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 rounded-md border border-ctp-surface0 bg-ctp-surface0/30 p-3">
+          <div className="flex items-start gap-2">
+            <ShieldCheck
+              size={15}
+              className="mt-0.5 shrink-0 text-ctp-green"
+            />
+
+            <p className="font-line-seed text-[11px] leading-relaxed text-ctp-subtext0">
+              This QR contains a temporary pairing secret. It expires after
+              five minutes and is invalidated after its first successful use.
+              The permanent terminal credential is issued separately and
+              stored securely on the mobile device.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-md border border-ctp-surface1 px-4 py-2 font-line-seed text-xs font-semibold text-ctp-text transition-colors hover:bg-ctp-surface0 disabled:opacity-40"
+          >
+            Cancel pairing
+          </button>
+
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 font-line-seed text-xs font-bold text-ctp-crust transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? (
+              <RefreshCw
+                size={14}
+                className="animate-spin"
+              />
+            ) : (
+              <QrCode size={14} />
+            )}
+
+            {challenge && !expired
+              ? "Generate new code"
+              : "Generate QR code"}
+          </button>
+        </div>
+
+        <p className="mt-3 text-center font-line-seed text-[10px] text-ctp-overlay1">
+          Pairing is available only to administrators with an authenticated
+          session.
+        </p>
+      </section>
+    </div>
+  );
+}
 
 // --------------------------------------------------
 // Terminal card
 // --------------------------------------------------
-
 
 function TerminalRow({
   terminal,
@@ -429,15 +628,14 @@ function TerminalRow({
   const actionClass =
     "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
-
   return (
     <article className="p-3 transition-colors hover:bg-ctp-surface0/20">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${connected
-              ? "bg-ctp-blue/10 text-ctp-blue"
-              : "bg-ctp-surface0 text-ctp-overlay1"
+                ? "bg-ctp-blue/10 text-ctp-blue"
+                : "bg-ctp-surface0 text-ctp-overlay1"
               }`}
           >
             {tablet ? (
@@ -494,7 +692,6 @@ function TerminalRow({
           </div>
         </div>
 
-
         {/* Terminal actions */}
         <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
           <button
@@ -524,8 +721,8 @@ function TerminalRow({
             onClick={() => void onMaintenance(terminal)}
             disabled={disabled || busy}
             className={`${actionClass} ${terminal.maintenance_mode
-              ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
-              : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
+                ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+                : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
               }`}
           >
             {terminal.maintenance_mode ? (
@@ -538,7 +735,6 @@ function TerminalRow({
               ? "End maintenance"
               : "Maintenance"}
           </button>
-
 
           {disabled ? (
             <button
@@ -594,7 +790,6 @@ function TerminalRow({
         </div>
       </div>
 
-
       {/* Terminal connection and activity details */}
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-3 sm:grid-cols-3 xl:grid-cols-7">
         <TerminalDetail
@@ -641,12 +836,12 @@ function TerminalRow({
 
           <p
             className={`mt-1 font-line-seed text-sm font-bold ${latency === null
-              ? "text-ctp-overlay1"
-              : latency <= 100
-                ? "text-ctp-green"
-                : latency <= 300
-                  ? "text-ctp-yellow"
-                  : "text-ctp-red"
+                ? "text-ctp-overlay1"
+                : latency <= 100
+                  ? "text-ctp-green"
+                  : latency <= 300
+                    ? "text-ctp-yellow"
+                    : "text-ctp-red"
               }`}
           >
             {terminal.websocket_connected
@@ -693,11 +888,9 @@ function TerminalRow({
   );
 }
 
-
 // --------------------------------------------------
 // Main page
 // --------------------------------------------------
-
 
 export default function Terminals() {
   const [search, setSearch] = useState("");
@@ -720,6 +913,22 @@ export default function Terminals() {
 
   const [now, setNow] = useState(() => Date.now());
 
+  // Pairing dialog state
+  const [pairingOpen, setPairingOpen] = useState(false);
+
+  const [pairingChallenge, setPairingChallenge] =
+    useState<TerminalPairingChallenge | null>(null);
+
+  const [pairingSecondsRemaining, setPairingSecondsRemaining] =
+    useState(0);
+
+  const [pairingBusy, setPairingBusy] = useState(false);
+
+  const [pairingError, setPairingError] =
+    useState<string | null>(null);
+
+  const [pairingNotice, setPairingNotice] =
+    useState<Notice | null>(null);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -728,7 +937,6 @@ export default function Terminals() {
 
     return () => window.clearInterval(interval);
   }, []);
-
 
   const {
     data,
@@ -741,6 +949,47 @@ export default function Terminals() {
     refresh,
   } = useTerminalManagement(search);
 
+  // Keep the pairing countdown synchronized with the backend expiry.
+  useEffect(() => {
+    if (!pairingChallenge) {
+      setPairingSecondsRemaining(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const expiry = Date.parse(pairingChallenge.expires_at);
+
+      if (Number.isNaN(expiry)) {
+        setPairingSecondsRemaining(0);
+        return;
+      }
+
+      setPairingSecondsRemaining(
+        Math.max(0, Math.ceil((expiry - Date.now()) / 1000)),
+      );
+    };
+
+    updateCountdown();
+
+    const interval = window.setInterval(
+      updateCountdown,
+      1000,
+    );
+
+    return () => window.clearInterval(interval);
+  }, [pairingChallenge]);
+
+  // Refresh the list while the pairing dialog is open.
+  // Newly paired terminals will appear without requiring a manual refresh.
+  useEffect(() => {
+    if (!pairingOpen) return;
+
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [pairingOpen, refresh]);
 
   const terminals = data?.items ?? [];
 
@@ -748,7 +997,6 @@ export default function Terminals() {
     1,
     data?.heartbeat_timeout_seconds ?? 30,
   );
-
 
   // --------------------------------------------------
   // Derived terminal metrics
@@ -775,7 +1023,6 @@ export default function Terminals() {
     (terminal) => terminal.maintenance_mode,
   ).length;
 
-
   const measuredLatencies = terminals
     .filter(
       (terminal) =>
@@ -783,7 +1030,6 @@ export default function Terminals() {
         terminal.latency_ms !== null,
     )
     .map((terminal) => terminal.latency_ms as number);
-
 
   const averageLatency =
     measuredLatencies.length > 0
@@ -794,7 +1040,6 @@ export default function Terminals() {
         ) / measuredLatencies.length,
       )
       : null;
-
 
   const healthyCount = terminals.filter(
     (terminal) =>
@@ -811,7 +1056,6 @@ export default function Terminals() {
       terminal.connection_health === "Poor",
   ).length;
 
-
   const networkStatus = !data
     ? loading
       ? "Checking"
@@ -820,21 +1064,95 @@ export default function Terminals() {
       ? "Online"
       : "Offline";
 
-
   const healthColor = !data
     ? "text-ctp-subtext0"
     : connectedCount === 0
       ? "text-ctp-yellow"
       : "text-ctp-green";
 
-
   const inputClass =
     "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-line-seed text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
-
 
   const actionClass =
     "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
+  // --------------------------------------------------
+  // Terminal pairing actions
+  // --------------------------------------------------
+
+  function openPairingDialog() {
+    setPairingError(null);
+    setPairingNotice(null);
+    setPairingChallenge(null);
+    setPairingOpen(true);
+
+    void generatePairingCode();
+  }
+
+  async function generatePairingCode() {
+    setPairingBusy(true);
+    setPairingError(null);
+
+    try {
+      // Revoke an earlier unused code before replacing it.
+      if (
+        pairingChallenge &&
+        pairingSecondsRemaining > 0
+      ) {
+        await revokeTerminalPairingChallenge(
+          pairingChallenge.id,
+        );
+      }
+
+      const challenge =
+        await createTerminalPairingChallenge();
+
+      setPairingChallenge(challenge);
+    } catch (requestError) {
+      setPairingError(
+        getErrorMessage(
+          requestError,
+          "A pairing QR code could not be created.",
+        ),
+      );
+    } finally {
+      setPairingBusy(false);
+    }
+  }
+
+  async function closePairingDialog() {
+    const challenge = pairingChallenge;
+    const stillValid =
+      challenge !== null &&
+      pairingSecondsRemaining > 0;
+
+    setPairingBusy(true);
+    setPairingError(null);
+
+    if (challenge && stillValid) {
+      try {
+        await revokeTerminalPairingChallenge(
+          challenge.id,
+        );
+      } catch (requestError) {
+        // The dialog can still close. The unused code remains valid only
+        // until its original five-minute expiration.
+        setPairingNotice({
+          message:
+            `The dialog was closed, but the pairing code could not be revoked. ` +
+            `It will expire automatically. ${getErrorMessage(
+              requestError,
+              "",
+            )}`.trim(),
+          error: true,
+        });
+      }
+    }
+
+    setPairingChallenge(null);
+    setPairingOpen(false);
+    setPairingBusy(false);
+  }
 
   // --------------------------------------------------
   // Notice and busy-state helpers
@@ -850,7 +1168,6 @@ export default function Terminals() {
     }));
   }
 
-
   function setBusy(
     id: number,
     action: string | null,
@@ -860,7 +1177,6 @@ export default function Terminals() {
       [id]: action,
     }));
   }
-
 
   // --------------------------------------------------
   // Terminal actions
@@ -886,20 +1202,19 @@ export default function Terminals() {
         error: false,
       });
 
-      refresh();
+      void refresh();
     } catch (requestError) {
       saveTerminalNotice(terminal.id, {
-        message:
-          requestError instanceof Error
-            ? requestError.message
-            : "The sync request failed.",
+        message: getErrorMessage(
+          requestError,
+          "The sync request failed.",
+        ),
         error: true,
       });
     } finally {
       setBusy(terminal.id, null);
     }
   }
-
 
   async function handleMaintenance(
     terminal: ManagedTerminal,
@@ -919,20 +1234,19 @@ export default function Terminals() {
         error: false,
       });
 
-      refresh();
+      void refresh();
     } catch (requestError) {
       saveTerminalNotice(terminal.id, {
-        message:
-          requestError instanceof Error
-            ? requestError.message
-            : "Maintenance mode could not be updated.",
+        message: getErrorMessage(
+          requestError,
+          "Maintenance mode could not be updated.",
+        ),
         error: true,
       });
     } finally {
       setBusy(terminal.id, null);
     }
   }
-
 
   async function handleDisable(
     terminal: ManagedTerminal,
@@ -950,20 +1264,19 @@ export default function Terminals() {
       });
 
       setConfirmDisable(null);
-      refresh();
+      void refresh();
     } catch (requestError) {
       saveTerminalNotice(terminal.id, {
-        message:
-          requestError instanceof Error
-            ? requestError.message
-            : "Terminal access could not be disabled.",
+        message: getErrorMessage(
+          requestError,
+          "Terminal access could not be disabled.",
+        ),
         error: true,
       });
     } finally {
       setBusy(terminal.id, null);
     }
   }
-
 
   async function handleEnable(
     terminal: ManagedTerminal,
@@ -980,20 +1293,19 @@ export default function Terminals() {
         error: false,
       });
 
-      refresh();
+      void refresh();
     } catch (requestError) {
       saveTerminalNotice(terminal.id, {
-        message:
-          requestError instanceof Error
-            ? requestError.message
-            : "Terminal access could not be enabled.",
+        message: getErrorMessage(
+          requestError,
+          "Terminal access could not be enabled.",
+        ),
         error: true,
       });
     } finally {
       setBusy(terminal.id, null);
     }
   }
-
 
   // --------------------------------------------------
   // Broadcast
@@ -1039,20 +1351,19 @@ export default function Terminals() {
       });
 
       setBroadcast("");
-      refresh();
+      void refresh();
     } catch (requestError) {
       setBroadcastNotice({
-        message:
-          requestError instanceof Error
-            ? requestError.message
-            : "The broadcast could not be queued.",
+        message: getErrorMessage(
+          requestError,
+          "The broadcast could not be queued.",
+        ),
         error: true,
       });
     } finally {
       setBroadcastBusy(false);
     }
   }
-
 
   // --------------------------------------------------
   // Render
@@ -1072,15 +1383,29 @@ export default function Terminals() {
           </p>
         </div>
 
-        <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
-          <span className="h-2 w-2 rounded-full bg-ctp-green" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
+            <span className="h-2 w-2 rounded-full bg-ctp-green" />
 
-          <span className="text-xs font-semibold text-ctp-green">
-            Admin session authenticated
-          </span>
+            <span className="text-xs font-semibold text-ctp-green">
+              Admin session authenticated
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={openPairingDialog}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-line-seed text-xs font-bold text-ctp-crust transition-colors hover:bg-ctp-mauve/80"
+          >
+            <Plus size={15} />
+            Add Terminal
+          </button>
         </div>
       </header>
 
+      {pairingNotice && (
+        <StatusMessage notice={pairingNotice} />
+      )}
 
       {/* Summary */}
       <section
@@ -1147,7 +1472,6 @@ export default function Terminals() {
           color="bg-ctp-red/10 text-ctp-red"
         />
       </section>
-
 
       {/* Network overview */}
       <section className="rounded-lg border border-ctp-surface0 bg-ctp-base">
@@ -1235,7 +1559,6 @@ export default function Terminals() {
         </div>
       </section>
 
-
       {/* Metrics error */}
       {metricsError && (
         <div
@@ -1258,7 +1581,6 @@ export default function Terminals() {
           </div>
         </div>
       )}
-
 
       {/* API error */}
       {error && (
@@ -1290,7 +1612,6 @@ export default function Terminals() {
           </button>
         </div>
       )}
-
 
       {/* Broadcast */}
       <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
@@ -1364,7 +1685,6 @@ export default function Terminals() {
         </p>
       </section>
 
-
       {/* Terminal list */}
       <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
         <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1433,21 +1753,20 @@ export default function Terminals() {
 
           <span
             className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${connectedCount > 0
-              ? "text-ctp-green"
-              : "text-ctp-red"
+                ? "text-ctp-green"
+                : "text-ctp-red"
               }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${connectedCount > 0
-                ? "bg-ctp-green"
-                : "bg-ctp-red"
+                  ? "bg-ctp-green"
+                  : "bg-ctp-red"
                 }`}
             />
 
             {connectedCount} heartbeat-connected
           </span>
         </div>
-
 
         {loading && !data ? (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-ctp-subtext0">
@@ -1506,7 +1825,7 @@ export default function Terminals() {
                 ? "The terminal list could not be retrieved from the backend."
                 : search
                   ? "Try another name, device ID, platform, or IP address."
-                  : "Once the Expo app registers a device successfully, it will appear here."}
+                  : "Create a pairing QR code to register your first terminal."}
             </p>
 
             {search && (
@@ -1518,9 +1837,19 @@ export default function Terminals() {
                 Clear search
               </button>
             )}
+
+            {!search && !error && (
+              <button
+                type="button"
+                onClick={openPairingDialog}
+                className="mt-3 inline-flex items-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 text-xs font-bold text-ctp-crust hover:bg-ctp-mauve/80"
+              >
+                <Plus size={14} />
+                Add Terminal
+              </button>
+            )}
           </div>
         )}
-
 
         {data && lastUpdated && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 px-3 py-2">
@@ -1545,7 +1874,6 @@ export default function Terminals() {
         )}
       </section>
 
-
       {/* Technical note */}
       <footer className="flex items-start gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
         <Server
@@ -1563,6 +1891,18 @@ export default function Terminals() {
           mobile terminal processes and acknowledges them.
         </p>
       </footer>
+
+      {/* Pairing dialog */}
+      {pairingOpen && (
+        <TerminalPairingDialog
+          challenge={pairingChallenge}
+          remainingSeconds={pairingSecondsRemaining}
+          busy={pairingBusy}
+          error={pairingError}
+          onGenerate={() => void generatePairingCode()}
+          onClose={() => void closePairingDialog()}
+        />
+      )}
     </div>
   );
 }
