@@ -1,4 +1,3 @@
-
 import { apiRequest } from "./api";
 
 import type {
@@ -20,6 +19,19 @@ import type {
 
 
 const PRODUCT_PAGE_SIZE = 100;
+
+
+export type PaymentBreakdownResponse = {
+  period: ReportPeriod;
+  timezone: string;
+  period_start: string;
+  period_end_exclusive: string;
+  payment_breakdown: Array<{
+    payment_method: string;
+    transactions: number;
+    revenue: number;
+  }>;
+};
 
 
 // --------------------------------------------------
@@ -98,6 +110,29 @@ export function fetchSalesReport(
 
   return apiRequest<SalesReportResponse>(
     `/api/reports/sales?${params.toString()}`,
+    {
+      method: "GET",
+      signal,
+    },
+  );
+}
+
+
+// --------------------------------------------------
+// Payment breakdown
+// --------------------------------------------------
+
+
+export function fetchPaymentBreakdown(
+  period: ReportPeriod,
+  signal?: AbortSignal,
+): Promise<PaymentBreakdownResponse> {
+  const params = new URLSearchParams({
+    period,
+  });
+
+  return apiRequest<PaymentBreakdownResponse>(
+    `/api/admin/overview/payment-breakdown?${params.toString()}`,
     {
       method: "GET",
       signal,

@@ -1,38 +1,38 @@
-
 import { useEffect, useState, type FormEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 import {
   Activity,
-  Wifi,
-  WifiOff,
-  Smartphone,
-  Monitor,
-  RefreshCw,
-  Lock,
-  Unlock,
-  LogOut,
-  Radio,
-  Send,
-  Search,
-  CircleCheck,
-  CircleAlert,
-  Signal,
-  X,
   Check,
-  Wrench,
-  Users,
-  Server,
+  CircleAlert,
+  CircleCheck,
+  Clock,
   Gauge,
+  Lock,
+  LogOut,
+  Monitor,
   Plus,
   QrCode,
-  Clock,
+  Radio,
+  RefreshCw,
+  Search,
+  Send,
+  Server,
   ShieldCheck,
+  Signal,
+  Smartphone,
+  Unlock,
+  Users,
+  Wrench,
+  Wifi,
+  WifiOff,
+  X,
 } from "lucide-react";
 
-import type { LucideIcon } from "lucide-react";
-
-import { useTerminalManagement } from "../hooks/useTerminalManagement";
+import type {
+  ManagedTerminal,
+  TerminalConnectionHealth,
+} from "../types/terminal";
 
 import {
   broadcastToTerminals,
@@ -48,10 +48,11 @@ import type {
   TerminalPairingChallenge,
 } from "../lib/terminalApi";
 
-import type {
-  ManagedTerminal,
-  TerminalConnectionHealth,
-} from "../types/terminal";
+import { useTerminalManagement } from "../hooks/useTerminalManagement";
+
+// --------------------------------------------------
+// Types and styles
+// --------------------------------------------------
 
 type Notice = {
   message: string;
@@ -79,8 +80,17 @@ const healthDotStyles: Record<TerminalConnectionHealth, string> = {
   Measuring: "bg-ctp-blue",
 };
 
+const terminalGridClass =
+  "grid grid-cols-1 gap-3 xl:grid-cols-[minmax(230px,1.45fr)_minmax(145px,0.85fr)_minmax(130px,0.8fr)_minmax(140px,0.85fr)_minmax(310px,1.5fr)] xl:items-center";
+
+const inputClass =
+  "min-w-0 rounded-md border border-ctp-surface1 bg-ctp-base px-3 py-2 font-line-seed text-xs text-ctp-text outline-none transition-colors placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
+
+const actionClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+
 // --------------------------------------------------
-// Date helpers
+// Date and formatting helpers
 // --------------------------------------------------
 
 function parseDateTime(value: string | null): Date | null {
@@ -196,7 +206,7 @@ function getErrorMessage(
 }
 
 // --------------------------------------------------
-// Status badges
+// Status indicators
 // --------------------------------------------------
 
 function StatusBadge({
@@ -210,7 +220,7 @@ function StatusBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${statusStyles[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-line-seed text-[10px] font-bold ${statusStyles[status]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-ctp-green" : "bg-ctp-red"
@@ -229,7 +239,7 @@ function HealthBadge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-line-seed text-[10px] font-bold ${healthStyles[health]}`}
+      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-line-seed text-[10px] font-bold ${healthStyles[health]}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${healthDotStyles[health]}`}
@@ -264,43 +274,36 @@ function WebSocketBadge({
 }
 
 // --------------------------------------------------
-// Shared components
+// Shared interface components
 // --------------------------------------------------
 
-function StatCard({
+function SummaryItem({
   label,
   value,
   description,
-  icon: Icon,
-  color,
+  valueColor,
 }: {
   label: string;
   value: string | number;
   description: string;
-  icon: LucideIcon;
-  color: string;
+  valueColor?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-      <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${color}`}
+    <div className="min-w-0 bg-ctp-base px-3 py-3 sm:px-4">
+      <p className="font-line-seed text-[10px] font-semibold uppercase tracking-wider text-ctp-subtext0">
+        {label}
+      </p>
+
+      <p
+        className={`mt-1 font-line-seed text-xl font-bold leading-tight tabular-nums ${valueColor ?? "text-ctp-text"
+          }`}
       >
-        <Icon size={18} />
-      </div>
+        {value}
+      </p>
 
-      <div className="min-w-0">
-        <p className="font-line-seed text-xs font-medium text-ctp-subtext0">
-          {label}
-        </p>
-
-        <p className="mt-0.5 font-line-seed text-xl font-bold leading-tight text-ctp-text">
-          {value}
-        </p>
-
-        <p className="mt-1 truncate font-line-seed text-[11px] text-ctp-subtext0">
-          {description}
-        </p>
-      </div>
+      <p className="mt-1 truncate font-line-seed text-[10px] text-ctp-subtext0">
+        {description}
+      </p>
     </div>
   );
 }
@@ -312,8 +315,8 @@ function StatusMessage({
 }) {
   return (
     <div
-      role="status"
-      className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 ${notice.error
+      role={notice.error ? "alert" : "status"}
+      className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${notice.error
           ? "border-ctp-red/20 bg-ctp-red/5"
           : "border-ctp-green/20 bg-ctp-green/5"
         }`}
@@ -350,23 +353,35 @@ function TerminalDetail({
 }) {
   return (
     <div className="min-w-0">
-      <p className="font-line-seed text-[10px] text-ctp-subtext0">
+      <p className="font-line-seed text-[10px] font-medium text-ctp-subtext0">
         {label}
       </p>
 
       <p
-        className="mt-1 break-all font-line-seed text-xs text-ctp-text"
+        className="mt-1 break-all font-line-seed text-xs font-medium text-ctp-text"
         title={title}
       >
         {value}
       </p>
 
       {secondary && (
-        <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+        <p className="mt-0.5 font-line-seed text-[10px] text-ctp-subtext0">
           {secondary}
         </p>
       )}
     </div>
+  );
+}
+
+function SectionLabel({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <p className="font-line-seed text-[10px] font-semibold uppercase tracking-wider text-ctp-subtext0">
+      {children}
+    </p>
   );
 }
 
@@ -397,7 +412,10 @@ function TerminalPairingDialog({
       className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-black/60 p-4"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) {
+        if (
+          event.target === event.currentTarget &&
+          !busy
+        ) {
           onClose();
         }
       }}
@@ -406,23 +424,23 @@ function TerminalPairingDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="terminal-pairing-title"
-        className="my-auto w-full max-w-md rounded-xl border border-ctp-surface1 bg-ctp-mantle p-5 shadow-2xl"
+        className="my-auto w-full max-w-md rounded-lg border border-ctp-surface1 bg-ctp-mantle p-5 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ctp-mauve/10 text-ctp-mauve">
-              <QrCode size={21} />
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
+              <QrCode size={19} />
             </div>
 
             <div className="min-w-0">
               <h2
                 id="terminal-pairing-title"
-                className="font-line-seed text-base font-bold text-ctp-text"
+                className="font-line-seed text-sm font-bold text-ctp-text"
               >
                 Pair a new terminal
               </h2>
 
-              <p className="mt-0.5 font-line-seed text-xs text-ctp-subtext0">
+              <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
                 Scan this code using the Kinesis mobile app.
               </p>
             </div>
@@ -435,14 +453,14 @@ function TerminalPairingDialog({
             aria-label="Close pairing dialog"
             className="rounded-md p-1.5 text-ctp-subtext0 transition-colors hover:bg-ctp-surface0 hover:text-ctp-text disabled:opacity-40"
           >
-            <X size={18} />
+            <X size={17} />
           </button>
         </div>
 
-        <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-lg border border-ctp-surface0 bg-ctp-base p-4">
+        <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center border border-ctp-surface0 bg-ctp-base p-4">
           {challenge && !expired ? (
             <>
-              <div className="rounded-lg bg-white p-3">
+              <div className="bg-white p-3">
                 <QRCodeSVG
                   value={challenge.pairing_payload}
                   size={248}
@@ -452,7 +470,7 @@ function TerminalPairingDialog({
                 />
               </div>
 
-              <div className="mt-4 flex items-center gap-2 rounded-full bg-ctp-yellow/10 px-3 py-1.5">
+              <div className="mt-4 flex items-center gap-2 rounded-md bg-ctp-yellow/10 px-3 py-1.5">
                 <Clock
                   size={14}
                   className="text-ctp-yellow"
@@ -463,45 +481,46 @@ function TerminalPairingDialog({
                 </span>
               </div>
 
-              <p className="mt-3 text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
-                Keep this dialog open while the mobile terminal scans the
-                code. It can only be redeemed once.
+              <p className="mt-3 max-w-xs text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
+                Keep this dialog open while the mobile terminal scans
+                the code. It can only be redeemed once.
               </p>
             </>
           ) : expired ? (
             <>
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ctp-yellow/10 text-ctp-yellow">
-                <Clock size={27} />
-              </div>
+              <Clock
+                size={30}
+                className="text-ctp-yellow"
+              />
 
               <p className="mt-4 font-line-seed text-sm font-bold text-ctp-text">
                 Pairing code expired
               </p>
 
               <p className="mt-2 max-w-xs text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
-                This QR code is no longer valid. Generate a new one to
-                continue pairing.
+                This QR code is no longer valid. Generate a new one
+                to continue pairing.
               </p>
             </>
           ) : busy ? (
             <>
               <RefreshCw
-                size={26}
+                size={25}
                 className="animate-spin text-ctp-mauve"
               />
 
-              <p className="mt-3 font-line-seed text-sm text-ctp-subtext0">
+              <p className="mt-3 font-line-seed text-xs text-ctp-subtext0">
                 Creating secure pairing code…
               </p>
             </>
           ) : (
             <>
               <QrCode
-                size={32}
+                size={30}
                 className="text-ctp-overlay1"
               />
 
-              <p className="mt-3 font-line-seed text-sm text-ctp-subtext0">
+              <p className="mt-3 font-line-seed text-xs text-ctp-subtext0">
                 No pairing code generated.
               </p>
             </>
@@ -511,7 +530,7 @@ function TerminalPairingDialog({
         {error && (
           <div
             role="alert"
-            className="mt-3 flex items-start gap-2 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-2.5"
+            className="mt-3 flex items-start gap-2 border border-ctp-red/20 bg-ctp-red/5 p-2.5"
           >
             <CircleAlert
               size={15}
@@ -524,7 +543,7 @@ function TerminalPairingDialog({
           </div>
         )}
 
-        <div className="mt-4 rounded-md border border-ctp-surface0 bg-ctp-surface0/30 p-3">
+        <div className="mt-4 border border-ctp-surface0 bg-ctp-surface0/30 p-3">
           <div className="flex items-start gap-2">
             <ShieldCheck
               size={15}
@@ -532,10 +551,10 @@ function TerminalPairingDialog({
             />
 
             <p className="font-line-seed text-[11px] leading-relaxed text-ctp-subtext0">
-              This QR contains a temporary pairing secret. It expires after
-              five minutes and is invalidated after its first successful use.
-              The permanent terminal credential is issued separately and
-              stored securely on the mobile device.
+              This QR contains a temporary pairing secret. It expires
+              after five minutes and is invalidated after its first
+              successful use. The permanent terminal credential is
+              issued separately and stored securely on the mobile device.
             </p>
           </div>
         </div>
@@ -581,7 +600,7 @@ function TerminalPairingDialog({
 }
 
 // --------------------------------------------------
-// Terminal card
+// Terminal row
 // --------------------------------------------------
 
 function TerminalRow({
@@ -625,13 +644,21 @@ function TerminalRow({
 
   const latency = terminal.latency_ms;
 
-  const actionClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+  const latencyColor =
+    latency === null
+      ? "text-ctp-overlay1"
+      : latency <= 100
+        ? "text-ctp-green"
+        : latency <= 300
+          ? "text-ctp-yellow"
+          : "text-ctp-red";
 
   return (
-    <article className="p-3 transition-colors hover:bg-ctp-surface0/20">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 items-start gap-2.5">
+    <article className="px-3 py-4 transition-colors hover:bg-ctp-surface0/20 sm:px-4">
+      <div className={terminalGridClass}>
+        {/* Device identity */}
+
+        <div className="flex min-w-0 items-start gap-3">
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${connected
                 ? "bg-ctp-blue/10 text-ctp-blue"
@@ -645,54 +672,125 @@ function TerminalRow({
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <h3 className="break-words font-line-seed text-sm font-bold text-ctp-text">
-                {terminal.name}
-              </h3>
+          <div className="min-w-0">
+            <h3 className="break-words font-line-seed text-sm font-bold text-ctp-text">
+              {terminal.name}
+            </h3>
 
-              <StatusBadge connected={connected} />
-
-              <HealthBadge
-                health={terminal.connection_health}
-              />
-
-              {terminal.maintenance_mode && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-ctp-yellow/10 px-2 py-0.5 font-line-seed text-[10px] font-bold text-ctp-yellow">
-                  <Wrench size={10} />
-                  MAINTENANCE
-                </span>
-              )}
-
-              {disabled && (
-                <span className="rounded-full bg-ctp-red/10 px-2 py-0.5 font-line-seed text-[10px] font-bold text-ctp-red">
-                  ACCESS DISABLED
-                </span>
-              )}
-            </div>
-
-            <p className="mt-1 break-words font-line-seed text-[11px] text-ctp-subtext0">
+            <p className="mt-0.5 break-words font-line-seed text-[11px] text-ctp-subtext0">
               {terminal.terminal_code}
               <span className="px-1">·</span>
               {terminal.device_type}
               <span className="px-1">·</span>
               {terminal.platform}
-
-              {terminal.app_version && (
-                <>
-                  <span className="px-1">·</span>
-                  v{terminal.app_version}
-                </>
-              )}
             </p>
 
             <p className="mt-1 break-all font-mono text-[10px] text-ctp-overlay1">
-              Device ID: {terminal.device_id}
+              {terminal.device_id}
             </p>
+
+            {terminal.app_version && (
+              <p className="mt-1 font-line-seed text-[10px] text-ctp-overlay1">
+                App version {terminal.app_version}
+              </p>
+            )}
           </div>
         </div>
 
+        {/* Connection status */}
+
+        <div className="min-w-0">
+          <SectionLabel>Connection</SectionLabel>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <StatusBadge connected={connected} />
+
+            <HealthBadge
+              health={terminal.connection_health}
+            />
+          </div>
+
+          {(terminal.maintenance_mode || disabled) && (
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {terminal.maintenance_mode && (
+                <span className="inline-flex items-center gap-1 font-line-seed text-[10px] font-semibold text-ctp-yellow">
+                  <Wrench size={11} />
+                  Maintenance
+                </span>
+              )}
+
+              {disabled && (
+                <span className="inline-flex items-center gap-1 font-line-seed text-[10px] font-semibold text-ctp-red">
+                  <Lock size={11} />
+                  Access disabled
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* HTTP heartbeat */}
+
+        <div className="min-w-0">
+          <SectionLabel>HTTP heartbeat</SectionLabel>
+
+          <p className="mt-1.5 font-line-seed text-xs font-semibold text-ctp-text">
+            {formatRelativeTime(
+              terminal.last_seen_at,
+              now,
+            )}
+          </p>
+
+          <p className="mt-0.5 font-line-seed text-[10px] text-ctp-subtext0">
+            {connected
+              ? `Within ${heartbeatTimeoutSeconds}s timeout`
+              : "Expired or unavailable"}
+          </p>
+
+          <p
+            className="mt-1 font-line-seed text-[10px] text-ctp-overlay1"
+            title={formatDateTime(terminal.last_seen_at)}
+          >
+            {formatDateTime(terminal.last_seen_at)}
+          </p>
+        </div>
+
+        {/* WebSocket and latency */}
+
+        <div className="min-w-0">
+          <SectionLabel>WebSocket</SectionLabel>
+
+          <div className="mt-1.5">
+            <WebSocketBadge
+              connected={terminal.websocket_connected}
+            />
+          </div>
+
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="font-line-seed text-[10px] text-ctp-subtext0">
+              Ping
+            </span>
+
+            <span
+              className={`font-line-seed text-sm font-bold tabular-nums ${latencyColor}`}
+            >
+              {terminal.websocket_connected
+                ? latency === null
+                  ? "Measuring…"
+                  : formatLatency(latency)
+                : "—"}
+            </span>
+          </div>
+
+          {terminal.consecutive_ping_timeouts > 0 && (
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-red">
+              {terminal.consecutive_ping_timeouts} missed ping(s)
+            </p>
+          )}
+        </div>
+
         {/* Terminal actions */}
+
         <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
           <button
             type="button"
@@ -713,6 +811,7 @@ function TerminalRow({
                   : ""
               }
             />
+
             Sync
           </button>
 
@@ -721,11 +820,21 @@ function TerminalRow({
             onClick={() => void onMaintenance(terminal)}
             disabled={disabled || busy}
             className={`${actionClass} ${terminal.maintenance_mode
-                ? "border-ctp-yellow/30 text-ctp-yellow hover:bg-ctp-yellow/5"
+                ? "border-ctp-yellow/30 bg-ctp-yellow/5 text-ctp-yellow hover:bg-ctp-yellow/10"
                 : "border-ctp-surface1 text-ctp-text hover:border-ctp-yellow/50 hover:text-ctp-yellow"
               }`}
+            title={
+              terminal.maintenance_mode
+                ? "End maintenance mode"
+                : "Place terminal into maintenance mode"
+            }
           >
-            {terminal.maintenance_mode ? (
+            {busyAction === "maintenance" ? (
+              <RefreshCw
+                size={13}
+                className="animate-spin"
+              />
+            ) : terminal.maintenance_mode ? (
               <Unlock size={13} />
             ) : (
               <Lock size={13} />
@@ -743,12 +852,20 @@ function TerminalRow({
               disabled={busy}
               className={`${actionClass} border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10`}
             >
-              <Check size={13} />
+              {busyAction === "enable" ? (
+                <RefreshCw
+                  size={13}
+                  className="animate-spin"
+                />
+              ) : (
+                <Check size={13} />
+              )}
+
               Enable access
             </button>
           ) : confirmDisable ? (
             <div
-              className="flex flex-wrap items-center gap-1.5 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-1.5"
+              className="flex flex-wrap items-center gap-1.5 border border-ctp-red/20 bg-ctp-red/5 p-1.5"
               role="group"
               aria-label={`Confirm disabling ${terminal.name}`}
             >
@@ -762,7 +879,15 @@ function TerminalRow({
                 disabled={busy}
                 className={`${actionClass} border-ctp-red bg-ctp-red text-ctp-base hover:bg-ctp-red/80`}
               >
-                <Check size={13} />
+                {busyAction === "disable" ? (
+                  <RefreshCw
+                    size={13}
+                    className="animate-spin"
+                  />
+                ) : (
+                  <Check size={13} />
+                )}
+
                 Confirm
               </button>
 
@@ -790,70 +915,16 @@ function TerminalRow({
         </div>
       </div>
 
-      {/* Terminal connection and activity details */}
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-ctp-surface0/30 px-3 py-3 sm:grid-cols-3 xl:grid-cols-7">
+      {/* Additional device information */}
+
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-ctp-surface0 pt-3 sm:grid-cols-4">
         <TerminalDetail
           label="IP address"
           value={terminal.ip_address ?? "Not reported"}
         />
 
         <TerminalDetail
-          label="HTTP heartbeat"
-          value={formatRelativeTime(
-            terminal.last_seen_at,
-            now,
-          )}
-          secondary={
-            connected
-              ? "Within timeout"
-              : "Expired or unavailable"
-          }
-          title={formatDateTime(terminal.last_seen_at)}
-        />
-
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            WebSocket
-          </p>
-
-          <div className="mt-1">
-            <WebSocketBadge
-              connected={terminal.websocket_connected}
-            />
-          </div>
-
-          {terminal.consecutive_ping_timeouts > 0 && (
-            <p className="mt-1 font-line-seed text-[10px] text-ctp-red">
-              {terminal.consecutive_ping_timeouts} missed ping(s)
-            </p>
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <p className="font-line-seed text-[10px] text-ctp-subtext0">
-            Ping latency
-          </p>
-
-          <p
-            className={`mt-1 font-line-seed text-sm font-bold ${latency === null
-                ? "text-ctp-overlay1"
-                : latency <= 100
-                  ? "text-ctp-green"
-                  : latency <= 300
-                    ? "text-ctp-yellow"
-                    : "text-ctp-red"
-              }`}
-          >
-            {terminal.websocket_connected
-              ? latency === null
-                ? "Measuring…"
-                : formatLatency(latency)
-              : "—"}
-          </p>
-        </div>
-
-        <TerminalDetail
-          label="Last measurement"
+          label="Last ping measurement"
           value={formatRelativeTime(
             terminal.latency_updated_at,
             now,
@@ -883,7 +954,11 @@ function TerminalRow({
         />
       </div>
 
-      {notice && <StatusMessage notice={notice} />}
+      {notice && (
+        <div className="mt-3">
+          <StatusMessage notice={notice} />
+        </div>
+      )}
     </article>
   );
 }
@@ -914,6 +989,7 @@ export default function Terminals() {
   const [now, setNow] = useState(() => Date.now());
 
   // Pairing dialog state
+
   const [pairingOpen, setPairingOpen] = useState(false);
 
   const [pairingChallenge, setPairingChallenge] =
@@ -929,6 +1005,8 @@ export default function Terminals() {
 
   const [pairingNotice, setPairingNotice] =
     useState<Notice | null>(null);
+
+  // Keep relative timestamps and heartbeat indicators current.
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -949,7 +1027,8 @@ export default function Terminals() {
     refresh,
   } = useTerminalManagement(search);
 
-  // Keep the pairing countdown synchronized with the backend expiry.
+  // Keep the pairing countdown synchronized with backend expiry.
+
   useEffect(() => {
     if (!pairingChallenge) {
       setPairingSecondsRemaining(0);
@@ -980,7 +1059,7 @@ export default function Terminals() {
   }, [pairingChallenge]);
 
   // Refresh the list while the pairing dialog is open.
-  // Newly paired terminals will appear without requiring a manual refresh.
+
   useEffect(() => {
     if (!pairingOpen) return;
 
@@ -991,16 +1070,16 @@ export default function Terminals() {
     return () => window.clearInterval(interval);
   }, [pairingOpen, refresh]);
 
+  // --------------------------------------------------
+  // Derived terminal metrics
+  // --------------------------------------------------
+
   const terminals = data?.items ?? [];
 
   const heartbeatTimeoutSeconds = Math.max(
     1,
     data?.heartbeat_timeout_seconds ?? 30,
   );
-
-  // --------------------------------------------------
-  // Derived terminal metrics
-  // --------------------------------------------------
 
   const connectedCount = terminals.filter(
     (terminal) =>
@@ -1070,12 +1149,6 @@ export default function Terminals() {
       ? "text-ctp-yellow"
       : "text-ctp-green";
 
-  const inputClass =
-    "min-w-0 rounded-md border border-ctp-surface0 bg-ctp-base px-3 py-2 font-line-seed text-sm text-ctp-text outline-none placeholder:text-ctp-overlay1 focus:border-ctp-mauve";
-
-  const actionClass =
-    "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 font-line-seed text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
-
   // --------------------------------------------------
   // Terminal pairing actions
   // --------------------------------------------------
@@ -1095,6 +1168,7 @@ export default function Terminals() {
 
     try {
       // Revoke an earlier unused code before replacing it.
+
       if (
         pairingChallenge &&
         pairingSecondsRemaining > 0
@@ -1122,6 +1196,7 @@ export default function Terminals() {
 
   async function closePairingDialog() {
     const challenge = pairingChallenge;
+
     const stillValid =
       challenge !== null &&
       pairingSecondsRemaining > 0;
@@ -1135,8 +1210,8 @@ export default function Terminals() {
           challenge.id,
         );
       } catch (requestError) {
-        // The dialog can still close. The unused code remains valid only
-        // until its original five-minute expiration.
+        // The code still expires automatically if revocation fails.
+
         setPairingNotice({
           message:
             `The dialog was closed, but the pairing code could not be revoked. ` +
@@ -1371,24 +1446,29 @@ export default function Terminals() {
 
   return (
     <div className="flex flex-col gap-4 font-line-seed">
-      {/* Header */}
+      {/* Page header */}
+
       <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-xl font-bold text-ctp-text">
+          <p className="font-line-seed text-[10px] font-bold uppercase tracking-[0.14em] text-ctp-mauve">
+            Operations
+          </p>
+
+          <h1 className="mt-1 text-lg font-bold text-ctp-text">
             Terminal Management
           </h1>
 
           <p className="mt-1 text-xs text-ctp-subtext0">
-            Monitor terminal connectivity, latency, and device access.
+            Monitor connected devices, manage access, and handle synchronization.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex w-fit items-center gap-2 rounded-md border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-1.5">
-            <span className="h-2 w-2 rounded-full bg-ctp-green" />
+          <div className="inline-flex items-center gap-2 border border-ctp-green/20 bg-ctp-green/5 px-2.5 py-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-ctp-green" />
 
-            <span className="text-xs font-semibold text-ctp-green">
-              Admin session authenticated
+            <span className="font-line-seed text-[11px] font-semibold text-ctp-green">
+              Admin authenticated
             </span>
           </div>
 
@@ -1398,7 +1478,7 @@ export default function Terminals() {
             className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-line-seed text-xs font-bold text-ctp-crust transition-colors hover:bg-ctp-mauve/80"
           >
             <Plus size={15} />
-            Add Terminal
+            Add terminal
           </button>
         </div>
       </header>
@@ -1407,163 +1487,166 @@ export default function Terminals() {
         <StatusMessage notice={pairingNotice} />
       )}
 
-      {/* Summary */}
+      {/* Terminal summary */}
+
       <section
         aria-label="Terminal summary"
-        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid grid-cols-2 gap-px overflow-hidden border border-ctp-surface0 bg-ctp-surface0 sm:grid-cols-3 xl:grid-cols-5"
       >
-        <StatCard
-          label="Connected terminals"
-          value={
-            data
-              ? `${connectedCount} / ${totalCount}`
-              : "—"
-          }
-          description="Devices with fresh HTTP heartbeats"
-          icon={Smartphone}
-          color="bg-ctp-blue/10 text-ctp-blue"
+        <SummaryItem
+          label="Registered"
+          value={data ? data.total_count : "—"}
+          description="Total registered devices"
         />
 
-        <StatCard
-          label="Network status"
-          value={networkStatus}
-          description={
-            data
-              ? `Heartbeat timeout: ${heartbeatTimeoutSeconds}s`
-              : "Waiting for API data"
-          }
-          icon={
-            connectedCount > 0
-              ? Wifi
-              : WifiOff
-          }
-          color={
-            connectedCount > 0
-              ? "bg-ctp-green/10 text-ctp-green"
-              : "bg-ctp-yellow/10 text-ctp-yellow"
+        <SummaryItem
+          label="Connected"
+          value={data ? connectedCount : "—"}
+          description="Fresh HTTP heartbeats"
+          valueColor="text-ctp-green"
+        />
+
+        <SummaryItem
+          label="Disconnected"
+          value={data ? disconnectedCount : "—"}
+          description="No fresh heartbeat"
+          valueColor={
+            disconnectedCount > 0
+              ? "text-ctp-red"
+              : "text-ctp-text"
           }
         />
 
-        <StatCard
+        <SummaryItem
+          label="Maintenance"
+          value={data ? maintenanceCount : "—"}
+          description="Devices in maintenance"
+          valueColor={
+            maintenanceCount > 0
+              ? "text-ctp-yellow"
+              : "text-ctp-text"
+          }
+        />
+
+        <SummaryItem
           label="Average ping"
           value={
             averageLatency === null
               ? "—"
               : `${averageLatency} ms`
           }
-          description={`${measuredLatencies.length} terminal(s) measured`}
-          icon={Gauge}
-          color="bg-ctp-mauve/10 text-ctp-mauve"
-        />
-
-        <StatCard
-          label="Maintenance"
-          value={data ? maintenanceCount : "—"}
-          description="Devices in maintenance mode"
-          icon={Wrench}
-          color="bg-ctp-yellow/10 text-ctp-yellow"
-        />
-
-        <StatCard
-          label="Disconnected"
-          value={data ? disconnectedCount : "—"}
-          description="Devices without fresh heartbeats"
-          icon={Activity}
-          color="bg-ctp-red/10 text-ctp-red"
+          description={`${measuredLatencies.length} measured device(s)`}
+          valueColor="text-ctp-mauve"
         />
       </section>
 
-      {/* Network overview */}
-      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base">
-        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ctp-blue/10 text-ctp-blue">
-              <Signal size={18} />
-            </div>
+      {/* Network status */}
 
-            <div>
-              <h2 className="text-sm font-bold text-ctp-text">
-                Network overview
-              </h2>
+      <section className="overflow-hidden border border-ctp-surface0 bg-ctp-base">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <Signal
+              size={15}
+              className="text-ctp-blue"
+            />
 
-              <p className="text-xs text-ctp-subtext0">
-                HTTP heartbeat and WebSocket latency measurements
-              </p>
-            </div>
+            <h2 className="font-line-seed text-xs font-bold text-ctp-text">
+              Network status
+            </h2>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-6">
-            <div>
-              <p className="text-[11px] text-ctp-subtext0">
-                API endpoint
-              </p>
+          <span
+            className={`inline-flex items-center gap-1.5 font-line-seed text-[11px] font-semibold ${healthColor}`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${networkStatus === "Online"
+                  ? "bg-ctp-green"
+                  : networkStatus === "Offline"
+                    ? "bg-ctp-red"
+                    : "bg-ctp-yellow"
+                }`}
+            />
 
-              <p className="mt-1 break-all font-mono text-xs font-semibold text-ctp-text">
-                {window.location.origin}
-              </p>
+            {data
+              ? networkStatus
+              : loading
+                ? "Checking…"
+                : "Unknown"}
+          </span>
+        </div>
 
-              <p className="mt-1 text-[10px] text-ctp-subtext0">
-                Same-origin FastAPI proxy
-              </p>
+        <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="min-w-0">
+            <SectionLabel>API endpoint</SectionLabel>
+
+            <p className="mt-1 break-all font-mono text-xs font-semibold text-ctp-text">
+              {window.location.origin}
+            </p>
+
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+              Same-origin FastAPI proxy
+            </p>
+          </div>
+
+          <div className="min-w-0">
+            <SectionLabel>Heartbeat policy</SectionLabel>
+
+            <p className="mt-1 font-line-seed text-xs font-semibold text-ctp-text">
+              {heartbeatTimeoutSeconds} second timeout
+            </p>
+
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+              Devices must report within this window
+            </p>
+          </div>
+
+          <div className="min-w-0">
+            <SectionLabel>Connection quality</SectionLabel>
+
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1 font-line-seed text-[11px] font-semibold text-ctp-green">
+                <span className="h-1.5 w-1.5 rounded-full bg-ctp-green" />
+                {healthyCount} healthy
+              </span>
+
+              <span className="inline-flex items-center gap-1 font-line-seed text-[11px] font-semibold text-ctp-yellow">
+                <span className="h-1.5 w-1.5 rounded-full bg-ctp-yellow" />
+                {degradedCount} degraded
+              </span>
+
+              <span className="inline-flex items-center gap-1 font-line-seed text-[11px] font-semibold text-ctp-red">
+                <span className="h-1.5 w-1.5 rounded-full bg-ctp-red" />
+                {poorCount} poor
+              </span>
             </div>
 
-            <div>
-              <p className="text-[11px] text-ctp-subtext0">
-                Heartbeat status
-              </p>
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+              Based on WebSocket measurements
+            </p>
+          </div>
 
-              <p className={`mt-1 text-sm font-bold ${healthColor}`}>
-                {data
-                  ? networkStatus
-                  : loading
-                    ? "Checking…"
-                    : "Unknown"}
-              </p>
+          <div className="min-w-0">
+            <SectionLabel>Last metrics update</SectionLabel>
 
-              <p className="mt-1 text-[10px] text-ctp-subtext0">
-                {data
-                  ? `${heartbeatTimeoutSeconds}s timeout`
-                  : "Awaiting API data"}
-              </p>
-            </div>
+            <p className="mt-1 font-line-seed text-xs font-semibold text-ctp-text">
+              {metricsUpdatedAt
+                ? formatRelativeTime(metricsUpdatedAt, now)
+                : "Not available"}
+            </p>
 
-            <div>
-              <p className="text-[11px] text-ctp-subtext0">
-                Latency health
-              </p>
-
-              <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                <span className="font-semibold text-ctp-green">
-                  {healthyCount} healthy
-                </span>
-
-                <span className="font-semibold text-ctp-yellow">
-                  {degradedCount} degraded
-                </span>
-
-                <span className="font-semibold text-ctp-red">
-                  {poorCount} poor
-                </span>
-              </div>
-
-              <p className="mt-1 text-[10px] text-ctp-subtext0">
-                {metricsUpdatedAt
-                  ? `Metrics refreshed ${formatRelativeTime(
-                    metricsUpdatedAt,
-                    now,
-                  )}`
-                  : "Waiting for measurements"}
-              </p>
-            </div>
+            <p className="mt-1 font-line-seed text-[10px] text-ctp-subtext0">
+              Updated independently from terminal details
+            </p>
           </div>
         </div>
       </section>
 
       {/* Metrics error */}
+
       {metricsError && (
         <div
           role="status"
-          className="flex items-start gap-2 rounded-md border border-ctp-yellow/20 bg-ctp-yellow/5 p-3"
+          className="flex items-start gap-2 border border-ctp-yellow/20 bg-ctp-yellow/5 p-3"
         >
           <CircleAlert
             size={15}
@@ -1571,11 +1654,11 @@ export default function Terminals() {
           />
 
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-ctp-yellow">
+            <p className="font-line-seed text-xs font-semibold text-ctp-yellow">
               Connection metrics unavailable
             </p>
 
-            <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext1">
+            <p className="mt-1 break-words font-line-seed text-xs leading-relaxed text-ctp-subtext1">
               {metricsError}
             </p>
           </div>
@@ -1583,10 +1666,11 @@ export default function Terminals() {
       )}
 
       {/* API error */}
+
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-ctp-red/20 bg-ctp-red/5 p-3"
+          className="flex items-start gap-2 border border-ctp-red/20 bg-ctp-red/5 p-3"
         >
           <CircleAlert
             size={16}
@@ -1594,114 +1678,58 @@ export default function Terminals() {
           />
 
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-ctp-red">
+            <p className="font-line-seed text-xs font-semibold text-ctp-red">
               Could not load terminals
             </p>
 
-            <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext1">
+            <p className="mt-1 break-words font-line-seed text-xs leading-relaxed text-ctp-subtext1">
               {error}
             </p>
           </div>
 
           <button
             type="button"
-            onClick={refresh}
+            onClick={() => void refresh()}
+            disabled={refreshing}
             className={`${actionClass} border-ctp-red/20 text-ctp-red`}
           >
+            <RefreshCw
+              size={13}
+              className={
+                refreshing ? "animate-spin" : ""
+              }
+            />
             Retry
           </button>
         </div>
       )}
 
-      {/* Broadcast */}
-      <section className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
-            <Radio size={17} />
-          </div>
-
-          <div>
-            <h2 className="text-sm font-bold text-ctp-text">
-              Broadcast message
-            </h2>
-
-            <p className="text-xs text-ctp-subtext0">
-              Queue an announcement for recently connected terminals.
-            </p>
-          </div>
-        </div>
-
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={(event) => void sendBroadcast(event)}
-        >
-          <input
-            aria-label="Broadcast message"
-            value={broadcast}
-            onChange={(event) => {
-              setBroadcast(event.target.value);
-              setBroadcastNotice(null);
-            }}
-            placeholder="Enter an announcement…"
-            maxLength={250}
-            className={`${inputClass} flex-1`}
-          />
-
-          <button
-            type="submit"
-            disabled={
-              connectedCount === 0 ||
-              broadcastBusy ||
-              !broadcast.trim()
-            }
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 text-xs font-bold text-ctp-base transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Send size={14} />
-
-            {broadcastBusy
-              ? "Queuing…"
-              : "Queue broadcast"}
-          </button>
-        </form>
-
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-[11px] text-ctp-subtext0">
-            <Users size={12} />
-            {connectedCount} available recipient(s)
-          </p>
-
-          <p className="text-[11px] text-ctp-subtext0">
-            {broadcast.length}/250
-          </p>
-        </div>
-
-        {broadcastNotice && (
-          <StatusMessage notice={broadcastNotice} />
-        )}
-
-        <p className="mt-2 text-[11px] leading-relaxed text-ctp-subtext0">
-          A queued message is not considered delivered until the terminal
-          displays it and acknowledges it.
-        </p>
-      </section>
-
       {/* Terminal list */}
-      <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
+
+      <section className="overflow-hidden border border-ctp-surface0 bg-ctp-base">
+        {/* List header and controls */}
+
         <div className="flex flex-col gap-3 border-b border-ctp-surface0 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-bold text-ctp-text">
-              Terminals
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-line-seed text-sm font-bold text-ctp-text">
+                Registered terminals
+              </h2>
 
-            <p className="mt-1 text-xs text-ctp-subtext0">
-              Search registered devices and manage their access.
+              <span className="rounded bg-ctp-surface0 px-1.5 py-0.5 font-line-seed text-[10px] font-semibold text-ctp-subtext0">
+                {data ? data.total_count : "—"}
+              </span>
+            </div>
+
+            <p className="mt-1 font-line-seed text-[11px] text-ctp-subtext0">
+              Manage device connections, synchronization, and access.
             </p>
           </div>
 
-          <div className="flex w-full items-center gap-2 sm:max-w-sm">
+          <div className="flex w-full items-center gap-2 sm:max-w-md">
             <div className="relative min-w-0 flex-1">
               <Search
-                size={15}
+                size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-ctp-overlay1"
               />
 
@@ -1710,7 +1738,7 @@ export default function Terminals() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search name, ID, IP…"
-                className={`${inputClass} w-full py-2 pl-9 pr-9`}
+                className={`${inputClass} w-full pl-9 pr-9`}
               />
 
               {search && (
@@ -1718,22 +1746,22 @@ export default function Terminals() {
                   type="button"
                   aria-label="Clear search"
                   onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ctp-subtext0 hover:text-ctp-text"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ctp-subtext0 transition-colors hover:text-ctp-text"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               )}
             </div>
 
             <button
               type="button"
-              onClick={refresh}
+              onClick={() => void refresh()}
               disabled={refreshing}
               title="Refresh terminal list"
-              className={`${actionClass} border-ctp-surface1 text-ctp-text hover:border-ctp-blue/50 hover:text-ctp-blue`}
+              className={`${actionClass} shrink-0 border-ctp-surface1 px-3 py-2 text-ctp-text hover:border-ctp-blue/50 hover:text-ctp-blue`}
             >
               <RefreshCw
-                size={14}
+                size={13}
                 className={
                   refreshing ? "animate-spin" : ""
                 }
@@ -1744,23 +1772,25 @@ export default function Terminals() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-3 py-2">
-          <p className="text-[11px] text-ctp-subtext0">
+        {/* Result information */}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 bg-ctp-surface0/20 px-3 py-2">
+          <p className="font-line-seed text-[10px] text-ctp-subtext0">
             {data
-              ? `Showing ${terminals.length} result(s) · ${data.total_count} registered`
+              ? `Showing ${terminals.length} of ${data.total_count} registered terminal(s)`
               : "Terminal data unavailable"}
           </p>
 
           <span
-            className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${connectedCount > 0
+            className={`inline-flex items-center gap-1.5 font-line-seed text-[10px] font-semibold ${connectedCount > 0
                 ? "text-ctp-green"
-                : "text-ctp-red"
+                : "text-ctp-overlay1"
               }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${connectedCount > 0
                   ? "bg-ctp-green"
-                  : "bg-ctp-red"
+                  : "bg-ctp-overlay1"
                 }`}
             />
 
@@ -1768,13 +1798,34 @@ export default function Terminals() {
           </span>
         </div>
 
+        {/* Column labels */}
+
+        {terminals.length > 0 && !loading && (
+          <div
+            className={`${terminalGridClass} hidden border-b border-ctp-surface0 bg-ctp-surface0/20 px-4 py-2 xl:grid`}
+          >
+            <SectionLabel>Device</SectionLabel>
+            <SectionLabel>Connection</SectionLabel>
+            <SectionLabel>Heartbeat</SectionLabel>
+            <SectionLabel>WebSocket</SectionLabel>
+            <SectionLabel>
+              <span className="sr-only">Actions</span>
+            </SectionLabel>
+          </div>
+        )}
+
+        {/* Terminal content */}
+
         {loading && !data ? (
-          <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-ctp-subtext0">
+          <div className="flex items-center justify-center gap-2 px-4 py-12">
             <RefreshCw
               size={15}
-              className="animate-spin"
+              className="animate-spin text-ctp-mauve"
             />
-            Loading terminals…
+
+            <span className="font-line-seed text-xs text-ctp-subtext0">
+              Loading terminals…
+            </span>
           </div>
         ) : terminals.length > 0 ? (
           <div className="divide-y divide-ctp-surface0">
@@ -1806,13 +1857,13 @@ export default function Terminals() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+          <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
             <Search
-              size={24}
-              className="mb-2 text-ctp-overlay1"
+              size={22}
+              className="mb-3 text-ctp-overlay1"
             />
 
-            <p className="text-sm font-semibold text-ctp-text">
+            <p className="font-line-seed text-sm font-semibold text-ctp-text">
               {error
                 ? "Terminal information unavailable"
                 : search
@@ -1820,7 +1871,7 @@ export default function Terminals() {
                   : "No terminals registered"}
             </p>
 
-            <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
+            <p className="mt-1 max-w-sm font-line-seed text-xs leading-relaxed text-ctp-subtext0">
               {error
                 ? "The terminal list could not be retrieved from the backend."
                 : search
@@ -1832,7 +1883,7 @@ export default function Terminals() {
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="mt-3 rounded-md border border-ctp-surface1 px-3 py-1.5 text-xs font-semibold text-ctp-text hover:bg-ctp-surface0"
+                className="mt-3 rounded-md border border-ctp-surface1 px-3 py-1.5 font-line-seed text-xs font-semibold text-ctp-text transition-colors hover:bg-ctp-surface0"
               >
                 Clear search
               </button>
@@ -1842,18 +1893,20 @@ export default function Terminals() {
               <button
                 type="button"
                 onClick={openPairingDialog}
-                className="mt-3 inline-flex items-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 text-xs font-bold text-ctp-crust hover:bg-ctp-mauve/80"
+                className="mt-3 inline-flex items-center gap-2 rounded-md bg-ctp-mauve px-3 py-2 font-line-seed text-xs font-bold text-ctp-crust transition-colors hover:bg-ctp-mauve/80"
               >
                 <Plus size={14} />
-                Add Terminal
+                Add terminal
               </button>
             )}
           </div>
         )}
 
+        {/* Fetch timestamps */}
+
         {data && lastUpdated && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 px-3 py-2">
-            <p className="text-[10px] text-ctp-subtext0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 bg-ctp-surface0/20 px-3 py-2">
+            <p className="font-line-seed text-[10px] text-ctp-subtext0">
               Terminal list fetched{" "}
               {lastUpdated.toLocaleTimeString("en-PH", {
                 hour: "numeric",
@@ -1862,7 +1915,7 @@ export default function Terminals() {
               })}
             </p>
 
-            <p className="text-[10px] text-ctp-subtext0">
+            <p className="font-line-seed text-[10px] text-ctp-subtext0">
               {metricsUpdatedAt
                 ? `Metrics checked ${formatRelativeTime(
                   metricsUpdatedAt,
@@ -1874,25 +1927,174 @@ export default function Terminals() {
         )}
       </section>
 
-      {/* Technical note */}
-      <footer className="flex items-start gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-        <Server
-          size={15}
-          className="mt-0.5 shrink-0 text-ctp-overlay1"
-        />
+      {/* Broadcast composer */}
 
-        <p className="text-[11px] leading-relaxed text-ctp-subtext0">
-          Heartbeat connectivity is calculated from the age of each
-          terminal&apos;s last HTTP heartbeat and the configured timeout.
-          WebSocket status is tracked independently. Ping measures WebSocket
-          round-trip time, not Wi-Fi signal strength. Connection metrics are
-          collected by the FastAPI process and refreshed independently from
-          terminal details. Sync and broadcasts remain queued until the
-          mobile terminal processes and acknowledges them.
-        </p>
-      </footer>
+      <details
+        open={Boolean(broadcastNotice)}
+        className="group overflow-hidden border border-ctp-surface0 bg-ctp-base"
+      >
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-3 py-3 transition-colors hover:bg-ctp-surface0/20 [&::-webkit-details-marker]:hidden">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
+              <Radio size={16} />
+            </div>
+
+            <div className="min-w-0">
+              <h2 className="font-line-seed text-xs font-bold text-ctp-text">
+                Broadcast message
+              </h2>
+
+              <p className="mt-0.5 font-line-seed text-[10px] text-ctp-subtext0">
+                Send an announcement to connected terminals.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="font-line-seed text-[10px] font-semibold text-ctp-subtext0">
+              {connectedCount} available recipient(s)
+            </span>
+
+            <span className="text-ctp-overlay1 transition-transform group-open:rotate-180">
+              ▾
+            </span>
+          </div>
+        </summary>
+
+        <div className="border-t border-ctp-surface0 p-3">
+          <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={(event) => void sendBroadcast(event)}
+          >
+            <input
+              aria-label="Broadcast message"
+              value={broadcast}
+              onChange={(event) => {
+                setBroadcast(event.target.value);
+                setBroadcastNotice(null);
+              }}
+              placeholder="Enter an announcement…"
+              maxLength={250}
+              className={`${inputClass} flex-1`}
+            />
+
+            <button
+              type="submit"
+              disabled={
+                connectedCount === 0 ||
+                broadcastBusy ||
+                !broadcast.trim()
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-ctp-mauve px-4 py-2 font-line-seed text-xs font-bold text-ctp-crust transition-colors hover:bg-ctp-mauve/80 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {broadcastBusy ? (
+                <RefreshCw
+                  size={13}
+                  className="animate-spin"
+                />
+              ) : (
+                <Send size={13} />
+              )}
+
+              {broadcastBusy
+                ? "Queuing…"
+                : "Queue broadcast"}
+            </button>
+          </form>
+
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 font-line-seed text-[10px] text-ctp-subtext0">
+              <Users size={12} />
+              {connectedCount} available recipient(s)
+            </p>
+
+            <p className="font-line-seed text-[10px] text-ctp-subtext0">
+              {broadcast.length}/250
+            </p>
+          </div>
+
+          {broadcastNotice && (
+            <div className="mt-3">
+              <StatusMessage notice={broadcastNotice} />
+            </div>
+          )}
+
+          <p className="mt-3 font-line-seed text-[10px] leading-relaxed text-ctp-subtext0">
+            Queued messages are not considered delivered until the terminal
+            displays the message and acknowledges it.
+          </p>
+        </div>
+      </details>
+
+      {/* Connectivity explanation */}
+
+      <details className="border border-ctp-surface0 bg-ctp-base">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 transition-colors hover:bg-ctp-surface0/20 [&::-webkit-details-marker]:hidden">
+          <Server
+            size={14}
+            className="shrink-0 text-ctp-overlay1"
+          />
+
+          <span className="font-line-seed text-[11px] font-semibold text-ctp-subtext0">
+            Connection metric definitions
+          </span>
+
+          <span className="ml-auto text-ctp-overlay1">
+            ▾
+          </span>
+        </summary>
+
+        <div className="border-t border-ctp-surface0 px-3 py-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="font-line-seed text-[11px] font-semibold text-ctp-text">
+                HTTP heartbeat
+              </p>
+
+              <p className="mt-1 font-line-seed text-[10px] leading-relaxed text-ctp-subtext0">
+                Connectivity is calculated from the age of each terminal&apos;s
+                last HTTP heartbeat and the configured timeout.
+              </p>
+            </div>
+
+            <div>
+              <p className="font-line-seed text-[11px] font-semibold text-ctp-text">
+                WebSocket connection
+              </p>
+
+              <p className="mt-1 font-line-seed text-[10px] leading-relaxed text-ctp-subtext0">
+                WebSocket status is tracked independently from HTTP
+                heartbeat connectivity.
+              </p>
+            </div>
+
+            <div>
+              <p className="font-line-seed text-[11px] font-semibold text-ctp-text">
+                Ping latency
+              </p>
+
+              <p className="mt-1 font-line-seed text-[10px] leading-relaxed text-ctp-subtext0">
+                Ping measures WebSocket round-trip time, not Wi-Fi
+                signal strength.
+              </p>
+            </div>
+
+            <div>
+              <p className="font-line-seed text-[11px] font-semibold text-ctp-text">
+                Synchronization and broadcasts
+              </p>
+
+              <p className="mt-1 font-line-seed text-[10px] leading-relaxed text-ctp-subtext0">
+                Commands remain queued until the mobile terminal
+                processes and acknowledges them.
+              </p>
+            </div>
+          </div>
+        </div>
+      </details>
 
       {/* Pairing dialog */}
+
       {pairingOpen && (
         <TerminalPairingDialog
           challenge={pairingChallenge}

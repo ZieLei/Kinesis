@@ -1,4 +1,5 @@
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
@@ -19,8 +20,6 @@ router = APIRouter(
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Manila")
 
-# A terminal is considered connected when its most recent heartbeat
-# is within this window.
 TERMINAL_OFFLINE_AFTER_SECONDS = 90
 
 
@@ -105,6 +104,93 @@ def _low_stock_threshold(db: Session) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 5
+
+
+def _payment_period_bounds(
+    period: Literal["daily", "weekly", "monthly", "yearly"],
+    now_local: datetime,
+) -> tuple[datetime, datetime]:
+    today = now_local.date()
+
+    if period == "daily":
+        start_date = today
+        end_date = start_date + timedelta(days=1)
+
+    elif period == "weekly":
+        start_date = today - timedelta(days=today.weekday())
+        end_date = start_date + timedelta(days=7)
+
+    elif period == "monthly":
+        start_date = date(today.year, today.month, 1)
+
+        if today.month == 12:
+            end_date = date(today.year + 1, 1, 1)
+        else:
+            end_date = date(today.year, today.month + 1, 1)
+
+    else:
+        start_date = date(today.year, 1, 1)
+        end_date = date(today.year + 1, 1, 1)
+
+    start_local = datetime.combine(
+        start_date,
+        time.min,
+        tzinfo=BUSINESS_TIMEZONE,
+    )
+
+    end_local = datetime.combine(
+        end_date,
+        time.min,
+        tzinfo=BUSINESS_TIMEZONE,
+    )
+
+    return (
+        start_local.astimezone(timezone.utc),
+        end_local.astimezone(timezone.utc),
+    )
+
+
+@router.get("/payment-breakdown")
+def get_payment_breakdown(
+    period: Literal["daily", "weekly", "monthly", "yearly"] = "daily",
+    _admin: object = Depends(require_admin_session),
+    db: Session = Depends(get_db),
+):
+    now_local = datetime.now(timezone.utc).astimezone(BUSINESS_TIMEZONE)
+
+    start_utc, end_utc = _payment_period_bounds(period, now_local)
+
+    payment_rows = db.execute(
+        select(
+            Sale.payment_method,
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.total), 0),
+        )
+        .where(
+            Sale.status == "completed",
+            Sale.created_at >= start_utc,
+            Sale.created_at < end_utc,
+        )
+        .group_by(Sale.payment_method)
+        .order_by(func.sum(Sale.total).desc())
+    ).all()
+
+    payment_breakdown = [
+        {
+            "payment_method": method or "unknown",
+            "transactions": int(count),
+            "revenue": _as_float(revenue),
+        }
+        for method, count, revenue in payment_rows
+    ]
+
+    return {
+        "period": period,
+        "timezone": "Asia/Manila",
+        "period_start": _as_iso(start_utc),
+        "period_end_exclusive": _as_iso(end_utc),
+        "payment_breakdown": payment_breakdown,
+    }
 
 
 @router.get("/operations")
@@ -216,13 +302,9 @@ def get_operations_overview(
                     getattr(cashier, "display_name", None)
                     or getattr(cashier, "username", "Cashier")
                 ),
-                "terminal_id": getattr(
-                    cashier_session,
-                    "terminal_id",
-                    None,
-                ),
-                "terminal_name": (terminal["name"] if terminal else "Unknown terminal"),
-                "terminal_connected": (terminal["connected"] if terminal else False),
+                "terminal_id": getattr(cashier_session, "terminal_id", None),
+                "terminal_name": terminal["name"] if terminal else "Unknown terminal",
+                "terminal_connected": terminal["connected"] if terminal else False,
                 "session_started_at": _as_iso(
                     getattr(cashier_session, "created_at", None)
                     or getattr(cashier_session, "started_at", None)
@@ -250,7 +332,7 @@ def get_operations_overview(
 
     cashier_performance = [
         {
-            "cashier_id": (str(cashier_id) if cashier_id is not None else None),
+            "cashier_id": str(cashier_id) if cashier_id is not None else None,
             "display_name": display_name or "Unassigned cashier",
             "transactions": int(count),
             "revenue": _as_float(revenue),

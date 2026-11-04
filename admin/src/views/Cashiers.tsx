@@ -9,7 +9,6 @@ import {
   RefreshCw,
   ShieldCheck,
   UserRound,
-  UserX,
 } from "lucide-react";
 
 import { apiRequest } from "../lib/api";
@@ -582,8 +581,8 @@ export default function Cashiers() {
 
                     <span
                       className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${cashier.is_active
-                          ? "border-ctp-green/30 bg-ctp-green/10 text-ctp-green"
-                          : "border-ctp-surface1 bg-ctp-surface0 text-ctp-subtext0"
+                        ? "border-ctp-green/30 bg-ctp-green/10 text-ctp-green"
+                        : "border-ctp-surface1 bg-ctp-surface0 text-ctp-subtext0"
                         }`}
                     >
                       {cashier.is_active ? "Active" : "Disabled"}
@@ -594,8 +593,8 @@ export default function Cashiers() {
                       onClick={() => void handleToggleAccount(cashier)}
                       disabled={isMutating || loading}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${cashier.is_active
-                          ? "border-ctp-red/30 text-ctp-red hover:bg-ctp-red/10"
-                          : "border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10"
+                        ? "border-ctp-red/30 text-ctp-red hover:bg-ctp-red/10"
+                        : "border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10"
                         }`}
                     >
                       {busyId === cashier.id

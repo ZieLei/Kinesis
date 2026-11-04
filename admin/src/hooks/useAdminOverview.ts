@@ -9,9 +9,14 @@ import {
   fetchAllProducts,
   fetchApiHealth,
   fetchOperationsOverview,
+  fetchPaymentBreakdown,
   fetchProductSalesReport,
   fetchRecentSales,
   fetchSalesReport,
+} from "../lib/adminApi";
+
+import type {
+  PaymentBreakdownResponse,
 } from "../lib/adminApi";
 
 import type {
@@ -19,6 +24,7 @@ import type {
   OperationsOverviewResponse,
   Product,
   ProductSalesReport,
+  ReportPeriod,
   SalesListResponse,
   SalesReportResponse,
 } from "../types/admin";
@@ -36,6 +42,7 @@ type OverviewResources = {
   dailyReport: OverviewResource<SalesReportResponse>;
   weeklyReport: OverviewResource<SalesReportResponse>;
   monthlyReport: OverviewResource<SalesReportResponse>;
+  yearlyReport: OverviewResource<SalesReportResponse>;
   productReport: OverviewResource<ProductSalesReport>;
   recentSales: OverviewResource<SalesListResponse>;
 };
@@ -75,6 +82,7 @@ export function useAdminOverview() {
     dailyReport: emptyResource(),
     weeklyReport: emptyResource(),
     monthlyReport: emptyResource(),
+    yearlyReport: emptyResource(),
     productReport: emptyResource(),
     recentSales: emptyResource(),
   });
@@ -82,6 +90,13 @@ export function useAdminOverview() {
   const [operations, setOperations] = useState<
     OverviewResource<OperationsOverviewResponse>
   >(emptyResource());
+
+  const [paymentBreakdown, setPaymentBreakdown] = useState<
+    OverviewResource<PaymentBreakdownResponse>
+  >(emptyResource());
+
+  const [paymentPeriod, setPaymentPeriod] =
+    useState<ReportPeriod>("daily");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -117,30 +132,18 @@ export function useAdminOverview() {
         dailyReport,
         weeklyReport,
         monthlyReport,
+        yearlyReport,
         productReport,
         recentSales,
       ] = await Promise.all([
-        loadResource(
-          fetchApiHealth(controller.signal),
-        ),
-        loadResource(
-          fetchAllProducts(controller.signal),
-        ),
-        loadResource(
-          fetchSalesReport("daily", controller.signal),
-        ),
-        loadResource(
-          fetchSalesReport("weekly", controller.signal),
-        ),
-        loadResource(
-          fetchSalesReport("monthly", controller.signal),
-        ),
-        loadResource(
-          fetchProductSalesReport(5, controller.signal),
-        ),
-        loadResource(
-          fetchRecentSales(10, 0, controller.signal),
-        ),
+        loadResource(fetchApiHealth(controller.signal)),
+        loadResource(fetchAllProducts(controller.signal)),
+        loadResource(fetchSalesReport("daily", controller.signal)),
+        loadResource(fetchSalesReport("weekly", controller.signal)),
+        loadResource(fetchSalesReport("monthly", controller.signal)),
+        loadResource(fetchSalesReport("yearly", controller.signal)),
+        loadResource(fetchProductSalesReport(5, controller.signal)),
+        loadResource(fetchRecentSales(10, 0, controller.signal)),
       ]);
 
       if (controller.signal.aborted) {
@@ -153,6 +156,7 @@ export function useAdminOverview() {
         dailyReport,
         weeklyReport,
         monthlyReport,
+        yearlyReport,
         productReport,
         recentSales,
       });
@@ -199,8 +203,6 @@ export function useAdminOverview() {
           return result;
         }
 
-        // Preserve the last successful snapshot when a temporary
-        // network problem interrupts an automatic refresh.
         return {
           data: current.data,
           error: result.error,
@@ -227,6 +229,36 @@ export function useAdminOverview() {
 
 
   // --------------------------------------------------
+  // Period-specific payment breakdown
+  // --------------------------------------------------
+
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setPaymentBreakdown(emptyResource());
+
+    async function loadPayments() {
+      const result = await loadResource(
+        fetchPaymentBreakdown(paymentPeriod, controller.signal),
+      );
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setPaymentBreakdown(result);
+    }
+
+    void loadPayments();
+
+    return () => {
+      controller.abort();
+    };
+  }, [paymentPeriod, refreshKey]);
+
+
+  // --------------------------------------------------
   // Manual refresh
   // --------------------------------------------------
 
@@ -240,6 +272,9 @@ export function useAdminOverview() {
     ...resources,
 
     operations,
+    paymentBreakdown,
+    paymentPeriod,
+    setPaymentPeriod,
 
     loading,
     refreshing,

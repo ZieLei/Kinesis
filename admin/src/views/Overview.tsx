@@ -1,8 +1,6 @@
 import {
   Activity,
   AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
   Banknote,
   BarChart3,
   Boxes,
@@ -26,9 +24,12 @@ import type { ReactNode } from "react";
 
 import { API_BASE_URL } from "../lib/api";
 import { useAdminOverview } from "../hooks/useAdminOverview";
+import { useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type {
   ActivityEventRecord,
+  ReportPeriod,
   TerminalOperationalStatus,
 } from "../types/admin";
 
@@ -50,6 +51,55 @@ function formatCurrency(value: number | string | null | undefined) {
     currency: "PHP",
     maximumFractionDigits: 2,
   }).format(numeric);
+}
+
+function VirtualizedActivityFeed({
+  activities,
+}: {
+  activities: ActivityEventRecord[];
+}) {
+  const scrollElementRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: activities.length,
+    getScrollElement: () => scrollElementRef.current,
+    estimateSize: () => 112,
+    overscan: 4,
+    getItemKey: (index) => activities[index]?.id ?? index,
+  });
+
+  return (
+    <div
+      ref={scrollElementRef}
+      className="max-h-[28rem] overflow-y-auto overscroll-contain pr-1"
+    >
+      <div
+        className="relative w-full"
+        style={{ height: virtualizer.getTotalSize() }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const event = activities[virtualItem.index];
+
+          return (
+            <div
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              className={`absolute left-0 top-0 w-full ${virtualItem.index < activities.length - 1
+                ? "border-b border-ctp-surface1"
+                : ""
+                }`}
+              style={{
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <ActivityRow event={event} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 
@@ -112,9 +162,7 @@ function formatTimeAgo(value: string | null | undefined) {
     return `${hours}h ago`;
   }
 
-  const days = Math.floor(hours / 24);
-
-  return `${days}d ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 
@@ -155,12 +203,12 @@ function Panel({
   return (
     <section
       className={[
-        "min-w-0 rounded-xl border border-ctp-surface1",
-        "bg-ctp-mantle/80",
+        "min-w-0 overflow-hidden rounded-lg",
+        "border border-ctp-surface1 bg-ctp-mantle",
         className,
       ].join(" ")}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-ctp-surface1 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-ctp-surface1 px-4 py-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-ctp-text">
             {title}
@@ -173,7 +221,11 @@ function Panel({
           )}
         </div>
 
-        {action}
+        {action && (
+          <div className="shrink-0">
+            {action}
+          </div>
+        )}
       </div>
 
       <div className="p-4">
@@ -184,62 +236,41 @@ function Panel({
 }
 
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  accent = "text-ctp-blue",
+function SectionLabel({
+  children,
 }: {
-  label: string;
-  value: string;
-  detail: string;
-  icon: typeof Activity;
-  accent?: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-ctp-surface1 bg-ctp-mantle/80 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-ctp-subtext0">
-          {label}
-        </span>
-
-        <Icon
-          size={17}
-          className={accent}
-        />
-      </div>
-
-      <p className="mt-3 truncate text-2xl font-semibold tracking-tight text-ctp-text">
-        {value}
-      </p>
-
-      <p className="mt-1 truncate text-xs text-ctp-subtext0">
-        {detail}
-      </p>
-    </div>
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
+      {children}
+    </h3>
   );
 }
 
 
-function StatusIndicator({
-  active,
-  label,
+function SectionCount({
+  value,
 }: {
-  active: boolean;
-  label: string;
+  value: number;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-ctp-subtext1">
-      <span
-        className={[
-          "size-1.5 rounded-full",
-          active ? "bg-ctp-green" : "bg-ctp-red",
-        ].join(" ")}
-      />
-
-      {label}
+    <span className="rounded-md bg-ctp-surface0 px-2 py-1 text-xs tabular-nums text-ctp-subtext1">
+      {formatNumber(value)}
     </span>
+  );
+}
+
+
+function ErrorMessage({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-ctp-red/30 bg-ctp-red/5 px-3 py-2 text-xs text-ctp-red">
+      {children}
+    </div>
   );
 }
 
@@ -254,9 +285,9 @@ function EmptyState({
   description: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-8 text-center">
+    <div className="flex min-h-32 flex-col items-center justify-center px-4 py-6 text-center">
       <Icon
-        size={22}
+        size={21}
         className="text-ctp-overlay1"
       />
 
@@ -264,7 +295,7 @@ function EmptyState({
         {title}
       </p>
 
-      <p className="mt-1 max-w-xs text-xs text-ctp-subtext0">
+      <p className="mt-1 max-w-xs text-xs leading-relaxed text-ctp-subtext0">
         {description}
       </p>
     </div>
@@ -272,28 +303,109 @@ function EmptyState({
 }
 
 
-function ErrorMessage({
-  children,
+function StatusIndicator({
+  active,
+  label,
 }: {
-  children: ReactNode;
+  active: boolean;
+  label: string;
 }) {
   return (
-    <div className="rounded-lg border border-ctp-red/30 bg-ctp-red/5 px-3 py-2 text-xs text-ctp-red">
-      {children}
+    <span className="inline-flex shrink-0 items-center justify-center gap-1.5 text-xs text-ctp-subtext1">
+      <span
+        className={[
+          "size-1.5 rounded-full",
+          active ? "bg-ctp-green" : "bg-ctp-red",
+        ].join(" ")}
+      />
+
+      {label}
+    </span>
+  );
+}
+
+
+function ProgressBar({
+  value,
+  maximum,
+  color = "bg-ctp-blue",
+}: {
+  value: number;
+  maximum: number;
+  color?: string;
+}) {
+  const percentage = maximum > 0
+    ? Math.min(100, Math.max(0, (value / maximum) * 100))
+    : 0;
+
+  return (
+    <div className="h-1.5 overflow-hidden rounded-full bg-ctp-surface0">
+      <div
+        className={[
+          "h-full rounded-full transition-all duration-300",
+          color,
+        ].join(" ")}
+        style={{
+          width: `${percentage}%`,
+        }}
+      />
     </div>
   );
 }
 
 
-function SectionCount({
+// --------------------------------------------------
+// System status
+// --------------------------------------------------
+
+
+function SystemStatusItem({
+  icon: Icon,
+  label,
+  detail,
+  active,
+  status,
   value,
 }: {
-  value: number;
+  icon: typeof Server;
+  label: string;
+  detail: string;
+  active?: boolean;
+  status?: string;
+  value?: string;
 }) {
   return (
-    <span className="rounded-md bg-ctp-surface0 px-2 py-0.5 text-xs tabular-nums text-ctp-subtext1">
-      {formatNumber(value)}
-    </span>
+    <div className="flex min-w-0 flex-col items-center justify-center gap-2 px-3 py-4 text-center">
+      <div className="flex size-8 items-center justify-center rounded-md bg-ctp-surface0">
+        <Icon
+          size={16}
+          className="text-ctp-subtext0"
+        />
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-ctp-text">
+          {label}
+        </p>
+
+        <p className="mt-0.5 text-[11px] text-ctp-subtext0">
+          {detail}
+        </p>
+      </div>
+
+      {value !== undefined && (
+        <p className="text-lg font-semibold tabular-nums text-ctp-text">
+          {value}
+        </p>
+      )}
+
+      {status !== undefined && active !== undefined && (
+        <StatusIndicator
+          active={active}
+          label={status}
+        />
+      )}
+    </div>
   );
 }
 
@@ -333,8 +445,8 @@ function TerminalStatus({
   return (
     <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-ctp-surface0 text-ctp-subtext1">
-          <Monitor size={17} />
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-ctp-surface0 text-ctp-subtext1">
+          <Monitor size={15} />
         </div>
 
         <div className="min-w-0">
@@ -352,7 +464,12 @@ function TerminalStatus({
         </div>
       </div>
 
-      <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${statusColor}`}>
+      <span
+        className={[
+          "inline-flex shrink-0 items-center gap-1.5 text-xs",
+          statusColor,
+        ].join(" ")}
+      >
         <StatusIcon size={13} />
         {statusLabel}
       </span>
@@ -481,32 +598,34 @@ function ActivityRow({
   const accent = getActivityAccent(event);
 
   return (
-    <div className="flex gap-3 py-3 first:pt-0 last:pb-0">
+    <div className="flex items-start gap-3 py-4">
       <div
-        className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${accent}`}
+        className={[
+          "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md",
+          accent,
+        ].join(" ")}
       >
-        <Icon size={15} />
+        <Icon size={16} />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <p className="min-w-0 text-sm font-medium text-ctp-text">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-ctp-text">
             {event.summary}
           </p>
 
-          <time className="shrink-0 text-[11px] text-ctp-overlay1">
+          <time className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-ctp-overlay1">
             {formatTimeAgo(event.created_at)}
           </time>
         </div>
 
-        <p className="mt-1 truncate text-xs text-ctp-subtext0">
+        <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext0">
           {getActivityDetail(event)}
         </p>
       </div>
     </div>
   );
 }
-
 
 // --------------------------------------------------
 // Inventory
@@ -522,7 +641,7 @@ function StockLevel({
 }) {
   if (stock <= 0) {
     return (
-      <span className="rounded-md bg-ctp-red/10 px-2 py-1 text-xs text-ctp-red">
+      <span className="rounded-md bg-ctp-red/10 px-2 py-1 text-xs font-medium text-ctp-red">
         Out of stock
       </span>
     );
@@ -530,15 +649,15 @@ function StockLevel({
 
   if (stock <= threshold) {
     return (
-      <span className="rounded-md bg-ctp-yellow/10 px-2 py-1 text-xs text-ctp-yellow">
-        {stock} left
+      <span className="rounded-md bg-ctp-yellow/10 px-2 py-1 text-xs font-medium text-ctp-yellow">
+        {formatNumber(stock)} left
       </span>
     );
   }
 
   return (
     <span className="text-xs tabular-nums text-ctp-subtext1">
-      {stock} in stock
+      {formatNumber(stock)} in stock
     </span>
   );
 }
@@ -568,13 +687,13 @@ function PaymentBreakdown({
       <EmptyState
         icon={CreditCard}
         title="No payments yet"
-        description="Completed transactions will appear here."
+        description="Completed transactions in this period will appear here."
       />
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {items.map((item) => {
         const percentage = total > 0
           ? (item.revenue / total) * 100
@@ -585,52 +704,175 @@ function PaymentBreakdown({
         return (
           <div key={item.payment_method}>
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {isCash ? (
                   <Banknote
                     size={15}
-                    className="text-ctp-green"
+                    className="shrink-0 text-ctp-green"
                   />
                 ) : (
                   <CreditCard
                     size={15}
-                    className="text-ctp-blue"
+                    className="shrink-0 text-ctp-blue"
                   />
                 )}
 
-                <span className="text-sm text-ctp-text">
+                <span className="truncate text-sm font-medium text-ctp-text">
                   {paymentLabel(item.payment_method)}
                 </span>
               </div>
 
-              <span className="text-sm font-medium tabular-nums text-ctp-text">
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-ctp-text">
                 {formatCurrency(item.revenue)}
               </span>
             </div>
 
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-ctp-surface0">
-              <div
-                className={[
-                  "h-full rounded-full transition-all",
-                  isCash ? "bg-ctp-green" : "bg-ctp-blue",
-                ].join(" ")}
-                style={{
-                  width: `${Math.min(100, percentage)}%`,
-                }}
+            <div className="mt-2">
+              <ProgressBar
+                value={percentage}
+                maximum={100}
+                color={isCash ? "bg-ctp-green" : "bg-ctp-blue"}
               />
             </div>
 
-            <p className="mt-1.5 text-xs text-ctp-subtext0">
-              {formatNumber(item.transactions)} transactions
-              {" · "}
-              {percentage.toFixed(1)}%
-            </p>
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-ctp-subtext0">
+              <span>
+                {formatNumber(item.transactions)} transactions
+              </span>
+
+              <span className="tabular-nums">
+                {percentage.toFixed(1)}%
+              </span>
+            </div>
           </div>
         );
       })}
     </div>
   );
 }
+
+
+// --------------------------------------------------
+// Sales performance
+// --------------------------------------------------
+
+
+function SalesPeriodSummary({
+  label,
+  revenue,
+  transactions,
+  emphasized = false,
+}: {
+  label: string;
+  revenue: number | undefined;
+  transactions: number | undefined;
+  emphasized?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-ctp-subtext0">
+        {label}
+      </p>
+
+      <p
+        className={[
+          "mt-1.5 truncate font-semibold tabular-nums",
+          emphasized
+            ? "text-base text-ctp-text"
+            : "text-sm text-ctp-text",
+        ].join(" ")}
+      >
+        {formatCurrency(revenue)}
+      </p>
+
+      <p className="mt-1 text-[11px] text-ctp-subtext0">
+        {formatNumber(transactions)} transactions
+      </p>
+    </div>
+  );
+}
+
+
+// --------------------------------------------------
+// Cashier performance
+// --------------------------------------------------
+
+
+function CashierPerformance({
+  items,
+}: {
+  items: Array<{
+    cashier_id: string | null;
+    display_name: string;
+    transactions: number;
+    revenue: number;
+  }>;
+}) {
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title="No cashier sales yet"
+        description="Cashier sales totals will appear after completed transactions."
+      />
+    );
+  }
+
+  const maximumRevenue = Math.max(
+    ...items.map((item) => item.revenue),
+    1,
+  );
+
+  return (
+    <div className="space-y-4">
+      {items.map((cashier) => (
+        <div
+          key={cashier.cashier_id ?? cashier.display_name}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-ctp-text">
+                {cashier.display_name}
+              </p>
+
+              <p className="mt-0.5 text-xs text-ctp-subtext0">
+                {formatNumber(cashier.transactions)} transactions
+              </p>
+            </div>
+
+            <p className="shrink-0 text-sm font-medium tabular-nums text-ctp-text">
+              {formatCurrency(cashier.revenue)}
+            </p>
+          </div>
+
+          <div className="mt-2">
+            <ProgressBar
+              value={cashier.revenue}
+              maximum={maximumRevenue}
+              color="bg-ctp-mauve"
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// --------------------------------------------------
+// Payment period selector
+// --------------------------------------------------
+
+
+const paymentPeriodOptions: Array<{
+  value: ReportPeriod;
+  label: string;
+}> = [
+    { value: "daily", label: "Today" },
+    { value: "weekly", label: "This Week" },
+    { value: "monthly", label: "This Month" },
+    { value: "yearly", label: "This Year" },
+  ];
 
 
 // --------------------------------------------------
@@ -641,13 +883,16 @@ function PaymentBreakdown({
 export default function Overview() {
   const {
     health,
-    products,
     dailyReport,
     weeklyReport,
     monthlyReport,
+    yearlyReport,
     productReport,
     recentSales,
     operations,
+    paymentBreakdown,
+    paymentPeriod,
+    setPaymentPeriod,
     loading,
     refreshing,
     lastUpdated,
@@ -656,33 +901,54 @@ export default function Overview() {
   } = useAdminOverview();
 
   const data = operations.data;
+
   const salesToday = data?.sales_today;
+
   const terminals = data?.terminals ?? [];
   const activeCashiers = data?.active_cashiers ?? [];
+
   const inventory = data?.inventory_summary;
   const activities = data?.activity ?? [];
+
   const topProducts = productReport.data?.top_products ?? [];
   const transactions = recentSales.data?.items ?? [];
 
-  const databaseOnline = health.data?.database === "online";
   const apiOnline = health.data?.status === "online";
+  const databaseOnline = health.data?.database === "online";
 
   const outOfStock = inventory?.out_of_stock_count ?? 0;
   const lowStock = inventory?.low_stock_count ?? 0;
-
   const lowStockThreshold = inventory?.low_stock_threshold ?? 5;
 
   const updatedAt = operationsUpdatedAt ?? lastUpdated;
+  const terminalSummary = data?.terminal_summary;
+
+  const disconnectedTerminals = terminals.filter(
+    (terminal) =>
+      terminal.is_enabled &&
+      !terminal.connected &&
+      !terminal.maintenance_mode,
+  ).length;
+
+  const hasOperationalIssues =
+    outOfStock > 0 ||
+    lowStock > 0 ||
+    disconnectedTerminals > 0;
+
+  const paymentItems =
+    paymentBreakdown.data?.payment_breakdown ?? [];
+
 
   return (
     <div className="space-y-5 pb-8">
+
       {/* Header */}
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Activity
-              size={20}
+              size={18}
               className="text-ctp-blue"
             />
 
@@ -692,22 +958,30 @@ export default function Overview() {
           </div>
 
           <p className="mt-1 text-sm text-ctp-subtext0">
-            Live activity and performance across your Kinesis POS.
+            Monitor sales, staff activity, inventory, and connected terminals.
           </p>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ctp-overlay1">
-            <span>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ctp-overlay1">
+            <span className="truncate">
               API: {API_BASE_URL}
+            </span>
+
+            <span className="hidden text-ctp-surface2 sm:inline">
+              /
             </span>
 
             <span>
               {updatedAt
-                ? `Last updated ${formatDateTime(updatedAt.toISOString())}`
+                ? `Updated ${formatDateTime(updatedAt.toISOString())}`
                 : "Waiting for dashboard data"}
             </span>
 
+            <span className="hidden text-ctp-surface2 sm:inline">
+              /
+            </span>
+
             <span>
-              Operational data refreshes every 15 seconds
+              Auto-refresh: 15 seconds
             </span>
           </div>
         </div>
@@ -717,21 +991,22 @@ export default function Overview() {
           onClick={refresh}
           disabled={refreshing || loading}
           className={[
-            "inline-flex items-center gap-2 rounded-lg border",
-            "border-ctp-surface1 bg-ctp-surface0 px-3 py-2",
-            "text-sm font-medium text-ctp-text transition",
-            "hover:bg-ctp-surface1 disabled:cursor-not-allowed",
-            "disabled:opacity-50",
+            "inline-flex shrink-0 items-center justify-center gap-2",
+            "rounded-md border border-ctp-surface1",
+            "bg-ctp-surface0 px-3 py-2",
+            "text-sm font-medium text-ctp-text transition-colors",
+            "hover:bg-ctp-surface1",
+            "disabled:cursor-not-allowed disabled:opacity-50",
           ].join(" ")}
         >
           <RefreshCw
-            size={15}
+            size={14}
             className={refreshing ? "animate-spin" : ""}
           />
 
           {refreshing ? "Refreshing" : "Refresh"}
         </button>
-      </div>
+      </header>
 
 
       {/* Errors */}
@@ -749,131 +1024,214 @@ export default function Overview() {
       )}
 
 
-      {/* Performance cards */}
+      {/* Sales snapshot */}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Today's revenue"
-          value={formatCurrency(salesToday?.revenue)}
-          detail={`${formatNumber(salesToday?.transactions)} completed transactions`}
-          icon={Banknote}
-          accent="text-ctp-green"
-        />
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.4fr_1fr]">
 
-        <MetricCard
-          label="Transactions today"
-          value={formatNumber(salesToday?.transactions)}
-          detail="Completed sales"
-          icon={ShoppingCart}
-          accent="text-ctp-blue"
-        />
+        <section className="min-w-0 rounded-lg border border-ctp-surface1 bg-ctp-mantle p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-ctp-subtext0">
+                Today's revenue
+              </p>
 
-        <MetricCard
-          label="Average transaction"
-          value={formatCurrency(salesToday?.average_transaction_value)}
-          detail="Today's average sale value"
-          icon={BarChart3}
-          accent="text-ctp-mauve"
-        />
+              <p className="mt-2 break-all text-3xl font-semibold tracking-tight tabular-nums text-ctp-text sm:text-4xl">
+                {formatCurrency(salesToday?.revenue)}
+              </p>
 
-        <MetricCard
-          label="Connected terminals"
-          value={`${formatNumber(data?.terminal_summary.connected)} / ${formatNumber(data?.terminal_summary.enabled)}`}
-          detail={`${formatNumber(data?.terminal_summary.disconnected)} disconnected · ${formatNumber(data?.terminal_summary.maintenance)} in maintenance`}
-          icon={Monitor}
-          accent="text-ctp-teal"
-        />
+              <p className="mt-1 text-xs text-ctp-subtext0">
+                Revenue from completed transactions today
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-md bg-ctp-green/10 px-2.5 py-1.5 text-xs font-medium text-ctp-green">
+              <Banknote size={14} />
+              Sales summary
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-4 border-t border-ctp-surface1 pt-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-ctp-subtext0">
+                Transactions
+              </p>
+
+              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
+                {formatNumber(salesToday?.transactions)}
+              </p>
+
+              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
+                Completed sales
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-ctp-subtext0">
+                Average transaction
+              </p>
+
+              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
+                {formatCurrency(salesToday?.average_transaction_value)}
+              </p>
+
+              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
+                Average sale value
+              </p>
+            </div>
+
+            <div className="col-span-2 border-t border-ctp-surface1 pt-3 sm:col-span-1 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+              <p className="text-xs text-ctp-subtext0">
+                Active terminals
+              </p>
+
+              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
+                {formatNumber(terminalSummary?.connected)}
+                <span className="ml-1 text-sm font-normal text-ctp-subtext0">
+                  / {formatNumber(terminalSummary?.enabled)}
+                </span>
+              </p>
+
+              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
+                Connected and enabled
+              </p>
+            </div>
+          </div>
+        </section>
+
+
+        <Panel
+          title="Sales performance"
+          description="Revenue across reporting periods."
+        >
+          {dailyReport.error &&
+            weeklyReport.error &&
+            monthlyReport.error &&
+            yearlyReport.error ? (
+            <ErrorMessage>
+              Sales reports could not be loaded.
+            </ErrorMessage>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <SalesPeriodSummary
+                label="Today"
+                revenue={dailyReport.data?.current.sales}
+                transactions={dailyReport.data?.current.transactions}
+                emphasized
+              />
+
+              <SalesPeriodSummary
+                label="This week"
+                revenue={weeklyReport.data?.current.sales}
+                transactions={weeklyReport.data?.current.transactions}
+              />
+
+              <SalesPeriodSummary
+                label="This month"
+                revenue={monthlyReport.data?.current.sales}
+                transactions={monthlyReport.data?.current.transactions}
+              />
+
+              <SalesPeriodSummary
+                label="This year"
+                revenue={yearlyReport.data?.current.sales}
+                transactions={yearlyReport.data?.current.transactions}
+              />
+            </div>
+          )}
+        </Panel>
       </div>
 
 
       {/* System status */}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="flex items-center justify-between rounded-xl border border-ctp-surface1 bg-ctp-mantle/80 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Server
-              size={17}
-              className="text-ctp-blue"
-            />
-
-            <div>
-              <p className="text-sm font-medium text-ctp-text">
-                Kinesis API
-              </p>
-
-              <p className="text-xs text-ctp-subtext0">
-                Backend service
-              </p>
-            </div>
-          </div>
-
-          <StatusIndicator
+      <section className="overflow-hidden rounded-lg border border-ctp-surface1 bg-ctp-mantle">
+        <div className="grid grid-cols-2 divide-x divide-y divide-ctp-surface1 xl:grid-cols-4 xl:divide-y-0">
+          <SystemStatusItem
+            icon={Server}
+            label="Kinesis API"
+            detail="Backend service"
             active={apiOnline}
-            label={apiOnline ? "Online" : "Unavailable"}
+            status={apiOnline ? "Online" : "Unavailable"}
           />
-        </div>
 
-        <div className="flex items-center justify-between rounded-xl border border-ctp-surface1 bg-ctp-mantle/80 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Database
-              size={17}
-              className="text-ctp-teal"
-            />
-
-            <div>
-              <p className="text-sm font-medium text-ctp-text">
-                PostgreSQL
-              </p>
-
-              <p className="text-xs text-ctp-subtext0">
-                Database connection
-              </p>
-            </div>
-          </div>
-
-          <StatusIndicator
+          <SystemStatusItem
+            icon={Database}
+            label="PostgreSQL"
+            detail="Database connection"
             active={databaseOnline}
-            label={databaseOnline ? "Online" : "Unavailable"}
+            status={databaseOnline ? "Online" : "Unavailable"}
+          />
+
+          <SystemStatusItem
+            icon={Monitor}
+            label="Terminal network"
+            detail={`${formatNumber(terminalSummary?.connected)} connected · ${formatNumber(terminalSummary?.disconnected)} disconnected`}
+            active={(terminalSummary?.disconnected ?? 0) === 0}
+            status={
+              (terminalSummary?.disconnected ?? 0) === 0
+                ? "Healthy"
+                : "Attention"
+            }
+          />
+
+          <SystemStatusItem
+            icon={Users}
+            label="Active cashiers"
+            detail="Valid cashier sessions"
+            value={formatNumber(activeCashiers.length)}
           />
         </div>
+      </section>
 
-        <div className="flex items-center justify-between rounded-xl border border-ctp-surface1 bg-ctp-mantle/80 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Users
-              size={17}
-              className="text-ctp-mauve"
+
+      {/* Operational alerts */}
+
+      {hasOperationalIssues && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-ctp-yellow/30 bg-ctp-yellow/5 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle
+              size={15}
+              className="shrink-0 text-ctp-yellow"
             />
 
-            <div>
-              <p className="text-sm font-medium text-ctp-text">
-                Active cashiers
-              </p>
-
-              <p className="text-xs text-ctp-subtext0">
-                Valid cashier sessions
-              </p>
-            </div>
+            <span className="text-xs font-semibold text-ctp-text">
+              Attention required
+            </span>
           </div>
 
-          <span className="text-lg font-semibold tabular-nums text-ctp-text">
-            {formatNumber(activeCashiers.length)}
-          </span>
+          {outOfStock > 0 && (
+            <span className="text-xs text-ctp-red">
+              {formatNumber(outOfStock)} out of stock
+            </span>
+          )}
+
+          {lowStock > 0 && (
+            <span className="text-xs text-ctp-yellow">
+              {formatNumber(lowStock)} low-stock products
+            </span>
+          )}
+
+          {disconnectedTerminals > 0 && (
+            <span className="text-xs text-ctp-red">
+              {formatNumber(disconnectedTerminals)} disconnected terminals
+            </span>
+          )}
         </div>
-      </div>
+      )}
 
 
-      {/* Main operational area */}
+      {/* Live operations */}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">
-        {/* Activity feed */}
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.45fr_1fr]">
 
         <Panel
           title="Live activity"
-          description="Recent recorded events across the POS."
+          description="Recent events recorded across the POS."
+          className="self-start"
           action={
             <div className="flex items-center gap-1.5 text-xs text-ctp-green">
               <span className="size-1.5 animate-pulse rounded-full bg-ctp-green" />
-              Auto-refresh
+              Live updates
             </div>
           }
         >
@@ -886,27 +1244,19 @@ export default function Overview() {
           ) : activities.length === 0 ? (
             <EmptyState
               icon={Clock3}
-              title="No recorded activity yet"
+              title="No recorded activity"
               description="New sales, stock changes, cashier sessions, and terminal actions will appear here."
             />
           ) : (
-            <div className="divide-y divide-ctp-surface1">
-              {activities.slice(0, 15).map((event) => (
-                <ActivityRow
-                  key={event.id}
-                  event={event}
-                />
-              ))}
-            </div>
+            <VirtualizedActivityFeed activities={activities} />
           )}
         </Panel>
 
 
-        {/* Terminal network */}
-
         <Panel
           title="Terminal network"
-          description="Heartbeat and availability status."
+          description="Connected devices and recent heartbeats."
+          className="self-start"
           action={
             <SectionCount
               value={terminals.length}
@@ -930,34 +1280,34 @@ export default function Overview() {
             </div>
           )}
 
-          {data && (
-            <div className="mt-4 grid grid-cols-3 gap-2 border-t border-ctp-surface1 pt-3">
+          {terminalSummary && (
+            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ctp-surface1 pt-4">
               <div>
-                <p className="text-lg font-semibold tabular-nums text-ctp-green">
-                  {formatNumber(data.terminal_summary.connected)}
+                <p className="text-base font-semibold tabular-nums text-ctp-green">
+                  {formatNumber(terminalSummary.connected)}
                 </p>
 
-                <p className="text-[11px] text-ctp-subtext0">
+                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
                   Connected
                 </p>
               </div>
 
               <div>
-                <p className="text-lg font-semibold tabular-nums text-ctp-red">
-                  {formatNumber(data.terminal_summary.disconnected)}
+                <p className="text-base font-semibold tabular-nums text-ctp-red">
+                  {formatNumber(terminalSummary.disconnected)}
                 </p>
 
-                <p className="text-[11px] text-ctp-subtext0">
+                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
                   Disconnected
                 </p>
               </div>
 
               <div>
-                <p className="text-lg font-semibold tabular-nums text-ctp-yellow">
-                  {formatNumber(data.terminal_summary.maintenance)}
+                <p className="text-base font-semibold tabular-nums text-ctp-yellow">
+                  {formatNumber(terminalSummary.maintenance)}
                 </p>
 
-                <p className="text-[11px] text-ctp-subtext0">
+                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
                   Maintenance
                 </p>
               </div>
@@ -967,134 +1317,153 @@ export default function Overview() {
       </div>
 
 
-      {/* Cashiers and payments */}
+      {/* Business operations */}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+
         <Panel
-          title="Active cashier sessions"
-          description="Cashiers with valid, non-revoked sessions."
+          title="Cashier operations"
+          description="Active sessions and sales performance."
           action={
             <SectionCount
               value={activeCashiers.length}
             />
           }
         >
-          {activeCashiers.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No active cashier sessions"
-              description="Cashiers will appear here after signing in on a terminal."
-            />
-          ) : (
-            <div className="space-y-3">
-              {activeCashiers.map((cashier) => (
-                <div
-                  key={`${cashier.cashier_id}-${cashier.terminal_id}`}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-ctp-surface0/60 p-3"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ctp-mauve/10 text-sm font-semibold text-ctp-mauve">
-                      {cashier.display_name
-                        .slice(0, 1)
-                        .toUpperCase()}
+          <div>
+            <SectionLabel>
+              Active sessions
+            </SectionLabel>
+
+            {activeCashiers.length === 0 ? (
+              <div className="mt-2">
+                <EmptyState
+                  icon={Users}
+                  title="No active cashiers"
+                  description="Cashiers will appear here after signing in on a terminal."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 divide-y divide-ctp-surface1">
+                {activeCashiers.map((cashier) => (
+                  <div
+                    key={`${cashier.cashier_id}-${cashier.terminal_id}`}
+                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-xs font-semibold text-ctp-mauve">
+                        {cashier.display_name
+                          .slice(0, 1)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ctp-text">
+                          {cashier.display_name}
+                        </p>
+
+                        <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
+                          {cashier.terminal_name}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ctp-text">
-                        {cashier.display_name}
-                      </p>
+                    <div className="shrink-0 text-right">
+                      <StatusIndicator
+                        active={cashier.terminal_connected}
+                        label={
+                          cashier.terminal_connected
+                            ? "Online"
+                            : "Offline"
+                        }
+                      />
 
-                      <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
-                        {cashier.terminal_name}
+                      <p className="mt-1 text-[10px] text-ctp-overlay1">
+                        {formatTimeAgo(cashier.session_started_at)}
                       </p>
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-                  <div className="shrink-0 text-right">
-                    <StatusIndicator
-                      active={cashier.terminal_connected}
-                      label={cashier.terminal_connected
-                        ? "Online"
-                        : "Terminal offline"}
-                    />
+          <div className="mt-5 border-t border-ctp-surface1 pt-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SectionLabel>
+                Today's performance
+              </SectionLabel>
 
-                    <p className="mt-1 text-[11px] text-ctp-overlay1">
-                      Started {formatTimeAgo(cashier.session_started_at)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+              <span className="text-[11px] text-ctp-subtext0">
+                By revenue
+              </span>
             </div>
-          )}
+
+            <CashierPerformance
+              items={data?.cashier_performance ?? []}
+            />
+          </div>
         </Panel>
 
+
+        {/* Payment distribution */}
 
         <Panel
           title="Payment distribution"
-          description="Completed transactions grouped by payment method."
+          description="Completed sales grouped by payment method."
           action={
-            <span className="text-xs text-ctp-subtext0">
-              Today
-            </span>
-          }
-        >
-          <PaymentBreakdown
-            items={data?.payment_breakdown ?? []}
-          />
-        </Panel>
-      </div>
-
-
-      {/* Cashier performance and inventory */}
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Panel
-          title="Cashier performance"
-          description="Today's completed sales by cashier."
-          action={
-            <SectionCount
-              value={data?.cashier_performance.length ?? 0}
-            />
-          }
-        >
-          {!data || data.cashier_performance.length === 0 ? (
-            <EmptyState
-              icon={BarChart3}
-              title="No cashier sales yet"
-              description="Cashier sales totals will appear after completed transactions."
-            />
-          ) : (
-            <div className="space-y-3">
-              {data.cashier_performance.map((cashier) => (
-                <div
-                  key={cashier.cashier_id ?? cashier.display_name}
-                  className="flex items-center justify-between gap-4"
+            <select
+              value={paymentPeriod}
+              onChange={(event) => {
+                setPaymentPeriod(event.target.value as ReportPeriod);
+              }}
+              aria-label="Payment distribution period"
+              className={[
+                "rounded-md border border-ctp-surface1",
+                "bg-ctp-surface0 px-2 py-1.5",
+                "text-xs font-medium text-ctp-text",
+                "outline-none transition-colors",
+                "focus:border-ctp-blue",
+              ].join(" ")}
+            >
+              {paymentPeriodOptions.map((option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ctp-text">
-                      {cashier.display_name}
-                    </p>
-
-                    <p className="mt-0.5 text-xs text-ctp-subtext0">
-                      {formatNumber(cashier.transactions)} transactions
-                    </p>
-                  </div>
-
-                  <p className="shrink-0 text-sm font-semibold tabular-nums text-ctp-text">
-                    {formatCurrency(cashier.revenue)}
-                  </p>
-                </div>
+                  {option.label}
+                </option>
               ))}
+            </select>
+          }
+        >
+          {paymentBreakdown.error ? (
+            <ErrorMessage>
+              Payment breakdown could not be loaded: {paymentBreakdown.error}
+            </ErrorMessage>
+          ) : !paymentBreakdown.data ? (
+            <div className="flex min-h-32 items-center justify-center gap-2 text-xs text-ctp-subtext0">
+              <RefreshCw
+                size={14}
+                className="animate-spin"
+              />
+              Loading payment data...
             </div>
+          ) : (
+            <PaymentBreakdown
+              items={paymentItems}
+            />
           )}
         </Panel>
 
 
+        {/* Inventory and products */}
+
         <Panel
-          title="Inventory watch"
-          description={`Products at or below ${lowStockThreshold} units.`}
+          title="Inventory and products"
+          description="Stock availability and best-selling items."
           action={
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-1.5 text-xs">
               <span className="text-ctp-yellow">
                 {formatNumber(lowStock)} low
               </span>
@@ -1109,151 +1478,120 @@ export default function Overview() {
             </div>
           }
         >
-          {!inventory || inventory.low_stock_products.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title="Inventory looks good"
-              description="No products are currently below the configured stock threshold."
-            />
-          ) : (
-            <div className="space-y-3">
-              {inventory.low_stock_products.map((product) => (
-                <div
-                  key={product.id}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ctp-text">
-                      {product.name}
-                    </p>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <SectionLabel>
+                Stock alerts
+              </SectionLabel>
 
-                    <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
-                      {product.sku || product.category}
-                    </p>
-                  </div>
-
-                  <StockLevel
-                    stock={product.stock}
-                    threshold={lowStockThreshold}
-                  />
-                </div>
-              ))}
+              <span className="text-[10px] text-ctp-subtext0">
+                Threshold: {formatNumber(lowStockThreshold)}
+              </span>
             </div>
-          )}
-        </Panel>
-      </div>
 
-
-      {/* Sales reports and top products */}
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Panel
-          title="Sales performance"
-          description="Revenue comparison by reporting period."
-        >
-          {dailyReport.error &&
-            weeklyReport.error &&
-            monthlyReport.error ? (
-            <ErrorMessage>
-              Sales reports could not be loaded.
-            </ErrorMessage>
-          ) : (
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-lg bg-ctp-surface0/60 p-3">
-                <p className="text-xs text-ctp-subtext0">
-                  Today
-                </p>
-
-                <p className="mt-2 text-lg font-semibold tabular-nums text-ctp-text">
-                  {formatCurrency(dailyReport.data?.current.sales)}
-                </p>
-
-                <p className="mt-1 text-xs text-ctp-subtext0">
-                  {formatNumber(dailyReport.data?.current.transactions)} transactions
-                </p>
+            {!inventory || inventory.low_stock_products.length === 0 ? (
+              <div className="mt-2">
+                <EmptyState
+                  icon={Package}
+                  title="Inventory looks good"
+                  description="No products are currently below the configured stock threshold."
+                />
               </div>
-
-              <div className="rounded-lg bg-ctp-surface0/60 p-3">
-                <p className="text-xs text-ctp-subtext0">
-                  This week
-                </p>
-
-                <p className="mt-2 text-lg font-semibold tabular-nums text-ctp-text">
-                  {formatCurrency(weeklyReport.data?.current.sales)}
-                </p>
-
-                <p className="mt-1 text-xs text-ctp-subtext0">
-                  {formatNumber(weeklyReport.data?.current.transactions)} transactions
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-ctp-surface0/60 p-3">
-                <p className="text-xs text-ctp-subtext0">
-                  This month
-                </p>
-
-                <p className="mt-2 text-lg font-semibold tabular-nums text-ctp-text">
-                  {formatCurrency(monthlyReport.data?.current.sales)}
-                </p>
-
-                <p className="mt-1 text-xs text-ctp-subtext0">
-                  {formatNumber(monthlyReport.data?.current.transactions)} transactions
-                </p>
-              </div>
-            </div>
-          )}
-        </Panel>
-
-
-        <Panel
-          title="Top-selling products"
-          description="Products ranked by units sold."
-          action={
-            <SectionCount
-              value={topProducts.length}
-            />
-          }
-        >
-          {productReport.error ? (
-            <ErrorMessage>
-              Product sales report could not be loaded.
-            </ErrorMessage>
-          ) : topProducts.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title="No product sales yet"
-              description="Product rankings will appear after completed sales."
-            />
-          ) : (
-            <div className="space-y-3">
-              {topProducts.map((product, index) => (
-                <div
-                  key={`${product.product_id ?? product.name}-${index}`}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-ctp-surface0 text-xs font-semibold tabular-nums text-ctp-subtext1">
-                      {index + 1}
-                    </span>
-
+            ) : (
+              <div className="mt-3 divide-y divide-ctp-surface1">
+                {inventory.low_stock_products.map((product) => (
+                  <div
+                    key={product.id}
+                    className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ctp-text">
                         {product.name}
                       </p>
 
-                      <p className="mt-0.5 text-xs text-ctp-subtext0">
-                        {formatNumber(product.units_sold)} units sold
+                      <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
+                        {product.sku || product.category}
                       </p>
                     </div>
-                  </div>
 
-                  <p className="shrink-0 text-sm font-medium tabular-nums text-ctp-text">
-                    {formatCurrency(product.revenue)}
-                  </p>
-                </div>
-              ))}
+                    <StockLevel
+                      stock={product.stock}
+                      threshold={lowStockThreshold}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 border-t border-ctp-surface1 pt-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SectionLabel>
+                Top-selling products
+              </SectionLabel>
+
+              <SectionCount
+                value={topProducts.length}
+              />
             </div>
-          )}
+
+            {productReport.error ? (
+              <ErrorMessage>
+                Product sales report could not be loaded.
+              </ErrorMessage>
+            ) : topProducts.length === 0 ? (
+              <EmptyState
+                icon={Package}
+                title="No product sales yet"
+                description="Product rankings will appear after completed sales."
+              />
+            ) : (
+              <div className="space-y-3">
+                {topProducts.map((product, index) => {
+                  const maximumUnits = Math.max(
+                    ...topProducts.map((item) => item.units_sold),
+                    1,
+                  );
+
+                  return (
+                    <div
+                      key={`${product.product_id ?? product.name}-${index}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="flex size-6 shrink-0 items-center justify-center rounded bg-ctp-surface0 text-[11px] font-semibold tabular-nums text-ctp-subtext1">
+                            {index + 1}
+                          </span>
+
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium text-ctp-text">
+                              {product.name}
+                            </p>
+
+                            <p className="mt-0.5 text-[10px] text-ctp-subtext0">
+                              {formatNumber(product.units_sold)} units sold
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="shrink-0 text-xs font-medium tabular-nums text-ctp-text">
+                          {formatCurrency(product.revenue)}
+                        </p>
+                      </div>
+
+                      <div className="mt-2 pl-8">
+                        <ProgressBar
+                          value={product.units_sold}
+                          maximum={maximumUnits}
+                          color="bg-ctp-teal"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Panel>
       </div>
 
@@ -1281,9 +1619,9 @@ export default function Overview() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left">
+            <table className="w-full min-w-[680px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-ctp-surface1 text-xs text-ctp-subtext0">
+                <tr className="border-b border-ctp-surface1 text-[11px] uppercase tracking-wide text-ctp-subtext0">
                   <th className="pb-3 pr-4 font-medium">
                     Transaction
                   </th>
@@ -1312,7 +1650,10 @@ export default function Overview() {
 
               <tbody className="divide-y divide-ctp-surface1">
                 {transactions.map((sale) => (
-                  <tr key={sale.id}>
+                  <tr
+                    key={sale.id}
+                    className="transition-colors hover:bg-ctp-surface0/40"
+                  >
                     <td className="py-3 pr-4">
                       <p className="text-sm font-medium text-ctp-text">
                         {sale.transaction_code}
@@ -1340,11 +1681,11 @@ export default function Overview() {
                       {paymentLabel(sale.payment_method)}
                     </td>
 
-                    <td className="py-3 pr-4 text-right text-sm font-medium tabular-nums text-ctp-text">
+                    <td className="py-3 pr-4 text-right text-sm font-semibold tabular-nums text-ctp-text">
                       {formatCurrency(sale.total)}
                     </td>
 
-                    <td className="py-3 pl-4 text-right text-xs text-ctp-subtext0">
+                    <td className="py-3 pl-4 text-right text-xs tabular-nums text-ctp-subtext0">
                       {formatDateTime(sale.created_at)}
                     </td>
                   </tr>
@@ -1356,9 +1697,9 @@ export default function Overview() {
       </Panel>
 
 
-      {/* Footer status */}
+      {/* Footer */}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface1 pt-3 text-xs text-ctp-overlay1">
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface1 pt-3 text-[11px] text-ctp-overlay1">
         <div className="flex items-center gap-2">
           <CheckCircle2
             size={13}
@@ -1375,7 +1716,7 @@ export default function Overview() {
         <span>
           {formatNumber(data?.service_catalog_count)} services in catalogue
         </span>
-      </div>
+      </footer>
     </div>
   );
 }
