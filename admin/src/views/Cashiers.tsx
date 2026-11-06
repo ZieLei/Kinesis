@@ -1,15 +1,11 @@
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
-  AlertCircle,
-  CheckCircle2,
-  KeyRound,
-  LoaderCircle,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  UserRound,
-} from "lucide-react";
+  Fragment,
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+} from "react";
 
 import { apiRequest } from "../lib/api";
 
@@ -35,12 +31,33 @@ type CashierForm = {
   is_supervisor: boolean;
 };
 
+type BusyAction = "account" | "role";
+
 const EMPTY_FORM: CashierForm = {
   username: "",
   display_name: "",
   pin: "",
   is_supervisor: false,
 };
+
+const FOCUS_RING =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ctp-blue";
+
+const INPUT =
+  "w-full min-w-0 rounded-md border border-ctp-surface1 bg-ctp-mantle px-3 py-1.5 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay0 focus:border-ctp-blue focus:ring-1 focus:ring-ctp-blue disabled:cursor-not-allowed disabled:opacity-50";
+
+const BUTTON_BASE = `inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS_RING}`;
+
+const PRIMARY = `${BUTTON_BASE} bg-ctp-blue text-ctp-base hover:brightness-110`;
+const SECONDARY = `${BUTTON_BASE} border border-ctp-surface1 text-ctp-text hover:bg-ctp-surface0`;
+const DANGER = `${BUTTON_BASE} border border-ctp-red/40 text-ctp-red hover:bg-ctp-red/10`;
+const SUCCESS = `${BUTTON_BASE} border border-ctp-green/40 text-ctp-green hover:bg-ctp-green/10`;
+const LINK = `rounded text-sm text-ctp-blue hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline ${FOCUS_RING}`;
+
+const LABEL = "mb-1 block text-xs font-medium text-ctp-subtext1";
+
+const TH =
+  "px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ctp-subtext0";
 
 function formatDate(value: string | null): string {
   if (!value) return "Never";
@@ -65,6 +82,7 @@ export default function Cashiers() {
   const [creating, setCreating] = useState(false);
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [activeResetId, setActiveResetId] = useState<string | null>(null);
   const [resettingId, setResettingId] = useState<string | null>(null);
 
@@ -172,6 +190,7 @@ export default function Cashiers() {
     if (!confirmed) return;
 
     setBusyId(cashier.id);
+    setBusyAction("account");
     setError("");
     setNotice("");
 
@@ -194,6 +213,7 @@ export default function Cashiers() {
       setError(getErrorMessage(requestError));
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -216,6 +236,7 @@ export default function Cashiers() {
     if (!confirmed) return;
 
     setBusyId(cashier.id);
+    setBusyAction("role");
     setError("");
     setNotice("");
 
@@ -238,15 +259,12 @@ export default function Cashiers() {
       setError(getErrorMessage(requestError));
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
   const handleResetPin = async (cashier: Cashier) => {
-    if (
-      resettingId ||
-      busyId ||
-      activeResetId !== cashier.id
-    ) {
+    if (resettingId || busyId || activeResetId !== cashier.id) {
       return;
     }
 
@@ -266,15 +284,12 @@ export default function Cashiers() {
     setNotice("");
 
     try {
-      await apiRequest(
-        `/api/admin/cashiers/${cashier.id}/reset-pin`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            pin: resetPin,
-          }),
-        },
-      );
+      await apiRequest(`/api/admin/cashiers/${cashier.id}/reset-pin`, {
+        method: "POST",
+        body: JSON.stringify({
+          pin: resetPin,
+        }),
+      });
 
       setNotice(
         `PIN reset successfully for "${cashier.username}". Existing sessions were revoked.`,
@@ -289,9 +304,19 @@ export default function Cashiers() {
     }
   };
 
-  const activeCount = cashiers.filter(
-    (cashier) => cashier.is_active,
-  ).length;
+  const openReset = (cashierId: string) => {
+    setResetPin("");
+    setActiveResetId((current) =>
+      current === cashierId ? null : cashierId,
+    );
+  };
+
+  const closeReset = () => {
+    setResetPin("");
+    setActiveResetId(null);
+  };
+
+  const activeCount = cashiers.filter((cashier) => cashier.is_active).length;
 
   const supervisorCount = cashiers.filter(
     (cashier) => cashier.is_active && cashier.is_supervisor,
@@ -301,14 +326,28 @@ export default function Cashiers() {
   const showInitialLoading = loading && !hasLoaded;
 
   return (
-    <section className="space-y-4" aria-busy={showInitialLoading}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-ctp-text">
-            Cashier Management
-          </h2>
-          <p className="mt-1 text-sm text-ctp-subtext0">
-            Create employee accounts, manage supervisor access, and reset PINs.
+    <section
+      className="w-full min-w-0 space-y-6 font-line-seed"
+      aria-busy={showInitialLoading}
+    >
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-ctp-surface0 pb-4">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-ctp-text">
+            Cashiers
+          </h1>
+          <p className="mt-0.5 text-xs text-ctp-subtext0">
+            {hasLoaded ? (
+              <span className="tabular-nums">
+                {cashiers.length} {cashiers.length === 1 ? "account" : "accounts"}
+                {" · "}
+                {activeCount} active
+                {" · "}
+                {supervisorCount}{" "}
+                {supervisorCount === 1 ? "supervisor" : "supervisors"}
+              </span>
+            ) : (
+              "Employee accounts, supervisor access, and PINs."
+            )}
           </p>
         </div>
 
@@ -316,218 +355,159 @@ export default function Cashiers() {
           type="button"
           onClick={() => void loadCashiers()}
           disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 py-2 text-sm font-medium text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-50"
+          className={SECONDARY}
         >
-          <RefreshCw
-            size={15}
-            className={loading ? "animate-spin" : ""}
-          />
-          Refresh
+          {loading ? "Refreshing…" : "Refresh"}
         </button>
-      </div>
+      </header>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
-          <div className="flex items-center gap-2 text-ctp-subtext0">
-            <UserRound size={16} />
-            <span className="text-xs font-medium">Total cashiers</span>
-          </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
-            {hasLoaded ? cashiers.length : "—"}
-          </p>
-        </div>
+      {(error || notice) && (
+        <div className="space-y-2">
+          {error && (
+            <div
+              role="alert"
+              className="rounded-r-md border-l-2 border-ctp-red bg-ctp-red/5 px-3 py-2.5 text-sm text-ctp-red"
+            >
+              {error}
+            </div>
+          )}
 
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
-          <div className="flex items-center gap-2 text-ctp-green">
-            <ShieldCheck size={16} />
-            <span className="text-xs font-medium">Active accounts</span>
-          </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
-            {hasLoaded ? activeCount : "—"}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-3">
-          <div className="flex items-center gap-2 text-ctp-blue">
-            <ShieldCheck size={16} />
-            <span className="text-xs font-medium">Active supervisors</span>
-          </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-ctp-text">
-            {hasLoaded ? supervisorCount : "—"}
-          </p>
-        </div>
-      </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-lg border border-ctp-red/30 bg-ctp-red/10 px-3 py-2.5 text-sm text-ctp-red"
-        >
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
+          {notice && (
+            <div
+              role="status"
+              className="rounded-r-md border-l-2 border-ctp-green bg-ctp-green/5 px-3 py-2.5 text-sm text-ctp-green"
+            >
+              {notice}
+            </div>
+          )}
         </div>
       )}
 
-      {notice && (
-        <div
-          role="status"
-          className="flex items-start gap-2 rounded-lg border border-ctp-green/30 bg-ctp-green/10 px-3 py-2.5 text-sm text-ctp-green"
+      <section aria-labelledby="new-account-heading">
+        <h2
+          id="new-account-heading"
+          className="text-sm font-semibold text-ctp-text"
         >
-          <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-          <span>{notice}</span>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-ctp-surface1 bg-ctp-mantle p-4">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ctp-blue/10 text-ctp-blue">
-            <Plus size={18} />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-ctp-text">
-              Create cashier account
-            </h3>
-            <p className="mt-0.5 text-xs text-ctp-subtext0">
-              Cashiers use their username and six-digit PIN on POS terminals.
-            </p>
-          </div>
-        </div>
+          New account
+        </h2>
+        <p className="mt-0.5 text-xs text-ctp-subtext0">
+          Cashiers sign in on POS terminals with their username and a
+          six-digit PIN.
+        </p>
 
         <form
           onSubmit={handleCreateCashier}
-          className="grid gap-3 md:grid-cols-4"
+          className="mt-3 border-t border-ctp-surface0 pt-4"
         >
-          <label className="min-w-0 space-y-1.5">
-            <span className="text-xs font-medium text-ctp-subtext1">
-              Username
-            </span>
-            <input
-              type="text"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              maxLength={64}
-              required
-              value={form.username}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  username: event.target.value,
-                }))
-              }
-              placeholder="e.g. cashier01"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
-            />
-          </label>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_12rem]">
+            <label className="min-w-0">
+              <span className={LABEL}>Username</span>
+              <input
+                type="text"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={64}
+                required
+                value={form.username}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    username: event.target.value,
+                  }))
+                }
+                placeholder="e.g. cashier01"
+                className={INPUT}
+              />
+            </label>
 
-          <label className="min-w-0 space-y-1.5">
-            <span className="text-xs font-medium text-ctp-subtext1">
-              Display name
-            </span>
-            <input
-              type="text"
-              maxLength={100}
-              required
-              value={form.display_name}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  display_name: event.target.value,
-                }))
-              }
-              placeholder="e.g. Alex"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
-            />
-          </label>
+            <label className="min-w-0">
+              <span className={LABEL}>Display name</span>
+              <input
+                type="text"
+                maxLength={100}
+                required
+                value={form.display_name}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    display_name: event.target.value,
+                  }))
+                }
+                placeholder="e.g. Alex"
+                className={INPUT}
+              />
+            </label>
 
-          <label className="min-w-0 space-y-1.5">
-            <span className="text-xs font-medium text-ctp-subtext1">
-              Six-digit PIN
-            </span>
-            <input
-              type="password"
-              inputMode="numeric"
-              autoComplete="new-password"
-              maxLength={6}
-              pattern="[0-9]{6}"
-              required
-              value={form.pin}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  pin: event.target.value.replace(/\D/g, "").slice(0, 6),
-                }))
-              }
-              placeholder="••••••"
-              className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2 text-sm tracking-[0.35em] text-ctp-text outline-none transition placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20"
-            />
-          </label>
+            <label className="min-w-0">
+              <span className={LABEL}>PIN (6 digits)</span>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                required
+                value={form.pin}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    pin: event.target.value.replace(/\D/g, "").slice(0, 6),
+                  }))
+                }
+                placeholder="••••••"
+                className={`${INPUT} tracking-[0.3em] placeholder:tracking-normal`}
+              />
+            </label>
+          </div>
 
-          <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-ctp-surface1 bg-ctp-base px-3 py-2.5">
-            <input
-              type="checkbox"
-              checked={form.is_supervisor}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  is_supervisor: event.target.checked,
-                }))
-              }
-              className="h-4 w-4 accent-[var(--ctp-blue)]"
-            />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-ctp-text">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={form.is_supervisor}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    is_supervisor: event.target.checked,
+                  }))
+                }
+                className="mt-0.5 size-4 accent-[var(--ctp-blue)]"
+              />
+              <span className="text-sm text-ctp-text">
                 Supervisor
+                <span className="block text-xs text-ctp-subtext0">
+                  Can authorize discounts that require approval.
+                </span>
               </span>
-              <span className="block text-[10px] leading-4 text-ctp-subtext0">
-                Can authorize discounts
-              </span>
-            </span>
-          </label>
+            </label>
 
-          <div className="md:col-span-4">
-            <button
-              type="submit"
-              disabled={creating}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-ctp-blue px-3.5 py-2 text-sm font-semibold text-ctp-base transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {creating ? (
-                <LoaderCircle size={15} className="animate-spin" />
-              ) : (
-                <Plus size={15} />
-              )}
-              {creating ? "Creating account..." : "Create cashier"}
+            <button type="submit" disabled={creating} className={PRIMARY}>
+              {creating ? "Creating…" : "Create account"}
             </button>
           </div>
         </form>
-      </div>
+      </section>
 
-      <div className="overflow-hidden rounded-xl border border-ctp-surface1 bg-ctp-mantle">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ctp-surface0 px-4 py-3">
-          <div>
-            <h3 className="text-sm font-semibold text-ctp-text">
-              Cashier accounts
-            </h3>
-            <p className="mt-0.5 text-xs text-ctp-subtext0">
-              Manage access, supervisor privileges, and employee PINs.
-            </p>
-          </div>
-
-          <span className="rounded-md bg-ctp-surface0 px-2.5 py-1 text-xs tabular-nums text-ctp-subtext1">
-            {hasLoaded ? `${cashiers.length} accounts` : "Loading"}
-          </span>
-        </div>
+      <section aria-labelledby="accounts-heading">
+        <h2
+          id="accounts-heading"
+          className="text-sm font-semibold text-ctp-text"
+        >
+          Accounts
+        </h2>
 
         {showInitialLoading ? (
-          <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-ctp-subtext0">
-            <LoaderCircle size={17} className="animate-spin" />
-            Loading cashier accounts...
-          </div>
+          <p
+            role="status"
+            className="mt-3 border-y border-ctp-surface0 py-8 text-sm text-ctp-subtext0"
+          >
+            Loading accounts…
+          </p>
         ) : !hasLoaded ? (
-          <div className="px-4 py-10 text-center">
-            <AlertCircle size={26} className="mx-auto text-ctp-red" />
-            <p className="mt-2 text-sm font-medium text-ctp-text">
-              Could not load cashier accounts
+          <div className="mt-3 border-y border-ctp-surface0 py-8">
+            <p className="text-sm font-medium text-ctp-text">
+              Could not load accounts
             </p>
             <p className="mt-1 text-xs text-ctp-subtext0">
               Check the connection and try again.
@@ -536,194 +516,219 @@ export default function Cashiers() {
               type="button"
               onClick={() => void loadCashiers()}
               disabled={loading}
-              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:opacity-50"
+              className={`${SECONDARY} mt-3`}
             >
-              <RefreshCw size={13} />
               Try again
             </button>
           </div>
         ) : cashiers.length === 0 ? (
-          <div className="px-4 py-10 text-center">
-            <UserRound size={28} className="mx-auto text-ctp-overlay1" />
-            <p className="mt-2 text-sm font-medium text-ctp-text">
-              No cashier accounts yet
+          <div className="mt-3 border-y border-ctp-surface0 py-8">
+            <p className="text-sm font-medium text-ctp-text">
+              No accounts yet
             </p>
             <p className="mt-1 text-xs text-ctp-subtext0">
-              Create the first cashier account using the form above.
+              Use the form above to create the first cashier account.
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-ctp-surface0">
-            {cashiers.map((cashier) => (
-              <article key={cashier.id} className="space-y-3 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ctp-surface0 text-ctp-text">
-                      <UserRound size={17} />
-                    </div>
+          <div className="mt-3 w-full overflow-x-auto border-y border-ctp-surface0">
+            <table className="w-full min-w-[44rem] border-collapse text-sm">
+              <caption className="sr-only">Cashier accounts</caption>
 
-                    <div className="min-w-0">
-                      <h4 className="truncate text-sm font-semibold text-ctp-text">
-                        {cashier.display_name}
-                      </h4>
-                      <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
-                        @{cashier.username}
-                      </p>
-                    </div>
-                  </div>
+              <thead className="border-b border-ctp-surface0">
+                <tr>
+                  <th scope="col" className={TH}>
+                    Account
+                  </th>
+                  <th scope="col" className={TH}>
+                    Role
+                  </th>
+                  <th scope="col" className={TH}>
+                    Status
+                  </th>
+                  <th scope="col" className={TH}>
+                    Last login
+                  </th>
+                  <th scope="col" className={`${TH} text-right`}>
+                    Actions
+                  </th>
+                </tr>
+              </thead>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {cashier.is_supervisor && (
-                      <span className="rounded-full border border-ctp-blue/30 bg-ctp-blue/10 px-2.5 py-1 text-[11px] font-medium text-ctp-blue">
-                        Supervisor
-                      </span>
-                    )}
+              <tbody className="divide-y divide-ctp-surface0">
+                {cashiers.map((cashier) => {
+                  const isResetOpen = activeResetId === cashier.id;
+                  const isBusy = busyId === cashier.id;
+                  const canChangeRole =
+                    cashier.is_active || cashier.is_supervisor;
 
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${cashier.is_active
-                        ? "border-ctp-green/30 bg-ctp-green/10 text-ctp-green"
-                        : "border-ctp-surface1 bg-ctp-surface0 text-ctp-subtext0"
-                        }`}
-                    >
-                      {cashier.is_active ? "Active" : "Disabled"}
-                    </span>
+                  return (
+                    <Fragment key={cashier.id}>
+                      <tr className="align-top">
+                        <td className="px-4 py-3">
+                          <p
+                            className={`max-w-[14rem] truncate font-medium ${cashier.is_active
+                                ? "text-ctp-text"
+                                : "text-ctp-subtext0"
+                              }`}
+                          >
+                            {cashier.display_name}
+                          </p>
+                          <p className="mt-0.5 max-w-[14rem] truncate text-xs text-ctp-subtext0">
+                            @{cashier.username}
+                          </p>
+                        </td>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleAccount(cashier)}
-                      disabled={isMutating || loading}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${cashier.is_active
-                        ? "border-ctp-red/30 text-ctp-red hover:bg-ctp-red/10"
-                        : "border-ctp-green/30 text-ctp-green hover:bg-ctp-green/10"
-                        }`}
-                    >
-                      {busyId === cashier.id
-                        ? "Saving..."
-                        : cashier.is_active
-                          ? "Disable"
-                          : "Enable"}
-                    </button>
-                  </div>
-                </div>
+                        <td className="px-4 py-3">
+                          <p className="text-ctp-text">
+                            {cashier.is_supervisor ? "Supervisor" : "Cashier"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleSupervisor(cashier)}
+                            disabled={isMutating || loading || !canChangeRole}
+                            className={`${LINK} mt-0.5 text-xs`}
+                          >
+                            {isBusy && busyAction === "role"
+                              ? "Saving…"
+                              : cashier.is_supervisor
+                                ? "Remove supervisor"
+                                : "Make supervisor"}
+                          </button>
+                        </td>
 
-                <div className="grid gap-1.5 text-xs text-ctp-subtext0 sm:grid-cols-2">
-                  <p>
-                    <span className="text-ctp-subtext1">Created:</span>{" "}
-                    {formatDate(cashier.created_at)}
-                  </p>
-                  <p>
-                    <span className="text-ctp-subtext1">Last login:</span>{" "}
-                    {formatDate(cashier.last_login_at)}
-                  </p>
-                </div>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className={`size-2 shrink-0 rounded-full ${cashier.is_active
+                                  ? "bg-ctp-green"
+                                  : "bg-ctp-overlay0"
+                                }`}
+                            />
+                            <span
+                              className={
+                                cashier.is_active
+                                  ? "text-ctp-text"
+                                  : "text-ctp-subtext0"
+                              }
+                            >
+                              {cashier.is_active ? "Active" : "Disabled"}
+                            </span>
+                          </span>
+                        </td>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ctp-surface0 bg-ctp-base px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck
-                      size={15}
-                      className={
-                        cashier.is_supervisor
-                          ? "text-ctp-blue"
-                          : "text-ctp-overlay1"
-                      }
-                    />
-                    <div>
-                      <p className="text-xs font-semibold text-ctp-text">
-                        {cashier.is_supervisor
-                          ? "Supervisor privileges enabled"
-                          : "Standard cashier"}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-ctp-subtext0">
-                        {cashier.is_supervisor
-                          ? "Can authorize discounts requiring approval."
-                          : "Cannot authorize supervisor-only discounts."}
-                      </p>
-                    </div>
-                  </div>
+                        <td className="px-4 py-3">
+                          <p className="text-ctp-text">
+                            {formatDate(cashier.last_login_at)}
+                          </p>
+                          <p className="mt-0.5 text-xs text-ctp-subtext0">
+                            Created {formatDate(cashier.created_at)}
+                          </p>
+                        </td>
 
-                  <button
-                    type="button"
-                    onClick={() => void handleToggleSupervisor(cashier)}
-                    disabled={isMutating || loading || !cashier.is_active}
-                    className="rounded-lg border border-ctp-surface1 px-3 py-1.5 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {busyId === cashier.id
-                      ? "Saving..."
-                      : cashier.is_supervisor
-                        ? "Remove supervisor"
-                        : "Promote to supervisor"}
-                  </button>
-                </div>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openReset(cashier.id)}
+                              disabled={isMutating}
+                              aria-expanded={isResetOpen}
+                              aria-controls={`reset-pin-${cashier.id}`}
+                              className={SECONDARY}
+                            >
+                              Reset PIN
+                            </button>
 
-                <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-                  <div className="mb-2 flex items-center gap-2">
-                    <KeyRound size={14} className="text-ctp-subtext0" />
-                    <span className="text-xs font-semibold text-ctp-text">
-                      Reset PIN
-                    </span>
-                  </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleAccount(cashier)}
+                              disabled={isMutating || loading}
+                              className={cashier.is_active ? DANGER : SUCCESS}
+                            >
+                              {isBusy && busyAction === "account"
+                                ? "Saving…"
+                                : cashier.is_active
+                                  ? "Disable"
+                                  : "Enable"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
 
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      autoComplete="new-password"
-                      maxLength={6}
-                      pattern="[0-9]{6}"
-                      aria-label={`New PIN for ${cashier.username}`}
-                      placeholder="New six-digit PIN"
-                      value={
-                        activeResetId === cashier.id
-                          ? resetPin
-                          : ""
-                      }
-                      onFocus={() => {
-                        setActiveResetId(cashier.id);
-                        setResetPin("");
-                      }}
-                      onChange={(event) => {
-                        setActiveResetId(cashier.id);
-                        setResetPin(
-                          event.target.value
-                            .replace(/\D/g, "")
-                            .slice(0, 6),
-                        );
-                      }}
-                      disabled={isMutating}
-                      className="min-w-0 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 py-2 text-sm tracking-[0.3em] text-ctp-text outline-none placeholder:tracking-normal placeholder:text-ctp-overlay1 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
+                      {isResetOpen && (
+                        <tr id={`reset-pin-${cashier.id}`}>
+                          <td colSpan={5} className="bg-ctp-base px-4 py-3">
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void handleResetPin(cashier);
+                              }}
+                              className="flex flex-wrap items-end gap-x-3 gap-y-2"
+                            >
+                              <label className="w-full sm:w-56">
+                                <span className={LABEL}>
+                                  New PIN for @{cashier.username}
+                                </span>
+                                <input
+                                  type="password"
+                                  inputMode="numeric"
+                                  autoComplete="new-password"
+                                  maxLength={6}
+                                  pattern="[0-9]{6}"
+                                  placeholder="6 digits"
+                                  value={resetPin}
+                                  onChange={(event) =>
+                                    setResetPin(
+                                      event.target.value
+                                        .replace(/\D/g, "")
+                                        .slice(0, 6),
+                                    )
+                                  }
+                                  disabled={isMutating}
+                                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                                  autoFocus
+                                  className={`${INPUT} tracking-[0.3em] placeholder:tracking-normal`}
+                                />
+                              </label>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleResetPin(cashier)}
-                      disabled={
-                        isMutating ||
-                        activeResetId !== cashier.id ||
-                        !/^\d{6}$/.test(resetPin)
-                      }
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-semibold text-ctp-text transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {resettingId === cashier.id ? (
-                        <LoaderCircle
-                          size={13}
-                          className="animate-spin"
-                        />
-                      ) : (
-                        <KeyRound size={13} />
+                              <button
+                                type="submit"
+                                disabled={
+                                  isMutating || !/^\d{6}$/.test(resetPin)
+                                }
+                                className={PRIMARY}
+                              >
+                                {resettingId === cashier.id
+                                  ? "Resetting…"
+                                  : "Set new PIN"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={closeReset}
+                                disabled={resettingId !== null}
+                                className={SECONDARY}
+                              >
+                                Cancel
+                              </button>
+                            </form>
+
+                            <p className="mt-2 text-xs text-ctp-subtext0">
+                              Resetting a PIN revokes all existing sessions for
+                              this cashier.
+                            </p>
+                          </td>
+                        </tr>
                       )}
-                      Reset PIN
-                    </button>
-                  </div>
-
-                  <p className="mt-2 text-[11px] leading-4 text-ctp-subtext0">
-                    Resetting a PIN revokes all existing sessions for this cashier.
-                  </p>
-                </div>
-              </article>
-            ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </section>
     </section>
   );
 }

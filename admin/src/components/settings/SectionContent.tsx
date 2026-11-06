@@ -1,4 +1,3 @@
-
 import type {
   SectionDefinition,
   SettingsState,
@@ -12,7 +11,6 @@ import PermissionsContent from "./sections/PermissionsContent";
 import ServerContent from "./sections/ServerContent";
 import BackupsContent from "./sections/BackupsContent";
 import DiagnosticsContent from "./sections/DiagnosticsContent";
-import SecurityContent from "./sections/SecurityContent";
 
 export default function SectionContent({
   section,
@@ -111,9 +109,6 @@ export default function SectionContent({
           onUpdate={onUpdate}
         />
       );
-
-    case "security":
-      return <SecurityContent />;
 
     default:
       return null;

@@ -1,4 +1,8 @@
-import { Check, Info, RotateCcw, Save } from "lucide-react";
+import {
+  buttonPrimary,
+  buttonQuiet,
+  buttonSecondary,
+} from "./styles";
 
 export default function SaveBar({
   showSaveNotice,
@@ -16,53 +20,48 @@ export default function SaveBar({
   onSave: () => void;
 }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-ctp-surface0 bg-ctp-base/95 px-3 py-2.5 backdrop-blur-xl sm:px-6">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-ctp-surface0 bg-ctp-base px-3 py-2.5 sm:px-6">
       <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
+        <p
+          role="status"
+          aria-live="polite"
+          className="min-w-0 flex-1 text-xs"
+        >
           {showSaveNotice ? (
-            <div className="flex items-start gap-2 text-xs text-ctp-yellow">
-              <Info size={14} className="mt-0.5 shrink-0" />
-              <span>{noticeMessage}</span>
-            </div>
+            <span className="text-ctp-yellow">{noticeMessage}</span>
           ) : hasChanges ? (
-            <div className="flex items-center gap-2 text-xs text-ctp-yellow">
-              <span className="size-2 shrink-0 rounded-full bg-ctp-yellow" />
+            <span className="inline-flex items-center gap-2 font-medium text-ctp-text">
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full bg-ctp-yellow"
+              />
               Unsaved changes
-            </div>
+            </span>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-ctp-subtext0">
-              <Check size={14} className="text-ctp-green" />
-              No unsaved changes
-            </div>
+            <span className="text-ctp-subtext0">No unsaved changes</span>
           )}
-        </div>
+        </p>
 
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onDiscard}
-            disabled={!hasChanges}
-            className="flex items-center gap-1.5 rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-medium text-ctp-subtext1 transition hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <RotateCcw size={14} />
-            <span className="hidden sm:inline">Discard</span>
+          <button type="button" onClick={onReset} className={buttonQuiet}>
+            Reset to defaults
           </button>
 
           <button
             type="button"
-            onClick={onReset}
-            className="rounded-lg border border-ctp-surface1 px-3 py-2 text-xs font-medium text-ctp-subtext1 transition hover:bg-ctp-surface0"
+            onClick={onDiscard}
+            disabled={!hasChanges}
+            className={buttonSecondary}
           >
-            Reset defaults
+            Discard
           </button>
 
           <button
             type="button"
             onClick={onSave}
             disabled={!hasChanges}
-            className="flex items-center gap-1.5 rounded-lg bg-ctp-mauve px-3.5 py-2 text-xs font-semibold text-ctp-base transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            className={buttonPrimary}
           >
-            <Save size={14} />
             Save changes
           </button>
         </div>

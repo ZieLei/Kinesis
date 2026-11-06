@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type {
   FieldDefinition,
   SettingsState,
@@ -6,6 +7,14 @@ import type {
 import Field from "./Field";
 import SelectField from "./SelectField";
 import { inputClass } from "./styles";
+
+const BOOLEAN_KEYS = new Set<string>([
+  "allowNegativeInventory",
+  "digitalReceipts",
+  "supervisorPinForDiscounts",
+  "allowCustomLineItems",
+  "skuIncludeYear",
+]);
 
 export default function FieldRenderer({
   field,
@@ -16,9 +25,10 @@ export default function FieldRenderer({
   settings: SettingsState;
   onUpdate: UpdateSetting;
 }) {
-  const rawValue = settings[field.key];
-  const value =
-    typeof rawValue === "boolean" ? String(rawValue) : String(rawValue);
+  const id = useId();
+  const descriptionId = field.description ? `${id}-description` : undefined;
+
+  const value = String(settings[field.key]);
   const disabled = field.disabled?.(settings) ?? false;
 
   const handleChange = (nextValue: string) => {
@@ -26,13 +36,7 @@ export default function FieldRenderer({
       ? field.transform(nextValue)
       : nextValue;
 
-    if (
-      field.key === "allowNegativeInventory" ||
-      field.key === "digitalReceipts" ||
-      field.key === "supervisorPinForDiscounts" ||
-      field.key === "allowCustomLineItems" ||
-      field.key === "skuIncludeYear"
-    ) {
+    if (BOOLEAN_KEYS.has(field.key)) {
       onUpdate(field.key, (finalValue === "true") as never);
       return;
     }
@@ -53,17 +57,29 @@ export default function FieldRenderer({
     onUpdate(field.key, finalValue as never);
   };
 
+  const isTextarea = field.type === "textarea";
+
   return (
-    <Field label={field.label} description={field.description}>
+    <Field
+      label={field.label}
+      description={field.description}
+      htmlFor={id}
+      descriptionId={descriptionId}
+      stacked={isTextarea}
+    >
       {field.type === "select" ? (
         <SelectField
+          id={id}
+          describedBy={descriptionId}
           value={value}
           onChange={handleChange}
           options={field.options ?? []}
           disabled={disabled}
         />
-      ) : field.type === "textarea" ? (
+      ) : isTextarea ? (
         <textarea
+          id={id}
+          aria-describedby={descriptionId}
           className={`${inputClass} resize-y`}
           value={value}
           rows={field.rows ?? 2}
@@ -80,7 +96,10 @@ export default function FieldRenderer({
       ) : (
         <div className="relative">
           <input
-            className={`${inputClass} ${field.suffix ? "pr-16" : ""}`}
+            id={id}
+            aria-describedby={descriptionId}
+            className={`${inputClass} ${field.suffix ? "pr-14" : ""} ${field.type === "number" ? "tabular-nums" : ""
+              }`}
             type={field.type === "number" ? "number" : "text"}
             value={value}
             min={field.min}
@@ -92,7 +111,7 @@ export default function FieldRenderer({
             placeholder={field.key === "skuPrefix" ? "KNS" : undefined}
           />
           {field.suffix && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ctp-subtext0">
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ctp-subtext0">
               {field.suffix}
             </span>
           )}

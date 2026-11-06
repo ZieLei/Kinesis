@@ -1,12 +1,5 @@
-
 import { useRef, useState } from "react";
-import {
-  ImagePlus,
-  Printer,
-  RefreshCw,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import type { ChangeEvent } from "react";
 
 import type {
   SectionDefinition,
@@ -14,7 +7,11 @@ import type {
   UpdateSetting,
 } from "../../../types/settings";
 
-import FieldRenderer from "../FieldRenderer";
+import FieldList from "../FieldList";
+import Notice from "../Notice";
+import { buttonDanger, buttonPrimary } from "../styles";
+
+const MAX_QR_BYTES = 5 * 1024 * 1024;
 
 export default function ReceiptsContent({
   section,
@@ -48,9 +45,7 @@ export default function ReceiptsContent({
     ? `/api/admin/settings/gcash-qr?version=${version ?? 0}`
     : null;
 
-  const handleFileChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
 
@@ -85,7 +80,7 @@ export default function ReceiptsContent({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_QR_BYTES) {
       setFileValidationError(
         "The image exceeds the maximum allowed size of 5 MiB.",
       );
@@ -109,7 +104,7 @@ export default function ReceiptsContent({
     if (!hasGcashQr || isUploadingGcashQr) return;
 
     const confirmed = window.confirm(
-      "Remove the saved GCash payment QR code from Kinesis?",
+      "Remove the saved GCash payment QR code?",
     );
 
     if (confirmed) {
@@ -118,112 +113,67 @@ export default function ReceiptsContent({
   };
 
   const displayedError = fileValidationError || gcashQrError;
+  const uploadDisabled = isUploadingGcashQr || version === null;
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {section.fields.map((field) => (
-          <FieldRenderer
-            key={field.key}
-            field={field}
-            settings={settings}
-            onUpdate={onUpdate}
-          />
-        ))}
-      </div>
+      <FieldList
+        fields={section.fields}
+        settings={settings}
+        onUpdate={onUpdate}
+      />
 
-      {/* GCash payment QR */}
-      <div className="rounded-xl border border-ctp-surface0 bg-ctp-base p-4">
-        <div className="mb-4 flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ctp-blue/10 text-ctp-blue">
-            <ImagePlus size={18} />
-          </div>
+      <div>
+        <h3 className="text-sm font-semibold text-ctp-text">
+          GCash payment QR
+        </h3>
+        <p className="mt-0.5 text-xs leading-relaxed text-ctp-subtext0">
+          POS terminals show this image when a cashier selects GCash. It is
+          stored on the host computer, not on individual terminals.
+        </p>
 
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-ctp-text">
-              GCash payment QR
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-ctp-subtext0">
-              Upload your shop's GCash payment QR code. Connected POS terminals
-              will display this image when a cashier selects GCash.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex min-h-48 w-full items-center justify-center rounded-xl border border-dashed border-ctp-surface1 bg-ctp-mantle p-4 sm:w-56 sm:shrink-0">
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="flex h-44 w-full items-center justify-center rounded-md border border-dashed border-ctp-surface1 bg-ctp-mantle p-3 sm:w-44 sm:shrink-0">
             {qrImageUrl ? (
               <img
                 key={qrImageUrl}
                 src={qrImageUrl}
                 alt="Saved GCash payment QR code"
-                className="max-h-48 max-w-full object-contain"
+                className="max-h-full max-w-full object-contain"
               />
             ) : (
-              <div className="flex flex-col items-center text-center">
-                <ImagePlus
-                  size={32}
-                  className="text-ctp-overlay1"
-                />
-
-                <p className="mt-3 text-xs font-medium text-ctp-subtext0">
-                  No payment QR uploaded
-                </p>
-
-                <p className="mt-1 text-[10px] text-ctp-overlay1">
-                  JPEG or PNG · Maximum 5 MiB
-                </p>
-              </div>
+              <p className="text-center text-xs text-ctp-subtext0">
+                No QR code uploaded
+              </p>
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-ctp-text">
-              {hasGcashQr
-                ? "Payment QR configured"
-                : "Set up GCash payments"}
-            </p>
+          <div className="min-w-0">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+              className="hidden"
+              onChange={handleFileChange}
+              disabled={uploadDisabled}
+              aria-label="Choose GCash QR image"
+            />
 
-            <p className="mt-1 text-xs leading-5 text-ctp-subtext0">
-              {hasGcashQr
-                ? "This is the image currently stored on your Kinesis host computer."
-                : "Choose a clear image of your official shop payment QR. The image will be stored on the host computer rather than on individual terminals."}
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={handleFileChange}
-                disabled={isUploadingGcashQr || version === null}
-              />
-
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setFileValidationError("");
                   fileInputRef.current?.click();
                 }}
-                disabled={isUploadingGcashQr || version === null}
-                className="inline-flex items-center gap-2 rounded-lg bg-ctp-blue px-3 py-2 text-xs font-semibold text-ctp-base transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={uploadDisabled}
+                className={buttonPrimary}
               >
-                {isUploadingGcashQr ? (
-                  <RefreshCw
-                    size={14}
-                    className="animate-spin"
-                  />
-                ) : (
-                  <Upload size={14} />
-                )}
-
                 {isUploadingGcashQr
-                  ? "Uploading..."
+                  ? "Uploading…"
                   : hasGcashQr
-                    ? "Replace QR image"
-                    : "Upload QR image"}
+                    ? "Replace image"
+                    : "Upload image"}
               </button>
 
               {hasGcashQr && (
@@ -231,69 +181,58 @@ export default function ReceiptsContent({
                   type="button"
                   onClick={handleRemove}
                   disabled={isUploadingGcashQr}
-                  className="inline-flex items-center gap-2 rounded-lg border border-ctp-red/30 px-3 py-2 text-xs font-semibold text-ctp-red transition hover:bg-ctp-red/5 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={buttonDanger}
                 >
-                  <Trash2 size={14} />
                   Remove
                 </button>
               )}
             </div>
 
-            <p className="mt-3 text-[10px] leading-4 text-ctp-subtext0">
-              Supported formats: JPEG and PNG. Maximum image size: 5 MiB.
+            <p className="mt-2 text-xs text-ctp-subtext0">
+              JPEG or PNG, up to 5 MiB. Use a clear image of your official
+              shop QR code.
             </p>
           </div>
         </div>
 
-        {displayedError ? (
-          <p
-            role="alert"
-            className="mt-3 rounded-lg border border-ctp-red/20 bg-ctp-red/5 px-3 py-2 text-xs text-ctp-red"
-          >
-            {displayedError}
-          </p>
-        ) : null}
+        {displayedError && (
+          <div className="mt-3">
+            <Notice tone="danger" role="alert">
+              {displayedError}
+            </Notice>
+          </div>
+        )}
 
-        {gcashQrNotice ? (
-          <p
-            role="status"
-            className="mt-3 rounded-lg border border-ctp-green/20 bg-ctp-green/5 px-3 py-2 text-xs text-ctp-green"
-          >
-            {gcashQrNotice}
-          </p>
-        ) : null}
+        {gcashQrNotice && (
+          <div className="mt-3">
+            <Notice tone="success" role="status">
+              {gcashQrNotice}
+            </Notice>
+          </div>
+        )}
       </div>
 
-      {/* Receipt preview */}
-      <div className="rounded-lg border border-ctp-surface0 bg-ctp-base p-3">
-        <div className="mb-3 flex items-center gap-2">
-          <Printer size={15} className="text-ctp-mauve" />
+      <div>
+        <h3 className="text-sm font-semibold text-ctp-text">
+          Receipt preview
+        </h3>
 
-          <p className="text-xs font-semibold text-ctp-text">
-            Receipt preview
-          </p>
-        </div>
-
-        <div className="mx-auto max-w-xs border border-dashed border-ctp-surface1 bg-ctp-mantle p-4 text-center">
+        <div className="mt-3 w-full max-w-xs border border-dashed border-ctp-surface1 bg-ctp-mantle p-4 text-center">
           <p className="whitespace-pre-wrap text-xs font-bold text-ctp-text">
             {settings.receiptHeader || "STORE NAME"}
           </p>
 
           <div className="my-3 border-t border-dashed border-ctp-surface1" />
 
-          <div className="space-y-2 text-left text-[11px] text-ctp-subtext0">
+          <div className="space-y-1.5 text-left text-[11px] text-ctp-subtext0">
             <div className="flex justify-between gap-3">
-              <span>Sample motorcycle part</span>
-
-              <span className="shrink-0">
-                {currencyPreview}
-              </span>
+              <span>Sample item</span>
+              <span className="shrink-0 tabular-nums">{currencyPreview}</span>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <span>Tax rate</span>
-
-              <span>{settings.taxRate || "0"}%</span>
+              <span className="tabular-nums">{settings.taxRate || "0"}%</span>
             </div>
           </div>
 

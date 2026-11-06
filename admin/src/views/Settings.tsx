@@ -1,4 +1,3 @@
-
 import { useSettingsManagement } from "../hooks/useSettingsManagement";
 import SettingsHeader from "../components/settings/SettingsHeader";
 import SettingsNav from "../components/settings/SettingsNav";
@@ -6,71 +5,62 @@ import SettingsEmptyState from "../components/settings/SettingsEmptyState";
 import Section from "../components/settings/Section";
 import SectionContent from "../components/settings/SectionContent";
 import SaveBar from "../components/settings/SaveBar";
+import Notice from "../components/settings/Notice";
+import { buttonSecondary } from "../components/settings/styles";
 
 export default function Settings() {
   const s = useSettingsManagement();
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] pb-28 font-line-seed">
+    <div className="mx-auto w-full max-w-[1500px] pb-24 font-line-seed">
       <SettingsHeader />
 
       {s.isLoading ? (
-        <div
-          className="mt-4 rounded-xl border border-ctp-surface1 bg-ctp-mantle px-4 py-6 text-sm text-ctp-subtext1"
-          role="status"
-        >
-          Loading saved settings from the Kinesis backend...
-        </div>
+        <p role="status" className="py-6 text-sm text-ctp-subtext1">
+          Loading settings…
+        </p>
       ) : s.loadError ? (
-        <div
-          className="mt-4 rounded-xl border border-ctp-red/30 bg-ctp-red/5 p-4"
+        <Notice
+          tone="danger"
           role="alert"
+          title="Could not load settings"
+          action={
+            <button
+              type="button"
+              onClick={s.reloadSettings}
+              className={buttonSecondary}
+            >
+              Retry
+            </button>
+          }
         >
-          <p className="text-sm font-medium text-ctp-red">
-            Could not load application settings.
-          </p>
-
-          <p className="mt-1 break-words text-sm text-ctp-subtext1">
-            {s.loadError}
-          </p>
-
-          <button
-            type="button"
-            onClick={s.reloadSettings}
-            className="mt-3 rounded-lg border border-ctp-surface1 px-3 py-2 text-sm text-ctp-text transition hover:bg-ctp-surface0"
-          >
-            Retry
-          </button>
-        </div>
+          {s.loadError}
+        </Notice>
       ) : (
         <>
           {s.hasServerConflict && (
-            <div
-              className="mt-4 flex flex-col gap-3 rounded-xl border border-ctp-yellow/30 bg-ctp-yellow/5 p-4 sm:flex-row sm:items-center sm:justify-between"
-              role="alert"
-            >
-              <div>
-                <p className="text-sm font-medium text-ctp-yellow">
-                  Settings conflict detected
-                </p>
-
-                <p className="mt-1 text-sm text-ctp-subtext1">
-                  The server has a newer version. Reload it before making
-                  another save to avoid overwriting someone else's changes.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={s.reloadSettings}
-                className="shrink-0 rounded-lg border border-ctp-surface1 px-3 py-2 text-sm text-ctp-text transition hover:bg-ctp-surface0"
+            <div className="mb-6">
+              <Notice
+                tone="warning"
+                role="alert"
+                title="Settings were changed elsewhere"
+                action={
+                  <button
+                    type="button"
+                    onClick={s.reloadSettings}
+                    className={buttonSecondary}
+                  >
+                    Reload settings
+                  </button>
+                }
               >
-                Reload server settings
-              </button>
+                The server has a newer version. Reload before saving again to
+                avoid overwriting someone else's changes.
+              </Notice>
             </div>
           )}
 
-          <div className="mt-4 grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="grid items-start gap-6 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-10">
             <SettingsNav
               search={s.search}
               onSearchChange={s.setSearch}
@@ -79,7 +69,7 @@ export default function Settings() {
               onNavigate={s.navigateTo}
             />
 
-            <main className="min-w-0 space-y-4">
+            <main className="min-w-0 max-w-4xl space-y-10">
               {s.filteredSections.length === 0 ? (
                 <SettingsEmptyState onClear={() => s.setSearch("")} />
               ) : (
@@ -87,7 +77,6 @@ export default function Settings() {
                   <Section
                     key={section.id}
                     id={section.id}
-                    icon={section.icon}
                     title={section.title}
                     description={section.description}
                     badge={section.badge}
