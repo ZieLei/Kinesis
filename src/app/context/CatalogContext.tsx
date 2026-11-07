@@ -40,7 +40,8 @@ type CatalogContextValue = {
     productId: number,
     values: ProductFormValues,
   ) => Promise<Product>;
-  removeProduct: (productId: number) => Promise<void>;
+  /** Resolves with archived: true when the product was archived instead of deleted. */
+  removeProduct: (productId: number) => Promise<{ archived: boolean }>;
   receiveStock: (
     values: InventoryReceiptCreate,
   ) => Promise<InventoryReceipt>;
@@ -243,11 +244,14 @@ export function CatalogProvider({
 
   const removeProduct = useCallback(
     async (productId: number) => {
-      await productsApi.deleteProduct(productId);
+      const result = await productsApi.deleteProduct(productId);
 
+      // Archived products leave active inventory just like deleted ones.
       setInventory((previous) =>
         previous.filter((product) => product.id !== productId),
       );
+
+      return { archived: result.archived === true };
     },
     [],
   );

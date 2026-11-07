@@ -179,18 +179,42 @@ def _record_product_change(session: Session, product, *, created=False, deleted=
         return
 
     if deleted:
+        # Only products without sales, receipt or stockout history are
+        # permanently deleted; the rest are archived (see main.delete_product).
         _record(
             session,
             "inventory.product_deleted",
-            f"Product deleted: {product_name}",
+            f"Product permanently deleted: {product_name}",
             severity="warning",
             details={
                 "product_id": product_id,
                 "name": product_name,
                 "sku": sku,
+                "permanent": True,
             },
         )
         return
+
+    archived_history = inspect(product).attrs["archived_at"].history
+
+    if archived_history.has_changes():
+        was_archived = any(value is not None for value in archived_history.deleted)
+        is_archived = _get(product, "archived_at") is not None
+
+        if is_archived != was_archived:
+            _record(
+                session,
+                ("inventory.product_archived" if is_archived else "inventory.product_restored"),
+                f"Product {'archived' if is_archived else 'restored'}: {product_name}",
+                severity=("warning" if is_archived else "info"),
+                details={
+                    "product_id": product_id,
+                    "name": product_name,
+                    "sku": sku,
+                    "stock": _get(product, "stock"),
+                    "archived_at": _get(product, "archived_at"),
+                },
+            )
 
     changes = _changed_fields(
         product,

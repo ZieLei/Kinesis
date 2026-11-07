@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -16,18 +17,19 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select, text
+from sqlalchemy import exists, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Product
+from models import InventoryReceiptItem, Product, SaleItem, StockoutPeriod
 from sales_routes import router as sales_router
 from services_routes import router as services_router
 from inventory_routes import router as inventory_router
 from analytics_routes import router as analytics_router
 from terminal_routes import (
     require_admin_or_terminal,
+    require_admin_token,
     router as terminal_router,
 )
 from terminal_pairing_routes import router as terminal_pairing_router
@@ -248,6 +250,8 @@ def product_response(product: Product) -> dict:
         "image_url": (
             f"/api/products/{product.id}/image" if product.image_path else None
         ),
+        "archived": product.archived_at is not None,
+        "archived_at": product.archived_at,
     }
 
 
@@ -362,10 +366,16 @@ def get_products(
     category: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    include_archived: bool = Query(default=False),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     statement = select(Product)
+
+    # Archived products used to be hard-deleted, so existing clients expect
+    # them to disappear from the catalog.
+    if not include_archived:
+        statement = statement.where(Product.archived_at.is_(None))
 
     if search and search.strip():
         term = (
@@ -711,6 +721,56 @@ def delete_product_image(
 # --------------------------------------------------
 
 
+def product_has_history(db: Session, product_id: int) -> bool:
+    """True when sales, receipts or stockout records reference the product."""
+
+    return bool(
+        db.scalar(
+            select(
+                exists().where(SaleItem.product_id == product_id)
+                | exists().where(InventoryReceiptItem.product_id == product_id)
+                | exists().where(StockoutPeriod.product_id == product_id)
+            )
+        )
+    )
+
+
+def lock_product(db: Session, product_id: int) -> Product:
+    # Checkout and inventory receipts lock product rows too, so archiving
+    # and deleting are serialized with sales and restocking.
+    product = db.scalar(
+        select(Product).where(Product.id == product_id).with_for_update()
+    )
+
+    if product is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+
+    return product
+
+
+def archive_response(product: Product, message: str) -> dict:
+    # "message" and "id" are the fields existing clients read.
+    return {
+        "message": message,
+        "id": product.id,
+        "archived": True,
+        "deleted": False,
+        "product": product_response(product),
+    }
+
+
+def archive_locked_product(db: Session, product: Product) -> dict:
+    # Stock, cost, SKU and image are deliberately left untouched.
+    product.archived_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(product)
+
+    return archive_response(product, "Product archived successfully.")
+
+
 @app.delete(
     "/api/products/{product_id}",
     tags=["Products"],
@@ -720,23 +780,48 @@ def delete_product(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
-    product = db.get(Product, product_id)
+    """
+    Archive a product with history; permanently delete one without.
 
-    if product is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product not found.",
-        )
-
-    image_path = product.image_path
+    Products referenced by sales, inventory receipts or stockout records
+    are archived so historical reports keep them. The database enforces
+    the same rule (ON DELETE RESTRICT) as a backstop.
+    """
 
     try:
-        db.delete(product)
-        db.commit()
+        product = lock_product(db, product_id)
+
+        if product.archived_at is not None:
+            result = archive_response(product, "Product is already archived.")
+            db.rollback()
+            return result
+
+        if product_has_history(db, product_id):
+            return archive_locked_product(db, product)
+
+        image_path = product.image_path
+
+        try:
+            db.delete(product)
+            db.commit()
+
+        except IntegrityError:
+            # History appeared despite the check (e.g. a writer that does not
+            # lock the product row). Archive instead; nothing is lost.
+            db.rollback()
+            logger.warning(
+                "Product %s gained history during deletion; archiving it.",
+                product_id,
+            )
+            return archive_locked_product(db, lock_product(db, product_id))
+
+    except HTTPException:
+        db.rollback()
+        raise
 
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Could not delete product.")
+        logger.exception("Could not delete or archive product.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The product could not be deleted.",
@@ -754,4 +839,77 @@ def delete_product(
     return {
         "message": "Product deleted successfully.",
         "id": product_id,
+        "archived": False,
+        "deleted": True,
     }
+
+
+# --------------------------------------------------
+# Restore an archived product (administrators only)
+# --------------------------------------------------
+
+
+@app.post(
+    "/api/admin/products/{product_id}/restore",
+    tags=["Products"],
+)
+def restore_product(
+    product_id: int,
+    admin: object = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+):
+    # Attribute the activity event to the administrator
+    # (see activity_tracking._record).
+    db.info["kinesis_actor"] = {
+        "actor_type": "admin",
+        "actor_id": str(getattr(admin, "id", "")) or None,
+        "actor_name": getattr(admin, "username", None),
+        "cashier_id": None,
+        "terminal_id": None,
+    }
+
+    try:
+        product = lock_product(db, product_id)
+
+        if product.archived_at is None:
+            result = product_response(product)
+            db.rollback()
+            return result
+
+        # The SKU stays reserved while archived (uq_products_sku), so this
+        # should never match; checked explicitly so a conflict is a clear 409.
+        if product.sku is not None:
+            conflict = db.scalar(
+                select(Product.id).where(
+                    Product.id != product.id,
+                    Product.sku == product.sku,
+                )
+            )
+
+            if conflict is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"SKU {product.sku} is used by product {conflict}. "
+                        "Change one of the SKUs before restoring."
+                    ),
+                )
+
+        # Stock is untouched: the product returns with its prior quantity.
+        product.archived_at = None
+        commit_or_raise_sku_conflict(db)
+        db.refresh(product)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Could not restore product.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The product could not be restored.",
+        ) from exc
+
+    return product_response(product)

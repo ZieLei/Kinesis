@@ -1,5 +1,5 @@
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   TextInput,
   ScrollView,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import FilterModal, {
@@ -25,6 +25,8 @@ import Funnel from "lucide-react-native/icons/funnel";
 import { styledIcon } from "@/components/StyledIcon";
 import { useColorScheme } from "nativewind";
 import { useInventory } from "@/hooks/useInventory";
+import { fetchProductSalesReport } from "@/lib/salesApi";
+import type { ProductSalesReport, ReportPeriod } from "@/types/sale";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledChevronRight = styledIcon(ChevronRight);
@@ -43,14 +45,42 @@ const money = (amount: number) =>
 
 const number = (value: number) => value.toLocaleString("en-PH");
 
+const REPORT_PERIODS: ReportPeriod[] = ["daily", "weekly", "monthly", "yearly"];
+
+const PERIOD_LABELS: Record<ReportPeriod, string> = {
+  daily: "Today",
+  weekly: "This week",
+  monthly: "This month",
+  yearly: "This year",
+};
+
+// Same ranges as before, now applied by the report endpoint to real sales.
+const SOLD_RANGES: Record<string, { minUnits?: number; maxUnits?: number }> = {
+  "1-10": { minUnits: 1, maxUnits: 10 },
+  "11-50": { minUnits: 11, maxUnits: 50 },
+  "51+": { minUnits: 51 },
+  zero: { maxUnits: 0 },
+};
+
 export default function ProductPerformance() {
   const router = useRouter();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  const { inventory, loading, loadError, fetchInventory } = useInventory();
+  // Same report and period as the Top Products card on the Reports tab.
+  const { period: periodParam } = useLocalSearchParams<{ period?: string }>();
+  const period = REPORT_PERIODS.find((value) => value === periodParam);
+
+  // Only used to offer categories of active products that have not sold.
+  const { inventory, fetchInventory } = useInventory();
+
+  const [report, setReport] = useState<ProductSalesReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [filterVisible, setFilterVisible] = useState(false);
 
@@ -58,19 +88,70 @@ export default function ProductPerformance() {
     soldRange: ["all"],
   });
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const selectedCategories = activeFilters.category;
+  const selectedSoldRange = activeFilters.soldRange?.[0] ?? "all";
+  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+
   useFocusEffect(
     useCallback(() => {
       const controller = new AbortController();
 
       void fetchInventory(true, controller.signal);
 
+      setLoading(true);
+      setLoadError(null);
+
+      void fetchProductSalesReport(ITEMS_PER_PAGE, controller.signal, period, {
+        offset,
+        search: debouncedSearch,
+        categories: selectedCategories,
+        includeUnsold: true,
+        ...SOLD_RANGES[selectedSoldRange],
+      })
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setReport(result);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setLoadError(
+              error instanceof Error
+                ? error.message
+                : "Product sales could not be loaded.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
+        });
+
       return () => controller.abort();
-    }, [fetchInventory]),
+    }, [
+      fetchInventory,
+      period,
+      offset,
+      debouncedSearch,
+      selectedCategories,
+      selectedSoldRange,
+      refreshCount,
+    ]),
   );
 
   const filterSections = useMemo<FilterSection[]>(() => {
     const categories = [
-      ...new Set(inventory.map((product) => product.category)),
+      ...new Set([
+        ...inventory.map((product) => product.category),
+        ...(report?.categories ?? []).map((item) => item.category),
+      ]),
     ]
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
@@ -98,70 +179,15 @@ export default function ProductPerformance() {
         ],
       },
     ];
-  }, [inventory]);
+  }, [inventory, report]);
 
-  const filteredProducts = useMemo(() => {
-    const selectedCategories = activeFilters.category ?? [];
-    const selectedSoldRange = activeFilters.soldRange?.[0];
-    const normalizedQuery = searchQuery.trim().toLowerCase();
+  const totalProducts = report?.total_products ?? 0;
 
-    return [...inventory]
-      .filter((product) => {
-        const matchesSearch = product.name
-          .toLowerCase()
-          .includes(normalizedQuery);
-
-        const matchesCategory =
-          selectedCategories.length === 0 ||
-          selectedCategories.includes(product.category);
-
-        let matchesSoldRange = true;
-
-        switch (selectedSoldRange) {
-          case "1-10":
-            matchesSoldRange =
-              product.howMuchSold >= 1 && product.howMuchSold <= 10;
-            break;
-
-          case "11-50":
-            matchesSoldRange =
-              product.howMuchSold >= 11 && product.howMuchSold <= 50;
-            break;
-
-          case "51+":
-            matchesSoldRange = product.howMuchSold >= 51;
-            break;
-
-          case "zero":
-            matchesSoldRange = product.howMuchSold === 0;
-            break;
-
-          case "all":
-          default:
-            matchesSoldRange = true;
-            break;
-        }
-
-        return matchesSearch && matchesCategory && matchesSoldRange;
-      })
-      .sort((a, b) => b.howMuchSold - a.howMuchSold);
-  }, [inventory, searchQuery, activeFilters]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredProducts.length / ITEMS_PER_PAGE),
-  );
+  const totalPages = Math.max(1, Math.ceil(totalProducts / ITEMS_PER_PAGE));
 
   const safePage = Math.min(currentPage, totalPages);
 
-  const paginatedProducts = useMemo(() => {
-    const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
-
-    return filteredProducts.slice(
-      startIndex,
-      startIndex + ITEMS_PER_PAGE,
-    );
-  }, [filteredProducts, safePage]);
+  const paginatedProducts = report?.top_products ?? [];
 
   const pageNumbers = useMemo(() => {
     const start = Math.max(
@@ -278,11 +304,11 @@ export default function ProductPerformance() {
               ? "Loading products..."
               : loadError
                 ? "Products unavailable"
-                : `${filteredProducts.length} products found`}
+                : `${totalProducts} products found`}
           </Text>
 
           <Text className="font-inter-medium text-sm text-ctp-subtext0">
-            Sorted by units sold
+            {period ? PERIOD_LABELS[period] : "All time"} · by units sold
           </Text>
         </View>
 
@@ -305,7 +331,7 @@ export default function ProductPerformance() {
               </Text>
 
               <Pressable
-                onPress={() => void fetchInventory(true)}
+                onPress={() => setRefreshCount((count) => count + 1)}
                 className="rounded-md bg-ctp-surface0 px-4 py-2"
               >
                 <Text className="font-inter-semibold text-sm text-ctp-text">
@@ -314,11 +340,8 @@ export default function ProductPerformance() {
               </Pressable>
             </View>
           ) : paginatedProducts.length > 0 ? (
-            paginatedProducts.map((product) => {
-              const rank =
-                filteredProducts.findIndex(
-                  (item) => item.id === product.id,
-                ) + 1;
+            paginatedProducts.map((product, index) => {
+              const rank = offset + index + 1;
 
               const rankBorder =
                 rank === 1
@@ -340,7 +363,7 @@ export default function ProductPerformance() {
 
               return (
                 <View
-                  key={product.id}
+                  key={product.product_id ?? `history-${product.sku ?? product.name}`}
                   className={`m-1 mb-3 flex-row rounded-lg border-[1px] bg-ctp-mantle ${rankBorder}`}
                   style={{
                     boxShadow:
@@ -362,13 +385,18 @@ export default function ProductPerformance() {
                     </Text>
 
                     <Text className="font-inter-semibold text-sm text-ctp-subtext0">
-                      {money(product.price)}
+                      {money(product.revenue)}
+                      {product.archived
+                        ? " · Archived"
+                        : product.deleted
+                          ? " · Removed"
+                          : ""}
                     </Text>
                   </View>
 
                   <View className="mr-3 my-3 items-end justify-between">
                     <Text className="font-inter-semibold text-sm text-ctp-text">
-                      {number(product.howMuchSold)} pcs
+                      {number(product.units_sold)} pcs
                     </Text>
 
                     <Text
@@ -399,7 +427,7 @@ export default function ProductPerformance() {
         </ScrollView>
 
         {/* Pagination */}
-        {!loading && !loadError && filteredProducts.length > 0 && (
+        {!loading && !loadError && totalProducts > 0 && (
           <View className="flex-row items-center justify-center border-t border-ctp-surface0 py-4">
             <View className="w-full flex-row items-center justify-center gap-1.5">
               <Pressable
@@ -503,7 +531,7 @@ export default function ProductPerformance() {
           </View>
         )}
 
-        {!loading && !loadError && filteredProducts.length > 0 && (
+        {!loading && !loadError && totalProducts > 0 && (
           <Text className="pb-2 text-center font-inter-medium text-sm text-ctp-subtext0">
             Page {safePage} of {totalPages}
           </Text>

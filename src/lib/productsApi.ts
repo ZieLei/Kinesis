@@ -91,7 +91,13 @@ export function deleteProductImage(id: number): Promise<Product> {
 }
 
 export function deleteProduct(id: number) {
-  return apiRequest<{ message: string; id: number }>(
+  // Products with sales or inventory history are archived, not deleted.
+  return apiRequest<{
+    message: string;
+    id: number;
+    archived?: boolean;
+    deleted?: boolean;
+  }>(
     `/api/products/${id}`,
     {
       method: "DELETE",

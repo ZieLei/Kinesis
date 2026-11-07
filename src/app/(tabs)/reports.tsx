@@ -549,7 +549,12 @@ export default function Reports() {
                     </View>
 
                     <Pressable
-                      onPress={() => router.push("/product-performance")}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/product-performance",
+                          params: { period },
+                        })
+                      }
                       className="rounded-md bg-ctp-surface0 px-2 py-2"
                     >
                       <Text className="font-inter-bold text-xs text-ctp-text">
@@ -584,7 +589,7 @@ export default function Reports() {
                     <View
                       key={
                         product.product_id ??
-                        `${product.category}-${product.name}`
+                        `history-${product.sku ?? product.name}`
                       }
                       className={`m-2 flex-row rounded-lg border-[1.5px] bg-ctp-base ${index === 0
                           ? "border-ctp-yellow"
@@ -617,6 +622,11 @@ export default function Reports() {
                           className="text-xs font-inter-medium text-ctp-subtext0"
                         >
                           {product.category}
+                          {product.archived
+                            ? " · Archived"
+                            : product.deleted
+                              ? " · Removed"
+                              : ""}
                         </Text>
                       </View>
 

@@ -131,6 +131,17 @@ def create_inventory_receipt(
                 detail=f"Product ID {missing_ids[0]} does not exist.",
             )
 
+        archived = [product for product in products if product.archived_at is not None]
+
+        if archived:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"'{archived[0].name}' is archived. Restore it before "
+                    "receiving stock."
+                ),
+            )
+
         receipt = InventoryReceipt(
             supplier_name=receipt_data.supplier_name,
             reference_number=receipt_data.reference_number,
@@ -252,8 +263,13 @@ def get_inventory_valuation(
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
+    # Active inventory only. Archived products keep their stock, but it is
+    # neither for sale nor counted here; stockout estimates for them are
+    # skipped below because they are absent from product_by_id.
     products = db.scalars(
-        select(Product).order_by(Product.name.asc(), Product.id.asc())
+        select(Product)
+        .where(Product.archived_at.is_(None))
+        .order_by(Product.name.asc(), Product.id.asc())
     ).all()
 
     total_units = 0

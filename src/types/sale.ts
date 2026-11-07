@@ -171,11 +171,16 @@ export type CategorySalesSeriesPoint = {
 };
 
 export type TopProductSales = {
+  /** null for sales of products deleted before archiving existed. */
   product_id: number | null;
+  sku: string | null;
   name: string;
   category: string;
   units_sold: number;
   revenue: number;
+  archived: boolean;
+  /** The product no longer exists; only its sales history remains. */
+  deleted: boolean;
 };
 
 export type ProductSalesReport = {
@@ -187,4 +192,8 @@ export type ProductSalesReport = {
   categories: CategorySales[];
   category_series: CategorySalesSeriesPoint[];
   top_products: TopProductSales[];
+  /** Products matching the filters, before pagination. */
+  total_products: number;
+  offset: number;
+  limit: number;
 };

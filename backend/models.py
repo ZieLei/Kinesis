@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -33,6 +34,11 @@ class Product(Base):
             "average_cost IS NULL OR average_cost >= 0",
             name="ck_products_average_cost_nonnegative",
         ),
+        Index(
+            "ix_products_active",
+            "id",
+            postgresql_where=text("archived_at IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -48,6 +54,13 @@ class Product(Base):
     # NULL means the existing inventory has not been costed yet.
     average_cost: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 4),
+        nullable=True,
+    )
+
+    # NULL = active. Archived products keep their stock and history but are
+    # hidden from active inventory and cannot be sold.
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -303,7 +316,7 @@ class SaleItem(Base):
     )
 
     product_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id", ondelete="SET NULL"),
+        ForeignKey("products.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
@@ -478,7 +491,7 @@ class InventoryReceiptItem(Base):
     )
 
     product_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id", ondelete="SET NULL"),
+        ForeignKey("products.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
@@ -508,7 +521,7 @@ class StockoutPeriod(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     product_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id", ondelete="SET NULL"),
+        ForeignKey("products.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )

@@ -55,10 +55,21 @@ export function fetchSalesReport(
   );
 }
 
+export type ProductSalesReportOptions = {
+  offset?: number;
+  search?: string;
+  categories?: string[];
+  minUnits?: number;
+  maxUnits?: number;
+  /** Also list active products with no sales in the period. */
+  includeUnsold?: boolean;
+};
+
 export function fetchProductSalesReport(
   limit = 5,
   signal?: AbortSignal,
   period?: ReportPeriod,
+  options: ProductSalesReportOptions = {},
 ): Promise<ProductSalesReport> {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -66,6 +77,30 @@ export function fetchProductSalesReport(
 
   if (period) {
     params.set("period", period);
+  }
+
+  if (options.offset) {
+    params.set("offset", String(options.offset));
+  }
+
+  if (options.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+
+  for (const category of options.categories ?? []) {
+    params.append("category", category);
+  }
+
+  if (options.minUnits !== undefined) {
+    params.set("min_units", String(options.minUnits));
+  }
+
+  if (options.maxUnits !== undefined) {
+    params.set("max_units", String(options.maxUnits));
+  }
+
+  if (options.includeUnsold) {
+    params.set("include_unsold", "true");
   }
 
   return apiRequest<ProductSalesReport>(

@@ -156,7 +156,10 @@ export default function Stock() {
   const confirmDeleteProduct = (product: Product) => {
     Alert.alert(
       "Delete product?",
-      `This will permanently delete "${product.name}" from the inventory.`,
+      `"${product.name}" will be removed from the inventory.\n\n` +
+        "If it has sales or stock records, it will be archived instead of " +
+        "permanently deleted: its sales history and stock are kept, and an " +
+        "administrator can restore it. Otherwise it is permanently deleted.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -166,15 +169,17 @@ export default function Stock() {
             setDeletingId(product.id);
 
             try {
-              await removeProduct(product.id);
+              const { archived } = await removeProduct(product.id);
 
               setEditingItem((current) =>
                 current?.id === product.id ? null : current,
               );
 
               Alert.alert(
-                "Product deleted",
-                `${product.name} was deleted.`,
+                archived ? "Product archived" : "Product deleted",
+                archived
+                  ? `${product.name} has sales or stock records, so it was archived. Its history is kept and an administrator can restore it.`
+                  : `${product.name} was permanently deleted.`,
               );
             } catch (error) {
               Alert.alert(

@@ -342,15 +342,24 @@ def get_operations_overview(
 
     low_stock_threshold = _low_stock_threshold(db)
 
-    total_products = db.scalar(select(func.count(Product.id))) or 0
+    # Archived products keep their stock but are not active inventory.
+    active_product = Product.archived_at.is_(None)
+
+    total_products = (
+        db.scalar(select(func.count(Product.id)).where(active_product)) or 0
+    )
 
     out_of_stock_count = (
-        db.scalar(select(func.count(Product.id)).where(Product.stock <= 0)) or 0
+        db.scalar(
+            select(func.count(Product.id)).where(active_product, Product.stock <= 0)
+        )
+        or 0
     )
 
     low_stock_count = (
         db.scalar(
             select(func.count(Product.id)).where(
+                active_product,
                 Product.stock > 0,
                 Product.stock <= low_stock_threshold,
             )
@@ -360,7 +369,7 @@ def get_operations_overview(
 
     low_stock_products = db.scalars(
         select(Product)
-        .where(Product.stock <= low_stock_threshold)
+        .where(active_product, Product.stock <= low_stock_threshold)
         .order_by(Product.stock.asc(), Product.name.asc())
         .limit(10)
     ).all()

@@ -20,7 +20,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import Date as SQLDate, cast, func, select
+from sqlalchemy import Date as SQLDate, String, case, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
@@ -939,6 +939,22 @@ def create_sale(
                 detail="This transaction code has already been used.",
             )
 
+        # Checked under the row locks and after the idempotent replay above,
+        # so a retried sale that already completed is still returned even if
+        # the product was archived in between.
+        archived_products = [
+            product for product in locked_products if product.archived_at is not None
+        ]
+
+        if archived_products:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"'{archived_products[0].name}' is archived and can no "
+                    "longer be sold."
+                ),
+            )
+
         # --------------------------------------------------
         # Duplicate GCash reference protection
         # --------------------------------------------------
@@ -1803,6 +1819,13 @@ def get_product_report(
         default=None,
         alias="date",
     ),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, max_length=150),
+    # Not named `category`: the function body reuses that name in a loop.
+    category_filter: list[str] | None = Query(default=None, alias="category"),
+    min_units: int | None = Query(default=None, ge=0),
+    max_units: int | None = Query(default=None, ge=0),
+    include_unsold: bool = Query(default=False),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
@@ -1891,31 +1914,28 @@ def get_product_report(
         else []
     )
 
-    product_rows = db.execute(
-        select(
-            SaleItem.product_id,
-            SaleItem.product_name,
-            SaleItem.category,
-            func.sum(SaleItem.quantity).label("units_sold"),
-            func.sum(SaleItem.line_total).label("revenue"),
+    ranked_products = product_sales_rows(db, conditions, include_unsold)
+
+    search_term = (search or "").strip().casefold()
+    selected_categories = {
+        normalize_category(value).casefold() for value in (category_filter or [])
+    }
+
+    filtered_products = [
+        row
+        for row in ranked_products
+        if (
+            not search_term
+            or search_term in row["name"].casefold()
+            or search_term in (row["sku"] or "").casefold()
         )
-        .join(
-            Sale,
-            Sale.id == SaleItem.sale_id,
+        and (
+            not selected_categories
+            or row["category"].casefold() in selected_categories
         )
-        .where(*conditions)
-        .group_by(
-            SaleItem.product_id,
-            SaleItem.product_name,
-            SaleItem.category,
-        )
-        .order_by(
-            func.sum(SaleItem.quantity).desc(),
-            func.sum(SaleItem.line_total).desc(),
-            SaleItem.product_name.asc(),
-        )
-        .limit(limit)
-    ).all()
+        and (min_units is None or row["units_sold"] >= min_units)
+        and (max_units is None or row["units_sold"] <= max_units)
+    ]
 
     return {
         "period": period,
@@ -1925,14 +1945,154 @@ def get_product_report(
         "period_end_exclusive": (current_end.isoformat() if current_end else None),
         "categories": categories,
         "category_series": category_series,
-        "top_products": [
-            {
-                "product_id": row.product_id,
-                "name": row.product_name,
-                "category": normalize_category(row.category),
-                "units_sold": int(row.units_sold or 0),
-                "revenue": float(row.revenue or ZERO_MONEY),
-            }
-            for row in product_rows
-        ],
+        "top_products": filtered_products[offset : offset + limit],
+        "total_products": len(filtered_products),
+        "offset": offset,
+        "limit": limit,
     }
+
+
+def product_group_key():
+    """
+    Identity of a product in sales history.
+
+    Lines linked to a product group by product ID, so renames and
+    recategorization never split a product. Lines whose product was
+    hard-deleted before archiving existed (product_id NULL) group by their
+    saved SKU, or by their saved name when they have no SKU.
+    """
+
+    saved_sku = func.nullif(func.btrim(SaleItem.sku), "")
+
+    return case(
+        (
+            SaleItem.product_id.is_not(None),
+            literal("p:") + cast(SaleItem.product_id, String),
+        ),
+        (saved_sku.is_not(None), literal("s:") + saved_sku),
+        else_=literal("n:") + func.lower(func.btrim(SaleItem.product_name)),
+    )
+
+
+def product_sales_rows(
+    db: Session,
+    conditions: list,
+    include_unsold: bool,
+) -> list[dict]:
+    """
+    Completed product sales per product, ranked by units then revenue.
+
+    Totals come only from sale lines (never products.how_much_sold), so
+    archived and previously deleted products keep their history. Sale
+    lines are read, never modified.
+    """
+
+    group_key = product_group_key().label("group_key")
+
+    totals = db.execute(
+        select(
+            group_key,
+            func.max(SaleItem.product_id).label("product_id"),
+            func.sum(SaleItem.quantity).label("units_sold"),
+            func.sum(SaleItem.line_total).label("revenue"),
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(*conditions)
+        .group_by(group_key)
+    ).all()
+
+    # Most recent saved name/SKU/category per group, used for products that
+    # no longer exist.
+    recency = (
+        func.row_number()
+        .over(
+            partition_by=product_group_key(),
+            order_by=(Sale.created_at.desc(), SaleItem.id.desc()),
+        )
+        .label("recency")
+    )
+
+    latest = (
+        select(
+            product_group_key().label("group_key"),
+            SaleItem.product_name,
+            SaleItem.sku,
+            SaleItem.category,
+            recency,
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(*conditions)
+        .subquery()
+    )
+
+    snapshots = {
+        row.group_key: row
+        for row in db.execute(select(latest).where(latest.c.recency == 1))
+    }
+
+    product_ids = [row.product_id for row in totals if row.product_id is not None]
+
+    products = {
+        product.id: product
+        for product in (
+            db.scalars(select(Product).where(Product.id.in_(product_ids)))
+            if product_ids
+            else []
+        )
+    }
+
+    rows = []
+
+    for total in totals:
+        product = products.get(total.product_id)
+        snapshot = snapshots[total.group_key]
+
+        rows.append(
+            {
+                "product_id": total.product_id,
+                "sku": product.sku if product else snapshot.sku,
+                "name": product.name if product else snapshot.product_name,
+                "category": normalize_category(
+                    product.category if product else snapshot.category
+                ),
+                "units_sold": int(total.units_sold or 0),
+                "revenue": float(total.revenue or ZERO_MONEY),
+                "archived": product is not None and product.archived_at is not None,
+                # The product row no longer exists; only its sales remain.
+                "deleted": product is None,
+            }
+        )
+
+    if include_unsold:
+        unsold_statement = select(Product).where(Product.archived_at.is_(None))
+
+        if product_ids:
+            unsold_statement = unsold_statement.where(Product.id.not_in(product_ids))
+
+        unsold = db.scalars(unsold_statement)
+
+        rows.extend(
+            {
+                "product_id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "category": normalize_category(product.category),
+                "units_sold": 0,
+                "revenue": 0.0,
+                "archived": False,
+                "deleted": False,
+            }
+            for product in unsold
+        )
+
+    rows.sort(
+        key=lambda row: (
+            -row["units_sold"],
+            -row["revenue"],
+            row["name"].casefold(),
+            row["product_id"] or 0,
+            row["sku"] or "",
+        )
+    )
+
+    return rows
