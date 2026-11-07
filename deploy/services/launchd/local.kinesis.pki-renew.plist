@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Daily certificate renewal check (no-op unless due). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.kinesis.pki-renew</string>
+  <key>UserName</key><string>_kinesisproxy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Library/Application Support/Kinesis/venv/bin/python</string>
+    <string>/Library/Application Support/Kinesis/app/deploy/pki/kinesis_pki.py</string>
+    <string>--pki-dir</string><string>/Library/Application Support/Kinesis/pki</string>
+    <string>renew</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Library/Application Support/Kinesis/logs/pki-renew.log</string>
+</dict>
+</plist>

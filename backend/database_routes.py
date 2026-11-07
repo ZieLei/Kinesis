@@ -4,7 +4,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -27,6 +26,15 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+
+from config_paths import (
+    ENV_FILE,
+    create_private_file,
+    data_root,
+    path_settings,
+    postgres_tool,
+    restrict_to_owner,
+)
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import inspect, text
@@ -103,7 +111,7 @@ class DatabaseAdminSettings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         env_prefix="KINESIS_DATABASE_",
         extra="ignore",
@@ -128,9 +136,17 @@ def backup_directory() -> Path:
         path = Path(configured).expanduser()
 
         if not path.is_absolute():
-            path = Path(__file__).resolve().parent / path
+            path = data_root() / path
+    elif path_settings.data_dir:
+        path = data_root() / "backups"
+    elif os.name == "nt":
+        # Development default on Windows: the per-user application data folder.
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+        path = base / "Kinesis" / "backups"
     else:
-        # Keep private backups outside the Git repository by default.
+        # Development default on Linux/macOS (unchanged from earlier
+        # releases): outside the Git repository, in the user's home.
         path = Path.home() / ".local" / "share" / "kinesis" / "backups"
 
     return path.resolve()
@@ -143,16 +159,17 @@ def ensure_backup_directory() -> Path:
     if not directory.is_dir():
         raise RuntimeError("The configured backup location is not a directory.")
 
-    # Backups contain customer and transaction data.
-    directory.chmod(0o700)
+    # Backups contain customer and transaction data. On Windows the
+    # data directory's ACL provides the equivalent restriction.
+    restrict_to_owner(directory, directory=True)
 
     return directory
 
 
 def available_tools() -> dict[str, str | None]:
     return {
-        "pg_dump": shutil.which("pg_dump"),
-        "pg_restore": shutil.which("pg_restore"),
+        "pg_dump": postgres_tool("pg_dump"),
+        "pg_restore": postgres_tool("pg_restore"),
     }
 
 
@@ -210,7 +227,9 @@ def create_pgpass_file(directory: Path) -> Path:
     path = Path(filename)
 
     try:
-        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+        # os.fchmod does not exist on Windows before Python 3.13.
+        if os.name != "nt":
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
         with os.fdopen(fd, "w", encoding="utf-8") as file:
             file.write(line + "\n")
@@ -243,6 +262,8 @@ def run_postgres_command(
             stdout=stdout,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
             check=False,
         )
@@ -367,12 +388,7 @@ def create_backup_file(
     output_path = backup_output_path(backup_format, purpose)
 
     # Create the file with private permissions before pg_dump opens it.
-    fd = os.open(
-        output_path,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-        0o600,
-    )
-    os.close(fd)
+    create_private_file(output_path)
 
     try:
         pg_format = "custom" if backup_format == "custom" else "plain"
@@ -408,7 +424,7 @@ def create_backup_file(
         if not output_path.is_file() or output_path.stat().st_size == 0:
             raise RuntimeError("PostgreSQL produced an empty or missing backup file.")
 
-        output_path.chmod(0o600)
+        restrict_to_owner(output_path)
         cleanup_expired_backups()
 
         return output_path
@@ -996,6 +1012,8 @@ async def restore_database(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=30,
                 check=False,
             )

@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -37,6 +36,7 @@ from settings_realtime import (
     broadcast_settings_updated,
     router as settings_realtime_router,
 )
+from config_paths import path_settings, resolve_data_path
 from terminal_routes import require_admin_token, require_terminal
 
 
@@ -46,9 +46,10 @@ router = APIRouter(tags=["Settings"])
 
 MAX_GCASH_QR_SIZE = 5 * 1024 * 1024
 
-GCASH_QR_DIRECTORY = Path(
-    os.getenv("KINESIS_GCASH_QR_DIRECTORY", "uploads/gcash")
-).resolve()
+GCASH_QR_DIRECTORY = resolve_data_path(
+    path_settings.gcash_qr_directory,
+    "uploads/gcash",
+)
 
 GCASH_QR_FORMATS = {
     b"\xff\xd8\xff": (".jpg", "image/jpeg"),

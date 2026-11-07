@@ -1,3 +1,4 @@
+
 import { apiRequest } from "@/lib/api";
 
 import type {
@@ -49,7 +50,7 @@ export function fetchSalesReport(
   signal?: AbortSignal,
 ): Promise<SalesReportResponse> {
   return apiRequest<SalesReportResponse>(
-    `/api/reports/sales?period=${period}`,
+    `/api/reports/sales?period=${encodeURIComponent(period)}`,
     { signal },
   );
 }

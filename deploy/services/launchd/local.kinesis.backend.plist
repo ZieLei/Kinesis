@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Kinesis backend (macOS). Install as a system daemon so it starts at boot
+  without anyone logged in:
+    sudo cp local.kinesis.*.plist /Library/LaunchDaemons/
+    sudo launchctl bootstrap system /Library/LaunchDaemons/local.kinesis.backend.plist
+  launchd stops the process with SIGTERM; uvicorn shuts down gracefully.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.kinesis.backend</string>
+  <key>UserName</key><string>_kinesis</string>
+  <key>WorkingDirectory</key><string>/Library/Application Support/Kinesis/app/backend</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Library/Application Support/Kinesis/venv/bin/uvicorn</string>
+    <string>main:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8000</string>
+    <string>--workers</string><string>1</string>
+    <string>--proxy-headers</string>
+    <string>--forwarded-allow-ips</string><string>127.0.0.1</string>
+    <string>--no-server-header</string>
+    <string>--timeout-graceful-shutdown</string><string>20</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KINESIS_ENV_FILE</key>
+    <string>/Library/Application Support/Kinesis/config/kinesis.env</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>ExitTimeOut</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Library/Application Support/Kinesis/logs/backend.log</string>
+  <key>StandardErrorPath</key><string>/Library/Application Support/Kinesis/logs/backend.log</string>
+</dict>
+</plist>

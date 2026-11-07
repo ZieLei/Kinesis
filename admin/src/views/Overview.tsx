@@ -1,24 +1,4 @@
-import {
-  Activity,
-  AlertTriangle,
-  Banknote,
-  BarChart3,
-  Boxes,
-  CheckCircle2,
-  Clock3,
-  CreditCard,
-  Database,
-  Monitor,
-  Package,
-  RefreshCw,
-  Server,
-  ShoppingCart,
-  Smartphone,
-  Users,
-  Wifi,
-  WifiOff,
-  XCircle,
-} from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 
 import type { ReactNode } from "react";
 
@@ -26,6 +6,17 @@ import { API_BASE_URL } from "../lib/api";
 import { useAdminOverview } from "../hooks/useAdminOverview";
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+
+import Section, { Badge } from "../components/ui/Section";
+import PageHeader from "../components/ui/PageHeader";
+import Notice from "../components/ui/Notice";
+import StatusDot from "../components/ui/StatusDot";
+import StatList from "../components/ui/StatList";
+import {
+  buttonSecondary,
+  selectClass,
+  tableHead,
+} from "../components/ui/styles";
 
 import type {
   ActivityEventRecord,
@@ -63,7 +54,7 @@ function VirtualizedActivityFeed({
   const virtualizer = useVirtualizer({
     count: activities.length,
     getScrollElement: () => scrollElementRef.current,
-    estimateSize: () => 112,
+    estimateSize: () => 64,
     overscan: 4,
     getItemKey: (index) => activities[index]?.id ?? index,
   });
@@ -86,7 +77,7 @@ function VirtualizedActivityFeed({
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
               className={`absolute left-0 top-0 w-full ${virtualItem.index < activities.length - 1
-                ? "border-b border-ctp-surface1"
+                ? "border-b border-ctp-surface0"
                 : ""
                 }`}
               style={{
@@ -201,37 +192,15 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section
-      className={[
-        "min-w-0 overflow-hidden rounded-lg",
-        "border border-ctp-surface1 bg-ctp-mantle",
-        className,
-      ].join(" ")}
+    <Section
+      title={title}
+      description={description}
+      actions={action}
+      className={className}
+      bodyClassName="border-t border-ctp-surface0 pt-3"
     >
-      <div className="flex items-center justify-between gap-3 border-b border-ctp-surface1 px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-ctp-text">
-            {title}
-          </h2>
-
-          {description && (
-            <p className="mt-0.5 text-xs text-ctp-subtext0">
-              {description}
-            </p>
-          )}
-        </div>
-
-        {action && (
-          <div className="shrink-0">
-            {action}
-          </div>
-        )}
-      </div>
-
-      <div className="p-4">
-        {children}
-      </div>
-    </section>
+      {children}
+    </Section>
   );
 }
 
@@ -242,7 +211,7 @@ function SectionLabel({
   children: ReactNode;
 }) {
   return (
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-ctp-subtext0">
+    <h3 className="text-xs font-medium text-ctp-subtext1">
       {children}
     </h3>
   );
@@ -254,11 +223,7 @@ function SectionCount({
 }: {
   value: number;
 }) {
-  return (
-    <span className="rounded-md bg-ctp-surface0 px-2 py-1 text-xs tabular-nums text-ctp-subtext1">
-      {formatNumber(value)}
-    </span>
-  );
+  return <Badge>{formatNumber(value)}</Badge>;
 }
 
 
@@ -268,34 +233,27 @@ function ErrorMessage({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-md border border-ctp-red/30 bg-ctp-red/5 px-3 py-2 text-xs text-ctp-red">
+    <Notice tone="danger" role="alert">
       {children}
-    </div>
+    </Notice>
   );
 }
 
 
 function EmptyState({
-  icon: Icon,
   title,
   description,
 }: {
-  icon: typeof Activity;
   title: string;
   description: string;
 }) {
   return (
-    <div className="flex min-h-32 flex-col items-center justify-center px-4 py-6 text-center">
-      <Icon
-        size={21}
-        className="text-ctp-overlay1"
-      />
-
-      <p className="mt-2 text-sm font-medium text-ctp-subtext1">
+    <div className="py-6">
+      <p className="text-sm font-medium text-ctp-subtext1">
         {title}
       </p>
 
-      <p className="mt-1 max-w-xs text-xs leading-relaxed text-ctp-subtext0">
+      <p className="mt-1 max-w-sm text-xs leading-relaxed text-ctp-subtext0">
         {description}
       </p>
     </div>
@@ -311,16 +269,9 @@ function StatusIndicator({
   label: string;
 }) {
   return (
-    <span className="inline-flex shrink-0 items-center justify-center gap-1.5 text-xs text-ctp-subtext1">
-      <span
-        className={[
-          "size-1.5 rounded-full",
-          active ? "bg-ctp-green" : "bg-ctp-red",
-        ].join(" ")}
-      />
-
+    <StatusDot tone={active ? "success" : "danger"} muted>
       {label}
-    </span>
+    </StatusDot>
   );
 }
 
@@ -328,7 +279,7 @@ function StatusIndicator({
 function ProgressBar({
   value,
   maximum,
-  color = "bg-ctp-blue",
+  color = "bg-ctp-mauve",
 }: {
   value: number;
   maximum: number;
@@ -339,7 +290,7 @@ function ProgressBar({
     : 0;
 
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-ctp-surface0">
+    <div className="h-1 overflow-hidden rounded-full bg-ctp-surface0">
       <div
         className={[
           "h-full rounded-full transition-all duration-300",
@@ -360,14 +311,12 @@ function ProgressBar({
 
 
 function SystemStatusItem({
-  icon: Icon,
   label,
   detail,
   active,
   status,
   value,
 }: {
-  icon: typeof Server;
   label: string;
   detail: string;
   active?: boolean;
@@ -375,35 +324,30 @@ function SystemStatusItem({
   value?: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col items-center justify-center gap-2 px-3 py-4 text-center">
-      <div className="flex size-8 items-center justify-center rounded-md bg-ctp-surface0">
-        <Icon
-          size={16}
-          className="text-ctp-subtext0"
-        />
-      </div>
-
+    <div className="flex min-w-0 items-start justify-between gap-3 py-3 xl:px-4 xl:first:pl-0 xl:last:pr-0">
       <div className="min-w-0">
-        <p className="text-xs font-semibold text-ctp-text">
+        <p className="text-sm font-medium text-ctp-text">
           {label}
         </p>
 
-        <p className="mt-0.5 text-[11px] text-ctp-subtext0">
+        <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
           {detail}
         </p>
       </div>
 
       {value !== undefined && (
-        <p className="text-lg font-semibold tabular-nums text-ctp-text">
+        <p className="shrink-0 text-sm font-semibold tabular-nums text-ctp-text">
           {value}
         </p>
       )}
 
       {status !== undefined && active !== undefined && (
-        <StatusIndicator
-          active={active}
-          label={status}
-        />
+        <StatusDot
+          tone={active ? "success" : "danger"}
+          className="mt-0.5 shrink-0"
+        >
+          {status}
+        </StatusDot>
       )}
     </div>
   );
@@ -425,54 +369,36 @@ function TerminalStatus({
   const isMaintenance = terminal.maintenance_mode;
 
   let statusLabel = "Disconnected";
-  let statusColor = "text-ctp-red";
-  let StatusIcon = WifiOff;
+  let tone: "danger" | "neutral" | "warning" | "success" = "danger";
 
   if (isDisabled) {
     statusLabel = "Disabled";
-    statusColor = "text-ctp-overlay1";
-    StatusIcon = XCircle;
+    tone = "neutral";
   } else if (isMaintenance) {
     statusLabel = "Maintenance";
-    statusColor = "text-ctp-yellow";
-    StatusIcon = AlertTriangle;
+    tone = "warning";
   } else if (isConnected) {
     statusLabel = "Connected";
-    statusColor = "text-ctp-green";
-    StatusIcon = Wifi;
+    tone = "success";
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-ctp-surface0 text-ctp-subtext1">
-          <Monitor size={15} />
-        </div>
+    <div className="flex items-start justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-ctp-text">
+          {terminal.name}
+        </p>
 
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-ctp-text">
-            {terminal.name}
-          </p>
-
-          <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
-            {terminal.ip_address || terminal.device_id || "No device information"}
-          </p>
-
-          <p className="mt-1 text-[11px] text-ctp-overlay1">
-            Last heartbeat: {formatTimeAgo(terminal.last_seen_at)}
-          </p>
-        </div>
+        <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
+          {terminal.ip_address || terminal.device_id || "No device information"}
+          {" · "}
+          Last heartbeat {formatTimeAgo(terminal.last_seen_at)}
+        </p>
       </div>
 
-      <span
-        className={[
-          "inline-flex shrink-0 items-center gap-1.5 text-xs",
-          statusColor,
-        ].join(" ")}
-      >
-        <StatusIcon size={13} />
+      <StatusDot tone={tone} className="mt-0.5 shrink-0">
         {statusLabel}
-      </span>
+      </StatusDot>
     </div>
   );
 }
@@ -483,53 +409,28 @@ function TerminalStatus({
 // --------------------------------------------------
 
 
-function getActivityIcon(eventType: string) {
-  if (eventType.startsWith("sale.")) {
-    return ShoppingCart;
-  }
-
-  if (eventType.startsWith("inventory.")) {
-    return Package;
-  }
-
-  if (eventType.startsWith("cashier.")) {
-    return Users;
-  }
-
-  if (eventType.startsWith("terminal.")) {
-    return Smartphone;
-  }
-
-  if (eventType.startsWith("service.")) {
-    return Boxes;
-  }
-
-  return Activity;
-}
-
-
 function getActivityAccent(event: ActivityEventRecord) {
   if (event.severity === "error") {
-    return "text-ctp-red bg-ctp-red/10";
+    return "bg-ctp-red";
   }
 
   if (event.severity === "warning") {
-    return "text-ctp-yellow bg-ctp-yellow/10";
+    return "bg-ctp-yellow";
   }
 
   if (event.event_type.startsWith("sale.")) {
-    return "text-ctp-green bg-ctp-green/10";
+    return "bg-ctp-green";
   }
 
   if (event.event_type.startsWith("terminal.")) {
-    return "text-ctp-blue bg-ctp-blue/10";
+    return "bg-ctp-blue";
   }
 
   if (event.event_type.startsWith("cashier.")) {
-    return "text-ctp-mauve bg-ctp-mauve/10";
+    return "bg-ctp-mauve";
   }
 
-  return "text-ctp-teal bg-ctp-teal/10";
+  return "bg-ctp-overlay1";
 }
 
 
@@ -594,32 +495,30 @@ function ActivityRow({
 }: {
   event: ActivityEventRecord;
 }) {
-  const Icon = getActivityIcon(event.event_type);
   const accent = getActivityAccent(event);
 
   return (
-    <div className="flex items-start gap-3 py-4">
-      <div
+    <div className="flex items-start gap-3 py-2.5">
+      <span
+        aria-hidden="true"
         className={[
-          "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md",
+          "mt-[7px] size-1.5 shrink-0 rounded-full",
           accent,
         ].join(" ")}
-      >
-        <Icon size={16} />
-      </div>
+      />
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-ctp-text">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <p className="min-w-0 flex-1 text-sm leading-5 text-ctp-text">
             {event.summary}
           </p>
 
-          <time className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-ctp-overlay1">
+          <time className="shrink-0 whitespace-nowrap text-xs tabular-nums text-ctp-subtext0">
             {formatTimeAgo(event.created_at)}
           </time>
         </div>
 
-        <p className="mt-1 break-words text-xs leading-relaxed text-ctp-subtext0">
+        <p className="mt-0.5 break-words text-xs leading-relaxed text-ctp-subtext0">
           {getActivityDetail(event)}
         </p>
       </div>
@@ -641,7 +540,7 @@ function StockLevel({
 }) {
   if (stock <= 0) {
     return (
-      <span className="rounded-md bg-ctp-red/10 px-2 py-1 text-xs font-medium text-ctp-red">
+      <span className="shrink-0 text-xs font-medium text-ctp-red">
         Out of stock
       </span>
     );
@@ -649,14 +548,14 @@ function StockLevel({
 
   if (stock <= threshold) {
     return (
-      <span className="rounded-md bg-ctp-yellow/10 px-2 py-1 text-xs font-medium text-ctp-yellow">
+      <span className="shrink-0 text-xs font-medium tabular-nums text-ctp-yellow">
         {formatNumber(stock)} left
       </span>
     );
   }
 
   return (
-    <span className="text-xs tabular-nums text-ctp-subtext1">
+    <span className="shrink-0 text-xs tabular-nums text-ctp-subtext1">
       {formatNumber(stock)} in stock
     </span>
   );
@@ -685,7 +584,6 @@ function PaymentBreakdown({
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={CreditCard}
         title="No payments yet"
         description="Completed transactions in this period will appear here."
       />
@@ -693,7 +591,7 @@ function PaymentBreakdown({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {items.map((item) => {
         const percentage = total > 0
           ? (item.revenue / total) * 100
@@ -705,17 +603,10 @@ function PaymentBreakdown({
           <div key={item.payment_method}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                {isCash ? (
-                  <Banknote
-                    size={15}
-                    className="shrink-0 text-ctp-green"
-                  />
-                ) : (
-                  <CreditCard
-                    size={15}
-                    className="shrink-0 text-ctp-blue"
-                  />
-                )}
+                <span
+                  aria-hidden="true"
+                  className={`size-2 shrink-0 rounded-sm ${isCash ? "bg-ctp-green" : "bg-ctp-blue"}`}
+                />
 
                 <span className="truncate text-sm font-medium text-ctp-text">
                   {paymentLabel(item.payment_method)}
@@ -753,47 +644,6 @@ function PaymentBreakdown({
 
 
 // --------------------------------------------------
-// Sales performance
-// --------------------------------------------------
-
-
-function SalesPeriodSummary({
-  label,
-  revenue,
-  transactions,
-  emphasized = false,
-}: {
-  label: string;
-  revenue: number | undefined;
-  transactions: number | undefined;
-  emphasized?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs text-ctp-subtext0">
-        {label}
-      </p>
-
-      <p
-        className={[
-          "mt-1.5 truncate font-semibold tabular-nums",
-          emphasized
-            ? "text-base text-ctp-text"
-            : "text-sm text-ctp-text",
-        ].join(" ")}
-      >
-        {formatCurrency(revenue)}
-      </p>
-
-      <p className="mt-1 text-[11px] text-ctp-subtext0">
-        {formatNumber(transactions)} transactions
-      </p>
-    </div>
-  );
-}
-
-
-// --------------------------------------------------
 // Cashier performance
 // --------------------------------------------------
 
@@ -811,7 +661,6 @@ function CashierPerformance({
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={BarChart3}
         title="No cashier sales yet"
         description="Cashier sales totals will appear after completed transactions."
       />
@@ -939,169 +788,117 @@ export default function Overview() {
     paymentBreakdown.data?.payment_breakdown ?? [];
 
 
+  const salesPeriods = [
+    { label: "Today", report: dailyReport },
+    { label: "This week", report: weeklyReport },
+    { label: "This month", report: monthlyReport },
+    { label: "This year", report: yearlyReport },
+  ];
+
   return (
-    <div className="space-y-5 pb-8">
+    <div className="w-full min-w-0 space-y-10 pb-8 font-line-seed">
+      <div>
+        <PageHeader
+          title="Operations overview"
+          description="Monitor sales, staff activity, inventory, and connected terminals."
+          meta={
+            <>
+              <span className="truncate">API: {API_BASE_URL}</span>
+              <span aria-hidden="true" className="text-ctp-surface2">·</span>
+              <span>
+                {updatedAt
+                  ? `Updated ${formatDateTime(updatedAt.toISOString())}`
+                  : "Waiting for dashboard data"}
+              </span>
+              <span aria-hidden="true" className="text-ctp-surface2">·</span>
+              <span>Auto-refresh: 15 seconds</span>
+            </>
+          }
+          actions={
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={refreshing || loading}
+              className={buttonSecondary}
+            >
+              <RefreshCw
+                size={14}
+                aria-hidden="true"
+                className={refreshing ? "animate-spin" : ""}
+              />
 
-      {/* Header */}
+              {refreshing ? "Refreshing" : "Refresh"}
+            </button>
+          }
+        />
 
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Activity
-              size={18}
-              className="text-ctp-blue"
-            />
+        {/* Errors */}
 
-            <h1 className="text-xl font-semibold tracking-tight text-ctp-text">
-              Operations Overview
-            </h1>
+        {(operations.error || health.error) && (
+          <div className="space-y-2">
+            {operations.error && (
+              <ErrorMessage>
+                Operational data could not be refreshed: {operations.error}
+              </ErrorMessage>
+            )}
+
+            {health.error && (
+              <ErrorMessage>
+                API health information is unavailable: {health.error}
+              </ErrorMessage>
+            )}
           </div>
-
-          <p className="mt-1 text-sm text-ctp-subtext0">
-            Monitor sales, staff activity, inventory, and connected terminals.
-          </p>
-
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ctp-overlay1">
-            <span className="truncate">
-              API: {API_BASE_URL}
-            </span>
-
-            <span className="hidden text-ctp-surface2 sm:inline">
-              /
-            </span>
-
-            <span>
-              {updatedAt
-                ? `Updated ${formatDateTime(updatedAt.toISOString())}`
-                : "Waiting for dashboard data"}
-            </span>
-
-            <span className="hidden text-ctp-surface2 sm:inline">
-              /
-            </span>
-
-            <span>
-              Auto-refresh: 15 seconds
-            </span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={refreshing || loading}
-          className={[
-            "inline-flex shrink-0 items-center justify-center gap-2",
-            "rounded-md border border-ctp-surface1",
-            "bg-ctp-surface0 px-3 py-2",
-            "text-sm font-medium text-ctp-text transition-colors",
-            "hover:bg-ctp-surface1",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-          ].join(" ")}
-        >
-          <RefreshCw
-            size={14}
-            className={refreshing ? "animate-spin" : ""}
-          />
-
-          {refreshing ? "Refreshing" : "Refresh"}
-        </button>
-      </header>
-
-
-      {/* Errors */}
-
-      {operations.error && (
-        <ErrorMessage>
-          Operational data could not be refreshed: {operations.error}
-        </ErrorMessage>
-      )}
-
-      {health.error && (
-        <ErrorMessage>
-          API health information is unavailable: {health.error}
-        </ErrorMessage>
-      )}
+        )}
+      </div>
 
 
       {/* Sales snapshot */}
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-x-10 gap-y-10 xl:grid-cols-[1.4fr_1fr]">
 
-        <section className="min-w-0 rounded-lg border border-ctp-surface1 bg-ctp-mantle p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-ctp-subtext0">
-                Today's revenue
-              </p>
+        <Section
+          title="Today's sales"
+          description="Revenue from completed transactions today."
+          bodyClassName=""
+        >
+          <p className="break-all text-2xl font-semibold tabular-nums text-ctp-text">
+            {formatCurrency(salesToday?.revenue)}
+          </p>
 
-              <p className="mt-2 break-all text-3xl font-semibold tracking-tight tabular-nums text-ctp-text sm:text-4xl">
-                {formatCurrency(salesToday?.revenue)}
-              </p>
-
-              <p className="mt-1 text-xs text-ctp-subtext0">
-                Revenue from completed transactions today
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-md bg-ctp-green/10 px-2.5 py-1.5 text-xs font-medium text-ctp-green">
-              <Banknote size={14} />
-              Sales summary
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-4 border-t border-ctp-surface1 pt-4 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-ctp-subtext0">
-                Transactions
-              </p>
-
-              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
-                {formatNumber(salesToday?.transactions)}
-              </p>
-
-              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                Completed sales
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-ctp-subtext0">
-                Average transaction
-              </p>
-
-              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
-                {formatCurrency(salesToday?.average_transaction_value)}
-              </p>
-
-              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                Average sale value
-              </p>
-            </div>
-
-            <div className="col-span-2 border-t border-ctp-surface1 pt-3 sm:col-span-1 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
-              <p className="text-xs text-ctp-subtext0">
-                Active terminals
-              </p>
-
-              <p className="mt-1 text-lg font-semibold tabular-nums text-ctp-text">
-                {formatNumber(terminalSummary?.connected)}
-                <span className="ml-1 text-sm font-normal text-ctp-subtext0">
-                  / {formatNumber(terminalSummary?.enabled)}
-                </span>
-              </p>
-
-              <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                Connected and enabled
-              </p>
-            </div>
-          </div>
-        </section>
+          <StatList
+            className="mt-3"
+            items={[
+              {
+                label: "Transactions",
+                value: formatNumber(salesToday?.transactions),
+                hint: "Completed sales",
+              },
+              {
+                label: "Average transaction",
+                value: formatCurrency(salesToday?.average_transaction_value),
+                hint: "Average sale value",
+              },
+              {
+                label: "Active terminals",
+                value: (
+                  <>
+                    {formatNumber(terminalSummary?.connected)}
+                    <span className="ml-1 text-sm font-normal text-ctp-subtext0">
+                      / {formatNumber(terminalSummary?.enabled)}
+                    </span>
+                  </>
+                ),
+                hint: "Connected and enabled",
+              },
+            ]}
+          />
+        </Section>
 
 
-        <Panel
+        <Section
           title="Sales performance"
           description="Revenue across reporting periods."
+          bodyClassName=""
         >
           {dailyReport.error &&
             weeklyReport.error &&
@@ -1111,139 +908,119 @@ export default function Overview() {
               Sales reports could not be loaded.
             </ErrorMessage>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-              <SalesPeriodSummary
-                label="Today"
-                revenue={dailyReport.data?.current.sales}
-                transactions={dailyReport.data?.current.transactions}
-                emphasized
-              />
-
-              <SalesPeriodSummary
-                label="This week"
-                revenue={weeklyReport.data?.current.sales}
-                transactions={weeklyReport.data?.current.transactions}
-              />
-
-              <SalesPeriodSummary
-                label="This month"
-                revenue={monthlyReport.data?.current.sales}
-                transactions={monthlyReport.data?.current.transactions}
-              />
-
-              <SalesPeriodSummary
-                label="This year"
-                revenue={yearlyReport.data?.current.sales}
-                transactions={yearlyReport.data?.current.transactions}
-              />
-            </div>
+            <dl className="divide-y divide-ctp-surface0 border-y border-ctp-surface0">
+              {salesPeriods.map(({ label, report }) => (
+                <div
+                  key={label}
+                  className="flex items-baseline justify-between gap-4 py-2.5"
+                >
+                  <dt className="text-sm text-ctp-subtext1">{label}</dt>
+                  <dd className="text-right">
+                    <span className="text-sm font-semibold tabular-nums text-ctp-text">
+                      {formatCurrency(report.data?.current.sales)}
+                    </span>
+                    <span className="ml-2 text-xs tabular-nums text-ctp-subtext0">
+                      {formatNumber(report.data?.current.transactions)} transactions
+                    </span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
           )}
-        </Panel>
+        </Section>
       </div>
 
 
       {/* System status */}
 
-      <section className="overflow-hidden rounded-lg border border-ctp-surface1 bg-ctp-mantle">
-        <div className="grid grid-cols-2 divide-x divide-y divide-ctp-surface1 xl:grid-cols-4 xl:divide-y-0">
-          <SystemStatusItem
-            icon={Server}
-            label="Kinesis API"
-            detail="Backend service"
-            active={apiOnline}
-            status={apiOnline ? "Online" : "Unavailable"}
-          />
-
-          <SystemStatusItem
-            icon={Database}
-            label="PostgreSQL"
-            detail="Database connection"
-            active={databaseOnline}
-            status={databaseOnline ? "Online" : "Unavailable"}
-          />
-
-          <SystemStatusItem
-            icon={Monitor}
-            label="Terminal network"
-            detail={`${formatNumber(terminalSummary?.connected)} connected · ${formatNumber(terminalSummary?.disconnected)} disconnected`}
-            active={(terminalSummary?.disconnected ?? 0) === 0}
-            status={
-              (terminalSummary?.disconnected ?? 0) === 0
-                ? "Healthy"
-                : "Attention"
-            }
-          />
-
-          <SystemStatusItem
-            icon={Users}
-            label="Active cashiers"
-            detail="Valid cashier sessions"
-            value={formatNumber(activeCashiers.length)}
-          />
-        </div>
-      </section>
-
-
-      {/* Operational alerts */}
-
-      {hasOperationalIssues && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-ctp-yellow/30 bg-ctp-yellow/5 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <AlertTriangle
-              size={15}
-              className="shrink-0 text-ctp-yellow"
+      <div className="space-y-3">
+        <Section
+          title="System status"
+          bodyClassName=""
+        >
+          <div className="grid grid-cols-1 divide-y divide-ctp-surface0 border-y border-ctp-surface0 sm:grid-cols-2 sm:gap-x-8 xl:grid-cols-4 xl:gap-x-0 xl:divide-x xl:divide-y-0">
+            <SystemStatusItem
+              label="Kinesis API"
+              detail="Backend service"
+              active={apiOnline}
+              status={apiOnline ? "Online" : "Unavailable"}
             />
 
-            <span className="text-xs font-semibold text-ctp-text">
-              Attention required
-            </span>
+            <SystemStatusItem
+              label="PostgreSQL"
+              detail="Database connection"
+              active={databaseOnline}
+              status={databaseOnline ? "Online" : "Unavailable"}
+            />
+
+            <SystemStatusItem
+              label="Terminal network"
+              detail={`${formatNumber(terminalSummary?.connected)} connected · ${formatNumber(terminalSummary?.disconnected)} disconnected`}
+              active={(terminalSummary?.disconnected ?? 0) === 0}
+              status={
+                (terminalSummary?.disconnected ?? 0) === 0
+                  ? "Healthy"
+                  : "Attention"
+              }
+            />
+
+            <SystemStatusItem
+              label="Active cashiers"
+              detail="Valid cashier sessions"
+              value={formatNumber(activeCashiers.length)}
+            />
           </div>
+        </Section>
 
-          {outOfStock > 0 && (
-            <span className="text-xs text-ctp-red">
-              {formatNumber(outOfStock)} out of stock
-            </span>
-          )}
 
-          {lowStock > 0 && (
-            <span className="text-xs text-ctp-yellow">
-              {formatNumber(lowStock)} low-stock products
-            </span>
-          )}
+        {/* Operational alerts */}
 
-          {disconnectedTerminals > 0 && (
-            <span className="text-xs text-ctp-red">
-              {formatNumber(disconnectedTerminals)} disconnected terminals
+        {hasOperationalIssues && (
+          <Notice tone="warning" role="status" title="Attention required">
+            <span className="flex flex-wrap gap-x-4 gap-y-1">
+              {outOfStock > 0 && (
+                <span className="text-ctp-red">
+                  {formatNumber(outOfStock)} out of stock
+                </span>
+              )}
+
+              {lowStock > 0 && (
+                <span className="text-ctp-yellow">
+                  {formatNumber(lowStock)} low-stock products
+                </span>
+              )}
+
+              {disconnectedTerminals > 0 && (
+                <span className="text-ctp-red">
+                  {formatNumber(disconnectedTerminals)} disconnected terminals
+                </span>
+              )}
             </span>
-          )}
-        </div>
-      )}
+          </Notice>
+        )}
+      </div>
 
 
       {/* Live operations */}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.45fr_1fr]">
+      <div className="grid grid-cols-1 items-start gap-x-10 gap-y-10 xl:grid-cols-[1.45fr_1fr]">
 
         <Panel
           title="Live activity"
           description="Recent events recorded across the POS."
-          className="self-start"
           action={
-            <div className="flex items-center gap-1.5 text-xs text-ctp-green">
-              <span className="size-1.5 animate-pulse rounded-full bg-ctp-green" />
+            <StatusDot tone="success" pulse>
               Live updates
-            </div>
+            </StatusDot>
           }
         >
           {operations.error && activities.length === 0 ? (
             <EmptyState
-              icon={Activity}
               title="Activity unavailable"
               description="The activity feed could not be loaded."
             />
           ) : activities.length === 0 ? (
             <EmptyState
-              icon={Clock3}
               title="No recorded activity"
               description="New sales, stock changes, cashier sessions, and terminal actions will appear here."
             />
@@ -1256,7 +1033,6 @@ export default function Overview() {
         <Panel
           title="Terminal network"
           description="Connected devices and recent heartbeats."
-          className="self-start"
           action={
             <SectionCount
               value={terminals.length}
@@ -1265,12 +1041,11 @@ export default function Overview() {
         >
           {terminals.length === 0 ? (
             <EmptyState
-              icon={Monitor}
               title="No terminals found"
               description="Paired terminals will appear here."
             />
           ) : (
-            <div className="divide-y divide-ctp-surface1">
+            <div className="divide-y divide-ctp-surface0">
               {terminals.map((terminal) => (
                 <TerminalStatus
                   key={terminal.id}
@@ -1281,37 +1056,26 @@ export default function Overview() {
           )}
 
           {terminalSummary && (
-            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ctp-surface1 pt-4">
-              <div>
-                <p className="text-base font-semibold tabular-nums text-ctp-green">
+            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-ctp-surface0 pt-3 text-xs tabular-nums text-ctp-subtext0">
+              <span>
+                <span className="font-semibold text-ctp-green">
                   {formatNumber(terminalSummary.connected)}
-                </p>
-
-                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                  Connected
-                </p>
-              </div>
-
-              <div>
-                <p className="text-base font-semibold tabular-nums text-ctp-red">
+                </span>{" "}
+                connected
+              </span>
+              <span>
+                <span className="font-semibold text-ctp-red">
                   {formatNumber(terminalSummary.disconnected)}
-                </p>
-
-                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                  Disconnected
-                </p>
-              </div>
-
-              <div>
-                <p className="text-base font-semibold tabular-nums text-ctp-yellow">
+                </span>{" "}
+                disconnected
+              </span>
+              <span>
+                <span className="font-semibold text-ctp-yellow">
                   {formatNumber(terminalSummary.maintenance)}
-                </p>
-
-                <p className="mt-0.5 text-[11px] text-ctp-subtext0">
-                  Maintenance
-                </p>
-              </div>
-            </div>
+                </span>{" "}
+                maintenance
+              </span>
+            </p>
           )}
         </Panel>
       </div>
@@ -1319,7 +1083,7 @@ export default function Overview() {
 
       {/* Business operations */}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-x-10 gap-y-10 xl:grid-cols-3">
 
         <Panel
           title="Cashier operations"
@@ -1336,36 +1100,25 @@ export default function Overview() {
             </SectionLabel>
 
             {activeCashiers.length === 0 ? (
-              <div className="mt-2">
-                <EmptyState
-                  icon={Users}
-                  title="No active cashiers"
-                  description="Cashiers will appear here after signing in on a terminal."
-                />
-              </div>
+              <EmptyState
+                title="No active cashiers"
+                description="Cashiers will appear here after signing in on a terminal."
+              />
             ) : (
-              <div className="mt-3 divide-y divide-ctp-surface1">
+              <div className="mt-1 divide-y divide-ctp-surface0">
                 {activeCashiers.map((cashier) => (
                   <div
                     key={`${cashier.cashier_id}-${cashier.terminal_id}`}
-                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                    className="flex items-start justify-between gap-3 py-2.5"
                   >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-xs font-semibold text-ctp-mauve">
-                        {cashier.display_name
-                          .slice(0, 1)
-                          .toUpperCase()}
-                      </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ctp-text">
+                        {cashier.display_name}
+                      </p>
 
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-ctp-text">
-                          {cashier.display_name}
-                        </p>
-
-                        <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
-                          {cashier.terminal_name}
-                        </p>
-                      </div>
+                      <p className="mt-0.5 truncate text-xs text-ctp-subtext0">
+                        {cashier.terminal_name}
+                      </p>
                     </div>
 
                     <div className="shrink-0 text-right">
@@ -1378,7 +1131,7 @@ export default function Overview() {
                         }
                       />
 
-                      <p className="mt-1 text-[10px] text-ctp-overlay1">
+                      <p className="mt-0.5 text-xs text-ctp-subtext0">
                         {formatTimeAgo(cashier.session_started_at)}
                       </p>
                     </div>
@@ -1388,13 +1141,13 @@ export default function Overview() {
             )}
           </div>
 
-          <div className="mt-5 border-t border-ctp-surface1 pt-4">
+          <div className="mt-4 border-t border-ctp-surface0 pt-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <SectionLabel>
                 Today's performance
               </SectionLabel>
 
-              <span className="text-[11px] text-ctp-subtext0">
+              <span className="text-xs text-ctp-subtext0">
                 By revenue
               </span>
             </div>
@@ -1412,29 +1165,30 @@ export default function Overview() {
           title="Payment distribution"
           description="Completed sales grouped by payment method."
           action={
-            <select
-              value={paymentPeriod}
-              onChange={(event) => {
-                setPaymentPeriod(event.target.value as ReportPeriod);
-              }}
-              aria-label="Payment distribution period"
-              className={[
-                "rounded-md border border-ctp-surface1",
-                "bg-ctp-surface0 px-2 py-1.5",
-                "text-xs font-medium text-ctp-text",
-                "outline-none transition-colors",
-                "focus:border-ctp-blue",
-              ].join(" ")}
-            >
-              {paymentPeriodOptions.map((option) => (
-                <option
-                  key={option.value}
-                  value={option.value}
-                >
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                value={paymentPeriod}
+                onChange={(event) => {
+                  setPaymentPeriod(event.target.value as ReportPeriod);
+                }}
+                aria-label="Payment distribution period"
+                className={`${selectClass} !w-auto cursor-pointer !py-1 !text-xs`}
+              >
+                {paymentPeriodOptions.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={13}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ctp-subtext0"
+              />
+            </div>
           }
         >
           {paymentBreakdown.error ? (
@@ -1442,13 +1196,17 @@ export default function Overview() {
               Payment breakdown could not be loaded: {paymentBreakdown.error}
             </ErrorMessage>
           ) : !paymentBreakdown.data ? (
-            <div className="flex min-h-32 items-center justify-center gap-2 text-xs text-ctp-subtext0">
+            <p
+              role="status"
+              className="flex items-center gap-2 py-6 text-xs text-ctp-subtext0"
+            >
               <RefreshCw
                 size={14}
+                aria-hidden="true"
                 className="animate-spin"
               />
-              Loading payment data...
-            </div>
+              Loading payment data…
+            </p>
           ) : (
             <PaymentBreakdown
               items={paymentItems}
@@ -1463,19 +1221,15 @@ export default function Overview() {
           title="Inventory and products"
           description="Stock availability and best-selling items."
           action={
-            <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-xs tabular-nums">
               <span className="text-ctp-yellow">
                 {formatNumber(lowStock)} low
               </span>
-
-              <span className="text-ctp-overlay1">
-                /
-              </span>
-
+              <span className="text-ctp-overlay1"> · </span>
               <span className="text-ctp-red">
                 {formatNumber(outOfStock)} out
               </span>
-            </div>
+            </span>
           }
         >
           <div>
@@ -1484,25 +1238,22 @@ export default function Overview() {
                 Stock alerts
               </SectionLabel>
 
-              <span className="text-[10px] text-ctp-subtext0">
+              <span className="text-xs text-ctp-subtext0">
                 Threshold: {formatNumber(lowStockThreshold)}
               </span>
             </div>
 
             {!inventory || inventory.low_stock_products.length === 0 ? (
-              <div className="mt-2">
-                <EmptyState
-                  icon={Package}
-                  title="Inventory looks good"
-                  description="No products are currently below the configured stock threshold."
-                />
-              </div>
+              <EmptyState
+                title="Inventory looks good"
+                description="No products are currently below the configured stock threshold."
+              />
             ) : (
-              <div className="mt-3 divide-y divide-ctp-surface1">
+              <div className="mt-1 divide-y divide-ctp-surface0">
                 {inventory.low_stock_products.map((product) => (
                   <div
                     key={product.id}
-                    className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                    className="flex items-center justify-between gap-3 py-2.5"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ctp-text">
@@ -1524,7 +1275,7 @@ export default function Overview() {
             )}
           </div>
 
-          <div className="mt-5 border-t border-ctp-surface1 pt-4">
+          <div className="mt-4 border-t border-ctp-surface0 pt-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <SectionLabel>
                 Top-selling products
@@ -1541,12 +1292,11 @@ export default function Overview() {
               </ErrorMessage>
             ) : topProducts.length === 0 ? (
               <EmptyState
-                icon={Package}
                 title="No product sales yet"
                 description="Product rankings will appear after completed sales."
               />
             ) : (
-              <div className="space-y-3">
+              <ol className="space-y-3">
                 {topProducts.map((product, index) => {
                   const maximumUnits = Math.max(
                     ...topProducts.map((item) => item.units_sold),
@@ -1554,42 +1304,42 @@ export default function Overview() {
                   );
 
                   return (
-                    <div
+                    <li
                       key={`${product.product_id ?? product.name}-${index}`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="flex size-6 shrink-0 items-center justify-center rounded bg-ctp-surface0 text-[11px] font-semibold tabular-nums text-ctp-subtext1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="flex min-w-0 items-baseline gap-2">
+                          <span className="w-4 shrink-0 text-right text-xs tabular-nums text-ctp-subtext0">
                             {index + 1}
                           </span>
 
                           <div className="min-w-0">
-                            <p className="truncate text-xs font-medium text-ctp-text">
+                            <p className="truncate text-sm text-ctp-text">
                               {product.name}
                             </p>
 
-                            <p className="mt-0.5 text-[10px] text-ctp-subtext0">
+                            <p className="mt-0.5 text-xs text-ctp-subtext0">
                               {formatNumber(product.units_sold)} units sold
                             </p>
                           </div>
                         </div>
 
-                        <p className="shrink-0 text-xs font-medium tabular-nums text-ctp-text">
+                        <p className="shrink-0 text-sm font-medium tabular-nums text-ctp-text">
                           {formatCurrency(product.revenue)}
                         </p>
                       </div>
 
-                      <div className="mt-2 pl-8">
+                      <div className="mt-1.5 pl-6">
                         <ProgressBar
                           value={product.units_sold}
                           maximum={maximumUnits}
                           color="bg-ctp-teal"
                         />
                       </div>
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ol>
             )}
           </div>
         </Panel>
@@ -1598,63 +1348,61 @@ export default function Overview() {
 
       {/* Recent transactions */}
 
-      <Panel
+      <Section
         title="Recent transactions"
         description="Latest recorded sales from the POS."
-        action={
-          <SectionCount
-            value={transactions.length}
-          />
-        }
+        badge={<SectionCount value={transactions.length} />}
+        bodyClassName=""
       >
         {recentSales.error ? (
           <ErrorMessage>
             Recent transactions could not be loaded: {recentSales.error}
           </ErrorMessage>
         ) : transactions.length === 0 ? (
-          <EmptyState
-            icon={ShoppingCart}
-            title="No transactions yet"
-            description="Completed sales will appear here."
-          />
+          <div className="border-y border-ctp-surface0">
+            <EmptyState
+              title="No transactions yet"
+              description="Completed sales will appear here."
+            />
+          </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border-y border-ctp-surface0">
             <table className="w-full min-w-[680px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-ctp-surface1 text-[11px] uppercase tracking-wide text-ctp-subtext0">
-                  <th className="pb-3 pr-4 font-medium">
+                <tr className="border-b border-ctp-surface0">
+                  <th scope="col" className={`${tableHead} pl-0`}>
                     Transaction
                   </th>
 
-                  <th className="pb-3 pr-4 font-medium">
+                  <th scope="col" className={tableHead}>
                     Cashier
                   </th>
 
-                  <th className="pb-3 pr-4 font-medium">
+                  <th scope="col" className={tableHead}>
                     Terminal
                   </th>
 
-                  <th className="pb-3 pr-4 font-medium">
+                  <th scope="col" className={tableHead}>
                     Payment
                   </th>
 
-                  <th className="pb-3 pr-4 text-right font-medium">
+                  <th scope="col" className={`${tableHead} text-right`}>
                     Amount
                   </th>
 
-                  <th className="pb-3 pl-4 text-right font-medium">
+                  <th scope="col" className={`${tableHead} pr-0 text-right`}>
                     Time
                   </th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-ctp-surface1">
+              <tbody className="divide-y divide-ctp-surface0">
                 {transactions.map((sale) => (
                   <tr
                     key={sale.id}
-                    className="transition-colors hover:bg-ctp-surface0/40"
+                    className="transition-colors hover:bg-ctp-surface0/30"
                   >
-                    <td className="py-3 pr-4">
+                    <td className="py-2.5 pr-3">
                       <p className="text-sm font-medium text-ctp-text">
                         {sale.transaction_code}
                       </p>
@@ -1664,28 +1412,28 @@ export default function Overview() {
                       </p>
                     </td>
 
-                    <td className="py-3 pr-4 text-sm text-ctp-subtext1">
+                    <td className="px-3 py-2.5 text-sm text-ctp-subtext1">
                       {sale.cashier_display_name
                         || sale.cashier_username
                         || "Unassigned"}
                     </td>
 
-                    <td className="py-3 pr-4 text-sm text-ctp-subtext1">
+                    <td className="px-3 py-2.5 text-sm text-ctp-subtext1">
                       {sale.terminal_device_id
                         || (sale.terminal_id
                           ? `Terminal ${sale.terminal_id}`
                           : "—")}
                     </td>
 
-                    <td className="py-3 pr-4 text-sm text-ctp-subtext1">
+                    <td className="px-3 py-2.5 text-sm text-ctp-subtext1">
                       {paymentLabel(sale.payment_method)}
                     </td>
 
-                    <td className="py-3 pr-4 text-right text-sm font-semibold tabular-nums text-ctp-text">
+                    <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-ctp-text">
                       {formatCurrency(sale.total)}
                     </td>
 
-                    <td className="py-3 pl-4 text-right text-xs tabular-nums text-ctp-subtext0">
+                    <td className="py-2.5 pl-3 text-right text-xs tabular-nums text-ctp-subtext0">
                       {formatDateTime(sale.created_at)}
                     </td>
                   </tr>
@@ -1694,24 +1442,17 @@ export default function Overview() {
             </table>
           </div>
         )}
-      </Panel>
+      </Section>
 
 
       {/* Footer */}
 
-      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface1 pt-3 text-[11px] text-ctp-overlay1">
-        <div className="flex items-center gap-2">
-          <CheckCircle2
-            size={13}
-            className="text-ctp-green"
-          />
-
-          <span>
-            {data
-              ? `Operational snapshot: ${formatDateTime(data.as_of)}`
-              : "Waiting for operational snapshot"}
-          </span>
-        </div>
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-ctp-surface0 pt-3 text-xs text-ctp-subtext0">
+        <span>
+          {data
+            ? `Operational snapshot: ${formatDateTime(data.as_of)}`
+            : "Waiting for operational snapshot"}
+        </span>
 
         <span>
           {formatNumber(data?.service_catalog_count)} services in catalogue

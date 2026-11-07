@@ -1,21 +1,14 @@
-import * as SecureStore from "expo-secure-store";
+import { credentials } from "@/lib/auth/credentials";
+import {
+  API_BASE_URL,
+  INSECURE_TRANSPORT_ERROR,
+} from "@/lib/config";
 
-export const API_BASE_URL = (
-  process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000"
-).replace(/\/+$/, "");
-
-export const TERMINAL_SESSION_TOKEN_KEY =
-  "kinesis-terminal-session-token";
-
-export const CASHIER_SESSION_TOKEN_KEY =
-  "kinesis-cashier-session-token";
+export { API_BASE_URL };
 
 const REQUEST_TIMEOUT_MS = 15000;
 
-const ENROLLMENT_PATH = "/api/terminals/register";
-const CASHIER_LOGIN_PATH = "/api/cashier-auth/login";
-
-export type ApiErrorKind = "http" | "network" | "timeout";
+export type ApiErrorKind = "http" | "network" | "timeout" | "config";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -47,79 +40,34 @@ function isFormData(body: BodyInit | null | undefined): boolean {
   );
 }
 
-async function getAuthenticatedHeaders(
+function assertSecureTransport() {
+  if (INSECURE_TRANSPORT_ERROR) {
+    // Refuse rather than silently sending credentials in cleartext.
+    throw new ApiError(INSECURE_TRANSPORT_ERROR, 0, "config");
+  }
+}
+
+async function getAuthenticatedRequest(
   path: string,
-  suppliedHeaders?: HeadersInit,
-): Promise<Headers> {
-  const headers = new Headers(suppliedHeaders);
+  options: RequestInit,
+): Promise<RequestInit> {
+  const headers = new Headers(options.headers);
 
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
 
-  const requestPath = path.split("?")[0];
+  const extras = await credentials.authorize(
+    path,
+    options.method ?? "GET",
+    headers,
+  );
 
-  // Terminal enrollment does not use an existing terminal token.
-  if (
-    requestPath !== ENROLLMENT_PATH &&
-    !headers.has("Authorization")
-  ) {
-    let sessionToken: string | null;
-
-    try {
-      sessionToken = await SecureStore.getItemAsync(
-        TERMINAL_SESSION_TOKEN_KEY,
-      );
-    } catch (error) {
-      console.error(
-        "[API] Could not read terminal credentials:",
-        error,
-      );
-
-      throw new Error(
-        "Could not access terminal credentials in secure storage.",
-      );
-    }
-
-    if (sessionToken) {
-      headers.set(
-        "Authorization",
-        `Bearer ${sessionToken}`,
-      );
-    }
-  }
-
-  // PIN login does not require an existing cashier session.
-  if (
-    requestPath !== CASHIER_LOGIN_PATH &&
-    !headers.has("X-Cashier-Session")
-  ) {
-    let cashierToken: string | null;
-
-    try {
-      cashierToken = await SecureStore.getItemAsync(
-        CASHIER_SESSION_TOKEN_KEY,
-      );
-    } catch (error) {
-      console.error(
-        "[API] Could not read cashier credentials:",
-        error,
-      );
-
-      throw new Error(
-        "Could not access cashier credentials in secure storage.",
-      );
-    }
-
-    if (cashierToken) {
-      headers.set(
-        "X-Cashier-Session",
-        cashierToken,
-      );
-    }
-  }
-
-  return headers;
+  return {
+    ...options,
+    ...extras,
+    headers,
+  };
 }
 
 async function sendRequest(
@@ -246,9 +194,11 @@ export async function apiRequest<T>(
       throw new Error("The request was cancelled.");
     }
 
-    const authenticatedHeaders = await getAuthenticatedHeaders(
+    assertSecureTransport();
+
+    const authenticatedRequest = await getAuthenticatedRequest(
       path,
-      options.headers,
+      options,
     );
 
     if (callerSignal?.aborted) {
@@ -257,10 +207,7 @@ export async function apiRequest<T>(
 
     const response = await sendRequest(
       path,
-      {
-        ...options,
-        headers: authenticatedHeaders,
-      },
+      authenticatedRequest,
       controller,
       () => timedOut,
     );
@@ -284,4 +231,23 @@ export async function apiRequest<T>(
       abortFromCaller,
     );
   }
+}
+
+
+/**
+ * Authenticated request returning the raw Response (for binary downloads
+ * such as the GCash QR image). Same credential handling as apiRequest.
+ */
+export async function apiFetch(
+  path: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  assertSecureTransport();
+
+  const authenticatedRequest = await getAuthenticatedRequest(
+    path,
+    options,
+  );
+
+  return fetch(`${API_BASE_URL}${path}`, authenticatedRequest);
 }

@@ -1,10 +1,12 @@
-import { Search, Table2, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 
 import type { TableSchema } from "../../types/database";
-import SectionHeading from "./SectionHeading";
+import Section from "../ui/Section";
+import SearchInput from "../ui/SearchInput";
+import EmptyState from "../ui/EmptyState";
 import StatusBadge from "./StatusBadge";
 import UnavailableNotice from "./UnavailableNotice";
-import { inputClass } from "./styles";
+import { tableHead } from "../ui/styles";
 
 export default function SchemaSection({
   search,
@@ -28,90 +30,96 @@ export default function SchemaSection({
   note: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-ctp-surface0 bg-ctp-base">
-      <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <SectionHeading
-          icon={Table2}
-          title="Database schema"
-          description="Actual tables, column definitions, estimated row counts, and storage."
+    <Section
+      id="db-schema"
+      title="Database schema"
+      description="Actual tables, column definitions, estimated row counts, and storage."
+      actions={
+        <SearchInput
+          value={search}
+          onChange={onSearchChange}
+          label="Filter tables"
+          placeholder="Filter tables"
+          className="w-full sm:w-64"
         />
-
-        <div className="relative w-full sm:max-w-xs">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-ctp-overlay1"
-          />
-          <input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            aria-label="Filter tables"
-            placeholder="Filter tables..."
-            className={`${inputClass} w-full pl-9`}
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 border-y border-ctp-surface0 bg-ctp-mantle px-3 py-2">
-        <p className="font-line-seed text-[11px] text-ctp-subtext0">
+      }
+      bodyClassName="space-y-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ctp-subtext0">
+        <p className="tabular-nums">
           {schemaName ? `Schema: ${schemaName}` : "Schema not loaded"}
-          <span className="px-2">·</span>
+          {" · "}
           {filteredTables.length} of {totalTables} table(s)
           {databaseSize ? ` · Database size: ${databaseSize}` : ""}
         </p>
 
         <StatusBadge
-          label={error ? "INSPECTION FAILED" : loading ? "LOADING" : "LIVE DATA"}
+          label={error ? "Inspection failed" : loading ? "Loading" : "Live data"}
           tone={error ? "red" : loading ? "yellow" : "green"}
         />
       </div>
 
       {error ? (
-        <div className="p-3">
-          <UnavailableNotice>
-            Table inspection failed: {error}
-          </UnavailableNotice>
-        </div>
+        <UnavailableNotice>Table inspection failed: {error}</UnavailableNotice>
       ) : loading && totalTables === 0 ? (
-        <div className="flex items-center justify-center gap-2 px-4 py-10 font-line-seed text-xs text-ctp-subtext0">
-          <RefreshCw size={15} className="animate-spin" />
+        <p
+          role="status"
+          className="flex items-center gap-2 border-y border-ctp-surface0 py-8 text-xs text-ctp-subtext0"
+        >
+          <RefreshCw size={14} className="animate-spin" aria-hidden="true" />
           Loading database schema…
-        </div>
+        </p>
       ) : filteredTables.length > 0 ? (
-        <div className="divide-y divide-ctp-surface0">
+        <div className="divide-y divide-ctp-surface0 border-y border-ctp-surface0">
+          <div
+            aria-hidden="true"
+            className="hidden items-center gap-3 py-2 pl-6 sm:flex"
+          >
+            <span className="flex-1 text-xs font-medium text-ctp-subtext0">
+              Table
+            </span>
+            <div className="grid w-[260px] shrink-0 grid-cols-3 gap-3 text-xs font-medium text-ctp-subtext0">
+              <span>Columns</span>
+              <span>Rows</span>
+              <span>Size</span>
+            </div>
+          </div>
+
           {filteredTables.map((table) => (
             <details key={table.name} className="group">
-              <summary className="flex cursor-pointer list-none flex-col gap-3 px-3 py-3 transition-colors hover:bg-ctp-surface0/20 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ctp-mauve/10 text-ctp-mauve">
-                    <Table2 size={15} />
-                  </div>
-
+              <summary className="flex cursor-pointer list-none flex-col gap-2 py-2.5 transition-colors hover:bg-ctp-surface0/30 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-1.5">
+                  <ChevronRight
+                    size={14}
+                    aria-hidden="true"
+                    className="mt-0.5 shrink-0 text-ctp-overlay1 transition-transform group-open:rotate-90"
+                  />
                   <div className="min-w-0">
-                    <p className="break-all font-mono text-xs font-semibold text-ctp-text">
+                    <p className="break-all font-mono text-sm text-ctp-text">
                       {table.name}
                     </p>
-                    <p className="mt-0.5 font-line-seed text-[11px] text-ctp-subtext0">
+                    <p className="mt-0.5 text-xs text-ctp-subtext0">
                       {table.description}
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 sm:w-[260px] sm:shrink-0">
+                <dl className="grid grid-cols-3 gap-3 pl-5 sm:w-[260px] sm:shrink-0 sm:pl-0">
                   <div>
-                    <p className="font-line-seed text-[10px] text-ctp-subtext0">
+                    <dt className="text-xs text-ctp-subtext0 sm:sr-only">
                       Columns
-                    </p>
-                    <p className="mt-1 font-mono text-xs text-ctp-text">
+                    </dt>
+                    <dd className="font-mono text-xs tabular-nums text-ctp-text">
                       {table.columns}
-                    </p>
+                    </dd>
                   </div>
 
                   <div>
-                    <p className="font-line-seed text-[10px] text-ctp-subtext0">
+                    <dt className="text-xs text-ctp-subtext0 sm:sr-only">
                       Rows
-                    </p>
-                    <p
-                      className="mt-1 font-mono text-xs text-ctp-text"
+                    </dt>
+                    <dd
+                      className="font-mono text-xs tabular-nums text-ctp-text"
                       title={
                         table.row_count_is_estimate
                           ? "Estimated by PostgreSQL statistics"
@@ -121,38 +129,30 @@ export default function SchemaSection({
                       {table.rows == null
                         ? "—"
                         : `${table.row_count_is_estimate ? "~" : ""}${table.rows.toLocaleString()}`}
-                    </p>
+                    </dd>
                   </div>
 
                   <div>
-                    <p className="font-line-seed text-[10px] text-ctp-subtext0">
+                    <dt className="text-xs text-ctp-subtext0 sm:sr-only">
                       Size
-                    </p>
-                    <p className="mt-1 font-mono text-xs text-ctp-text">
+                    </dt>
+                    <dd className="font-mono text-xs tabular-nums text-ctp-text">
                       {table.size}
-                    </p>
+                    </dd>
                   </div>
-                </div>
+                </dl>
               </summary>
 
-              <div className="border-t border-ctp-surface0 bg-ctp-mantle p-3">
+              <div className="pb-3 pl-5">
                 {table.column_details.length > 0 ? (
                   <div className="overflow-x-auto rounded-md border border-ctp-surface0">
                     <table className="w-full min-w-[560px] text-left">
-                      <thead className="bg-ctp-crust">
+                      <thead className="bg-ctp-mantle">
                         <tr className="border-b border-ctp-surface0">
-                          <th className="px-3 py-2 font-line-seed text-[11px] font-semibold text-ctp-subtext0">
-                            Column
-                          </th>
-                          <th className="px-3 py-2 font-line-seed text-[11px] font-semibold text-ctp-subtext0">
-                            PostgreSQL type
-                          </th>
-                          <th className="px-3 py-2 font-line-seed text-[11px] font-semibold text-ctp-subtext0">
-                            Nullable
-                          </th>
-                          <th className="px-3 py-2 font-line-seed text-[11px] font-semibold text-ctp-subtext0">
-                            Key
-                          </th>
+                          <th className={tableHead}>Column</th>
+                          <th className={tableHead}>PostgreSQL type</th>
+                          <th className={tableHead}>Nullable</th>
+                          <th className={tableHead}>Key</th>
                         </tr>
                       </thead>
 
@@ -165,16 +165,16 @@ export default function SchemaSection({
                             <td className="px-3 py-2 font-mono text-xs text-ctp-subtext1">
                               {column.type}
                             </td>
-                            <td className="px-3 py-2 font-line-seed text-xs text-ctp-subtext1">
+                            <td className="px-3 py-2 text-xs text-ctp-subtext1">
                               {column.nullable ? "Yes" : "No"}
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 text-xs">
                               {column.primary_key ? (
-                                <StatusBadge label="PRIMARY KEY" tone="blue" />
-                              ) : (
-                                <span className="font-line-seed text-xs text-ctp-overlay1">
-                                  —
+                                <span className="font-medium text-ctp-mauve">
+                                  Primary key
                                 </span>
+                              ) : (
+                                <span className="text-ctp-overlay1">—</span>
                               )}
                             </td>
                           </tr>
@@ -183,7 +183,7 @@ export default function SchemaSection({
                     </table>
                   </div>
                 ) : (
-                  <p className="font-line-seed text-xs text-ctp-subtext0">
+                  <p className="text-xs text-ctp-subtext0">
                     Column details are unavailable for this table.
                   </p>
                 )}
@@ -192,24 +192,17 @@ export default function SchemaSection({
           ))}
         </div>
       ) : (
-        <div className="px-4 py-8 text-center">
-          <Table2 size={22} className="mx-auto text-ctp-overlay1" />
-          <p className="mt-2 font-line-seed text-sm font-semibold text-ctp-text">
-            {search ? "No matching tables" : "No tables reported"}
-          </p>
-          <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
-            {search
+        <EmptyState
+          title={search ? "No matching tables" : "No tables reported"}
+          description={
+            search
               ? "Try another table name or description."
-              : "The configured schema has no visible tables or is unavailable."}
-          </p>
-        </div>
+              : "The configured schema has no visible tables or is unavailable."
+          }
+        />
       )}
 
-      {note && !error && (
-        <div className="border-t border-ctp-surface0 p-3">
-          <UnavailableNotice>{note}</UnavailableNotice>
-        </div>
-      )}
-    </section>
+      {note && !error && <UnavailableNotice>{note}</UnavailableNotice>}
+    </Section>
   );
 }

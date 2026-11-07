@@ -7,7 +7,6 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Request,
     Response,
@@ -26,6 +25,13 @@ from sqlalchemy.orm import Session
 
 from admin_models import AdminUser
 from auth.dependencies import require_admin_session
+from auth.pos_auth import (
+    clear_cashier_cookie,
+    current_terminal_auth,
+    read_cashier_credential,
+    set_cashier_cookie,
+)
+from auth.security import hash_secret
 from auth.password import (
     DUMMY_PASSWORD_HASH,
     hash_password,
@@ -224,11 +230,25 @@ def authentication_failed() -> HTTPException:
     )
 
 
+def cashier_credential_body(
+    request: Request,
+    response: Response,
+    raw_session_token: str,
+) -> dict:
+    """
+    Deliver a new cashier session credential using the terminal's transport:
+    an HttpOnly cookie for browser terminals, JSON for native apps.
+    """
+
+    if current_terminal_auth(request).via_cookie:
+        set_cashier_cookie(response, raw_session_token)
+        return {}
+
+    return {"session_token": raw_session_token}
+
+
 def require_cashier_principal(
-    x_cashier_session: str | None = Header(
-        default=None,
-        alias="X-Cashier-Session",
-    ),
+    request: Request,
     terminal: Terminal = Depends(require_terminal),
     db: Session = Depends(get_db),
 ) -> CashierPrincipal:
@@ -236,10 +256,13 @@ def require_cashier_principal(
     Authenticate a cashier session that belongs to the requesting terminal.
 
     Terminal authentication and cashier authentication are independent.
-    Both credentials are required.
+    Both credentials are required. Native apps send X-Cashier-Session;
+    browser terminals send the HttpOnly cashier cookie.
     """
 
-    if not x_cashier_session:
+    raw_cashier_token = read_cashier_credential(request)
+
+    if not raw_cashier_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Cashier authentication is required.",
@@ -247,7 +270,7 @@ def require_cashier_principal(
 
     session_record = resolve_cashier_session(
         db,
-        x_cashier_session,
+        raw_cashier_token,
         terminal.id,
     )
 
@@ -257,11 +280,45 @@ def require_cashier_principal(
             detail="Your cashier session has expired or been revoked.",
         )
 
-    return CashierPrincipal(
+    principal = CashierPrincipal(
         cashier=session_record.cashier,
         session=session_record,
         terminal=terminal,
     )
+
+    # Attribute activity events recorded during this request to the cashier
+    # (see activity_tracking._record).
+    db.info["kinesis_actor"] = {
+        "actor_type": "cashier",
+        "actor_id": str(principal.cashier.id),
+        "actor_name": principal.cashier.display_name,
+        "cashier_id": str(principal.cashier.id),
+        "terminal_id": terminal.id,
+    }
+
+    return principal
+
+
+def require_writable_cashier(
+    principal: CashierPrincipal = Depends(require_cashier_principal),
+) -> CashierPrincipal:
+    """
+    Require a signed-in cashier on an enabled terminal that is not in
+    maintenance mode. Used for catalog and inventory changes so that every
+    modification is made, and recorded, by an identified person rather than
+    by any holder of a terminal credential.
+    """
+
+    if principal.terminal.maintenance_mode:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=(
+                "This terminal is in maintenance mode. "
+                "POS modifications are temporarily unavailable."
+            ),
+        )
+
+    return principal
 
 
 # --------------------------------------------------
@@ -445,13 +502,17 @@ def login_cashier(
         db.commit()
 
         return {
+            **cashier_credential_body(
+                request,
+                response,
+                created_session.session_token,
+            ),
             "authenticated": True,
             "cashier": {
                 "id": str(locked_cashier.id),
                 "username": locked_cashier.username,
                 "display_name": locked_cashier.display_name,
             },
-            "session_token": created_session.session_token,
             "idle_expires_at": (created_session.record.idle_expires_at.isoformat()),
             "absolute_expires_at": (
                 created_session.record.absolute_expires_at.isoformat()
@@ -562,6 +623,38 @@ def verify_current_cashier_pin(
             db.commit()
             raise authentication_failed()
 
+        # Re-authentication issues a new session identifier and revokes the
+        # old one, so a token captured before the lock cannot be reused.
+        locked_terminal = db.scalar(
+            select(Terminal)
+            .where(Terminal.id == principal.terminal.id)
+            .with_for_update()
+        )
+
+        if locked_terminal is None or not locked_terminal.is_enabled:
+            db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This terminal is no longer authorized.",
+            )
+
+        db.execute(
+            update(CashierSession)
+            .where(
+                CashierSession.id == principal.session.id,
+                CashierSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=utc_now())
+            .execution_options(synchronize_session=False)
+        )
+
+        created_session = create_cashier_session(
+            db,
+            cashier,
+            locked_terminal.id,
+        )
+
         reset_cashier_login_attempts(
             db,
             attempt_keys,
@@ -570,6 +663,15 @@ def verify_current_cashier_pin(
         db.commit()
 
         return {
+            **cashier_credential_body(
+                request,
+                response,
+                created_session.session_token,
+            ),
+            "idle_expires_at": created_session.record.idle_expires_at.isoformat(),
+            "absolute_expires_at": (
+                created_session.record.absolute_expires_at.isoformat()
+            ),
             "verified": True,
             "cashier": {
                 "id": str(cashier.id),
@@ -599,11 +701,8 @@ def verify_current_cashier_pin(
 
 @router.post("/api/cashier-auth/logout")
 def logout_cashier(
+    request: Request,
     response: Response,
-    x_cashier_session: str | None = Header(
-        default=None,
-        alias="X-Cashier-Session",
-    ),
     terminal: Terminal = Depends(require_terminal),
     db: Session = Depends(get_db),
 ):
@@ -616,9 +715,12 @@ def logout_cashier(
 
     no_store(response)
 
-    if x_cashier_session and len(x_cashier_session) <= 256:
-        from auth.security import hash_secret
+    raw_cashier_token = read_cashier_credential(request)
 
+    if current_terminal_auth(request).via_cookie:
+        clear_cashier_cookie(response)
+
+    if raw_cashier_token:
         now = utc_now()
 
         try:
@@ -626,7 +728,7 @@ def logout_cashier(
                 update(CashierSession)
                 .where(
                     CashierSession.terminal_id == terminal.id,
-                    CashierSession.session_token_hash == hash_secret(x_cashier_session),
+                    CashierSession.session_token_hash == hash_secret(raw_cashier_token),
                     CashierSession.revoked_at.is_(None),
                 )
                 .values(revoked_at=now)

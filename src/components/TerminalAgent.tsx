@@ -8,28 +8,21 @@ import {
 } from "react-native";
 
 import {
-  CameraView,
-  useCameraPermissions,
-  type BarcodeScanningResult,
-} from "expo-camera";
-
-import {
   Check,
   MessageSquareText,
   QrCode,
   ShieldAlert,
   ShieldCheck,
-  Smartphone,
-  Wifi,
   WifiOff,
   Wrench,
 } from "lucide-react-native";
 
+import { PairingScanner } from "@/components/PairingScanner";
 import { useTerminalAgent } from "@/hooks/useTerminalAgent";
 
 
 type TerminalAgentProps = {
-  onSessionTokenChange: (token: string | null) => void;
+  onPairedChange: (paired: boolean) => void;
 };
 
 const PAIRING_TOKEN_PATTERN =
@@ -37,7 +30,7 @@ const PAIRING_TOKEN_PATTERN =
 
 
 export function TerminalAgent({
-  onSessionTokenChange,
+  onPairedChange,
 }: TerminalAgentProps) {
   const {
     status,
@@ -49,10 +42,7 @@ export function TerminalAgent({
     broadcastQueue,
     dismissBroadcast,
     pair,
-  } = useTerminalAgent(onSessionTokenChange);
-
-  const [permission, requestPermission] =
-    useCameraPermissions();
+  } = useTerminalAgent(onPairedChange);
 
   const [scanEnabled, setScanEnabled] = useState(true);
   const [scanError, setScanError] = useState("");
@@ -71,7 +61,7 @@ export function TerminalAgent({
 
 
   const handleBarcodeScanned = async (
-    result: BarcodeScanningResult,
+    scannedData: string,
   ) => {
     if (
       scanLocked.current ||
@@ -86,7 +76,7 @@ export function TerminalAgent({
     setScanError("");
 
     const match = PAIRING_TOKEN_PATTERN.exec(
-      result.data.trim(),
+      scannedData.trim(),
     );
 
     if (!match) {
@@ -283,109 +273,46 @@ export function TerminalAgent({
               </Text>
             </View>
 
-            {/* Camera permission */}
+            {/* QR scanner (camera on native, camera or paste on web) */}
 
-            {!initializing &&
-              !registering &&
-              !permission?.granted && (
-                <View className="mt-4 overflow-hidden rounded-xl border border-ctp-surface1 bg-ctp-base p-5">
-                  <View className="items-center">
-                    <Smartphone
+            {!initializing && !registering && (
+              <PairingScanner
+                scanEnabled={scanEnabled}
+                onScanned={(data) => void handleBarcodeScanned(data)}
+                onError={(scannerError) => {
+                  setScanEnabled(false);
+                  setScanError(scannerError);
+                }}
+                pausedContent={
+                  <View className="h-[280px] items-center justify-center px-5">
+                    <QrCode
                       size={30}
                       color="#cba6f7"
                     />
 
-                    <Text className="mt-3 font-line-seed text-sm font-semibold text-ctp-text">
-                      Camera permission required
+                    <Text className="mt-3 text-center font-line-seed text-sm font-semibold text-white">
+                      Scanner paused
                     </Text>
 
-                    <Text className="mt-2 text-center font-line-seed text-xs leading-5 text-ctp-subtext0">
-                      Kinesis needs camera access to scan your administrator's
-                      one-time pairing QR code.
+                    <Text className="mt-2 text-center font-line-seed text-xs leading-5 text-white/60">
+                      {scanError ||
+                        message ||
+                        "Resume scanning when you are ready."}
                     </Text>
 
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => void requestPermission()}
-                      className="mt-4 min-h-11 w-full items-center justify-center rounded-lg bg-ctp-mauve px-4"
+                      onPress={resumeScanning}
+                      className="mt-4 min-h-11 items-center justify-center rounded-lg bg-ctp-mauve px-5"
                     >
-                      <Text className="font-line-seed text-sm font-bold text-ctp-crust">
-                        Allow camera access
+                      <Text className="font-line-seed text-xs font-bold text-ctp-crust">
+                        Scan again
                       </Text>
                     </Pressable>
                   </View>
-                </View>
-              )}
-
-            {/* QR camera */}
-
-            {!initializing &&
-              !registering &&
-              permission?.granted && (
-                <View className="mt-4 overflow-hidden rounded-xl border border-ctp-surface1 bg-black">
-                  {scanEnabled ? (
-                    <CameraView
-                      style={{
-                        width: "100%",
-                        height: 280,
-                      }}
-                      facing="back"
-                      barcodeScannerSettings={{
-                        barcodeTypes: ["qr"],
-                      }}
-                      onBarcodeScanned={handleBarcodeScanned}
-                      onMountError={(event) => {
-                        setScanEnabled(false);
-                        setScanError(
-                          `Camera could not start: ${event.message}`,
-                        );
-                      }}
-                    />
-                  ) : (
-                    <View className="h-[280px] items-center justify-center px-5">
-                      {registering ? (
-                        <>
-                          <ActivityIndicator
-                            size="large"
-                            color="#cba6f7"
-                          />
-
-                          <Text className="mt-3 font-line-seed text-sm text-white">
-                            Pairing terminal...
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <QrCode
-                            size={30}
-                            color="#cba6f7"
-                          />
-
-                          <Text className="mt-3 text-center font-line-seed text-sm font-semibold text-white">
-                            Scanner paused
-                          </Text>
-
-                          <Text className="mt-2 text-center font-line-seed text-xs leading-5 text-white/60">
-                            {scanError ||
-                              message ||
-                              "Resume scanning when you are ready."}
-                          </Text>
-
-                          <Pressable
-                            accessibilityRole="button"
-                            onPress={resumeScanning}
-                            className="mt-4 min-h-11 items-center justify-center rounded-lg bg-ctp-mauve px-5"
-                          >
-                            <Text className="font-line-seed text-xs font-bold text-ctp-crust">
-                              Scan again
-                            </Text>
-                          </Pressable>
-                        </>
-                      )}
-                    </View>
-                  )}
-                </View>
-              )}
+                }
+              />
+            )}
 
             {!!scanError &&
               scanEnabled && (
@@ -414,8 +341,8 @@ export function TerminalAgent({
 
               <Text className="flex-1 font-line-seed text-[11px] leading-5 text-ctp-subtext0">
                 Pairing codes expire after five minutes and can only be used
-                once. Your permanent terminal credential is stored securely
-                after pairing.
+                once. The terminal credential is kept in this device&apos;s
+                secure storage and is renewed automatically.
               </Text>
             </View>
           </View>

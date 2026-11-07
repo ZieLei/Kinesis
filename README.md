@@ -219,6 +219,44 @@ A physical device and the development computer generally need to share a network
 
 Keep development URLs separate from production configuration. Do not commit secrets, private credentials, or sensitive configuration files.
 
+Plain `http://` URLs only work in development builds. Release builds refuse to send credentials over an unencrypted connection; production uses HTTPS from the shop's local certificate authority (see [Deployment](#deployment)).
+
+### Run the Web App in Development
+
+Browser terminals authenticate with HttpOnly cookies, which the browser only sends when the app and the API share the same host name. Use `localhost` for both:
+
+```bash
+# .env (development)
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+```bash
+npx expo start --web    # then open http://localhost:8081
+```
+
+The backend allows `http://localhost:8081` by default (`KINESIS_POS_ALLOWED_ORIGINS`). Production web builds ignore `EXPO_PUBLIC_API_URL` and call the server that served them.
+
+### Backend Configuration File
+
+The backend reads its settings from `backend/.env`, or from the file named by the `KINESIS_ENV_FILE` environment variable. Production installations keep that file outside the repository; see `deploy/config/kinesis.env.example`.
+
+### Run the Backend Tests
+
+The integration tests need a **disposable** PostgreSQL database; they truncate every table. Point `KINESIS_TEST_ENV_FILE` at an environment file for it:
+
+```bash
+pip install pytest httpx
+KINESIS_TEST_ENV_FILE=/path/to/test.env python -m pytest backend/tests
+```
+
+## Deployment
+
+Kinesis runs on one shop computer (Linux, macOS or Windows) without internet access:
+
+- [Deployment architecture](docs/deployment/ARCHITECTURE.md): services, data locations, backups and recovery.
+- [HTTPS on the shop network](deploy/README-tls.md): local certificate authority and device onboarding (iPhone, Android, desktop).
+- [Security report](docs/security/web-readiness-report.md).
+
 ## Project Structure
 
 The repository separates application screens, shared components, data, and backend logic.

@@ -1,6 +1,6 @@
-import os
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from config_paths import ENV_FILE
 from sqlalchemy import URL, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     database_name: str = "kinesis"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )

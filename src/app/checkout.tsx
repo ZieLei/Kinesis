@@ -20,6 +20,7 @@ import { styledIcon } from "@/components/StyledIcon";
 import { useCart } from "@/app/context/CartContext";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { createSale, fetchSale } from "@/lib/salesApi";
+import { randomCode } from "@/lib/secureRandom";
 import type {
   CheckoutRequest,
   PaymentMethod,
@@ -30,13 +31,9 @@ const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledBanknote = styledIcon(Banknote);
 
 function createTransactionCode() {
-  const randomPart = Math.random()
-    .toString(36)
-    .slice(2, 10)
-    .toUpperCase()
-    .padEnd(8, "0");
-
-  return `KNS-${Date.now().toString(36).toUpperCase()}-${randomPart}`;
+  // Also the checkout idempotency key: it must not collide or be guessable.
+  // 12 symbols from the platform CSPRNG = 60 bits.
+  return `KNS-${Date.now().toString(36).toUpperCase()}-${randomCode(12)}`;
 }
 
 function money(

@@ -47,8 +47,9 @@ const styles = StyleSheet.create({
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
 
-  const [terminalSessionToken, setTerminalSessionToken] =
-    useState<string | null>(null);
+  // Whether this device holds a terminal credential. The credential itself
+  // stays in the keystore (native) or an HttpOnly cookie (web).
+  const [terminalPaired, setTerminalPaired] = useState(false);
 
   const [fontsLoaded] = useFonts({
     FredokaOne: require("../../assets/fonts/FredokaOne-Regular.ttf"),
@@ -74,10 +75,10 @@ export default function RootLayout() {
         ]}
       >
         <TerminalSettingsProvider
-          sessionToken={terminalSessionToken}
+          terminalPaired={terminalPaired}
         >
           <CashierAuthProvider
-            terminalSessionToken={terminalSessionToken}
+            terminalPaired={terminalPaired}
           >
             <CatalogProvider>
               <CartProvider>
@@ -96,7 +97,7 @@ export default function RootLayout() {
                   style={styles.terminalOverlay}
                 >
                   <TerminalAgent
-                    onSessionTokenChange={setTerminalSessionToken}
+                    onPairedChange={setTerminalPaired}
                   />
                 </View>
               </CartProvider>

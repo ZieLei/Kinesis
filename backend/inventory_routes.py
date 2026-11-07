@@ -16,7 +16,8 @@ from models import (
     SaleItem,
     StockoutPeriod,
 )
-from terminal_routes import require_admin_or_terminal, require_writable_terminal
+from cashier_routes import require_writable_cashier
+from terminal_routes import require_admin_or_terminal
 
 
 router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
@@ -105,7 +106,7 @@ def money(value: Decimal) -> float:
 )
 def create_inventory_receipt(
     receipt_data: InventoryReceiptCreate,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product_ids = sorted(item.product_id for item in receipt_data.items)

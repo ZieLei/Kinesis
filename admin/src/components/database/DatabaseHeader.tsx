@@ -1,4 +1,4 @@
-import { Database as DatabaseIcon } from "lucide-react";
+import PageHeader from "../ui/PageHeader";
 import StatusBadge from "./StatusBadge";
 
 export default function DatabaseHeader({
@@ -11,12 +11,12 @@ export default function DatabaseHeader({
   loading: boolean;
 }) {
   const label = loading && !databaseConfigured
-    ? "CHECKING"
+    ? "Checking"
     : connected
-      ? "CONNECTED"
+      ? "Connected"
       : databaseConfigured
-        ? "UNREACHABLE"
-        : "NOT VERIFIED";
+        ? "Unreachable"
+        : "Not verified";
 
   const tone = connected
     ? "green"
@@ -25,21 +25,10 @@ export default function DatabaseHeader({
       : "yellow";
 
   return (
-    <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-      <div>
-        <div className="flex items-center gap-2">
-          <DatabaseIcon size={21} className="text-ctp-mauve" />
-          <h1 className="font-line-seed text-xl font-bold text-ctp-text">
-            Database Management
-          </h1>
-        </div>
-
-        <p className="mt-1 font-line-seed text-xs text-ctp-subtext0">
-          Inspect PostgreSQL, run read-only queries, and manage database backups.
-        </p>
-      </div>
-
-      <StatusBadge label={label} tone={tone} />
-    </header>
+    <PageHeader
+      title="Database management"
+      description="Inspect PostgreSQL, run read-only queries, and manage database backups."
+      status={<StatusBadge label={label} tone={tone} />}
+    />
   );
 }

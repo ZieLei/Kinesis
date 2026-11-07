@@ -7,12 +7,14 @@ import {
 import { AppState, Platform } from "react-native";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as SecureStore from "expo-secure-store";
 
 import {
   ApiError,
   isNetworkError,
 } from "@/lib/api";
+import { credentials } from "@/lib/auth/credentials";
+import { deviceCache } from "@/lib/deviceCache";
+import { randomCode } from "@/lib/secureRandom";
 
 import { useCatalog } from "@/app/context/CatalogContext";
 
@@ -24,8 +26,8 @@ import {
 } from "@/lib/terminalAgentApi";
 
 
+// Non-secret device identifier (unchanged key so existing installs keep it).
 const DEVICE_ID_KEY = "kinesis-terminal-device-id";
-const SESSION_TOKEN_KEY = "kinesis-terminal-session-token";
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const DISABLED_RETRY_INTERVAL_MS = 15_000;
@@ -48,11 +50,11 @@ export type TerminalConnectionStatus =
 
 
 function createDeviceId(): string {
+  // 100 bits from the platform CSPRNG; the timestamp only aids support.
   return [
     "KNS",
     Date.now().toString(36),
-    Math.random().toString(36).slice(2, 14),
-    Math.random().toString(36).slice(2, 10),
+    randomCode(20),
   ].join("-");
 }
 
@@ -107,7 +109,7 @@ export type TerminalAgentStatus =
 
 
 export function useTerminalAgent(
-  onSessionTokenChange?: (token: string | null) => void,
+  onPairedChange?: (paired: boolean) => void,
 ) {
   const { synchronizeCatalog } = useCatalog();
 
@@ -124,8 +126,9 @@ export function useTerminalAgent(
   const [deviceId, setDeviceId] = useState("");
   const [message, setMessage] = useState("");
 
-  const [sessionToken, setSessionToken] =
-    useState<string | null>(null);
+  // Raw credentials never enter React state; they stay in the keystore
+  // (native) or an HttpOnly cookie (web).
+  const [paired, setPaired] = useState(false);
 
   const [accessDisabled, setAccessDisabled] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
@@ -156,15 +159,14 @@ export function useTerminalAgent(
     async function initialize() {
       try {
         let storedDeviceId =
-          await SecureStore.getItemAsync(DEVICE_ID_KEY);
+          await deviceCache.getItem(DEVICE_ID_KEY);
 
-        const storedToken =
-          await SecureStore.getItemAsync(SESSION_TOKEN_KEY);
+        const hasCredential = await credentials.loadTerminal();
 
         if (!storedDeviceId) {
           storedDeviceId = createDeviceId();
 
-          await SecureStore.setItemAsync(
+          await deviceCache.setItem(
             DEVICE_ID_KEY,
             storedDeviceId,
           );
@@ -174,14 +176,14 @@ export function useTerminalAgent(
 
         setDeviceId(storedDeviceId);
 
-        if (storedToken) {
-          setSessionToken(storedToken);
-          onSessionTokenChange?.(storedToken);
+        if (hasCredential) {
+          setPaired(true);
+          onPairedChange?.(true);
 
           updateConnectionStatus("checking");
           setStatus("active");
         } else {
-          onSessionTokenChange?.(null);
+          onPairedChange?.(false);
 
           updateConnectionStatus("unknown");
           setStatus("enrollment-required");
@@ -203,7 +205,7 @@ export function useTerminalAgent(
       cancelled = true;
     };
   }, [
-    onSessionTokenChange,
+    onPairedChange,
     updateConnectionStatus,
   ]);
 
@@ -215,7 +217,7 @@ export function useTerminalAgent(
 
   const clearInvalidTerminalSession = useCallback(async () => {
     try {
-      await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
+      await credentials.clearTerminal();
     } catch (error) {
       console.error(
         "[Terminal] Could not remove invalid terminal credentials:",
@@ -232,7 +234,7 @@ export function useTerminalAgent(
 
     processingCommandIds.current.clear();
 
-    setSessionToken(null);
+    setPaired(false);
     setAccessDisabled(false);
     setMaintenanceMode(false);
 
@@ -240,12 +242,12 @@ export function useTerminalAgent(
       "This terminal is no longer registered. Scan a new pairing QR code from Terminal Management.",
     );
 
-    onSessionTokenChange?.(null);
+    onPairedChange?.(false);
 
     updateConnectionStatus("unknown");
     setStatus("enrollment-required");
   }, [
-    onSessionTokenChange,
+    onPairedChange,
     updateConnectionStatus,
   ]);
 
@@ -290,19 +292,16 @@ export function useTerminalAgent(
           token,
         );
 
-        // Save the permanent credential before activating the terminal.
-        await SecureStore.setItemAsync(
-          SESSION_TOKEN_KEY,
-          registration.session_token,
-        );
+        // Save the credential before activating the terminal.
+        await credentials.savePairing(registration);
 
         processingCommandIds.current.clear();
 
-        setSessionToken(registration.session_token);
+        setPaired(true);
         setAccessDisabled(false);
         setMaintenanceMode(registration.maintenance_mode);
 
-        onSessionTokenChange?.(registration.session_token);
+        onPairedChange?.(true);
 
         updateConnectionStatus("online");
         setStatus("active");
@@ -325,7 +324,7 @@ export function useTerminalAgent(
     },
     [
       deviceId,
-      onSessionTokenChange,
+      onPairedChange,
       updateConnectionStatus,
     ],
   );
@@ -338,14 +337,12 @@ export function useTerminalAgent(
 
   const acknowledgeCommand = useCallback(
     async (
-      activeSessionToken: string,
       commandId: number,
       commandStatus: "acknowledged" | "failed",
       resultMessage: string,
     ): Promise<boolean> => {
       try {
         await acknowledgeTerminalCommand(
-          activeSessionToken,
           commandId,
           commandStatus,
           resultMessage.slice(0, 300),
@@ -377,7 +374,6 @@ export function useTerminalAgent(
   const processCommands = useCallback(
     async (
       commands: TerminalCommand[],
-      activeSessionToken: string,
     ) => {
       for (const command of commands) {
         if (processingCommandIds.current.has(command.id)) {
@@ -391,7 +387,6 @@ export function useTerminalAgent(
             const result = await synchronizeCatalog();
 
             const acknowledged = await acknowledgeCommand(
-              activeSessionToken,
               command.id,
               "acknowledged",
               `Synchronization completed. ${result.productCount} products and ${result.serviceCount} services loaded.`,
@@ -404,7 +399,6 @@ export function useTerminalAgent(
             const message = errorMessage(error);
 
             const acknowledged = await acknowledgeCommand(
-              activeSessionToken,
               command.id,
               "failed",
               `Synchronization failed: ${message}`,
@@ -423,7 +417,6 @@ export function useTerminalAgent(
 
           if (!broadcastMessage) {
             const acknowledged = await acknowledgeCommand(
-              activeSessionToken,
               command.id,
               "failed",
               "The broadcast message was empty.",
@@ -472,7 +465,7 @@ export function useTerminalAgent(
   const dismissBroadcast = useCallback(() => {
     const currentBroadcast = broadcastQueue[0];
 
-    if (!currentBroadcast || !sessionToken) {
+    if (!currentBroadcast || !paired) {
       return;
     }
 
@@ -483,7 +476,6 @@ export function useTerminalAgent(
     );
 
     void acknowledgeCommand(
-      sessionToken,
       currentBroadcast.id,
       "acknowledged",
       "Broadcast displayed and acknowledged by the terminal operator.",
@@ -494,7 +486,7 @@ export function useTerminalAgent(
     });
   }, [
     broadcastQueue,
-    sessionToken,
+    paired,
     acknowledgeCommand,
   ]);
 
@@ -505,11 +497,9 @@ export function useTerminalAgent(
 
 
   useEffect(() => {
-    if (!deviceId || !sessionToken || status !== "active") {
+    if (!deviceId || !paired || status !== "active") {
       return;
     }
-
-    const activeSessionToken = sessionToken;
 
     let cancelled = false;
     let running = false;
@@ -550,11 +540,25 @@ export function useTerminalAgent(
 
       try {
         const response = await sendTerminalHeartbeat(
-          activeSessionToken,
           getAppVersion(),
         );
 
         if (cancelled) return;
+
+        if (response.session_token) {
+          // Credential rotation (native). The previous credential stays
+          // valid until this one is used, so a failed write is recoverable.
+          try {
+            await credentials.saveRotatedTerminalToken(
+              response.session_token,
+            );
+          } catch (error) {
+            console.warn(
+              "[Terminal] Could not store the rotated credential:",
+              errorMessage(error),
+            );
+          }
+        }
 
         networkFailureCount = 0;
 
@@ -580,7 +584,6 @@ export function useTerminalAgent(
         if (response.commands.length > 0) {
           void processCommands(
             response.commands,
-            activeSessionToken,
           );
         }
       } catch (error) {
@@ -665,7 +668,7 @@ export function useTerminalAgent(
     };
   }, [
     deviceId,
-    sessionToken,
+    paired,
     status,
     processCommands,
     clearInvalidTerminalSession,

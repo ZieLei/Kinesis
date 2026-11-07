@@ -546,11 +546,51 @@ class Terminal(Base):
     app_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
-    session_token_hash: Mapped[str] = mapped_column(
+    # SHA-256 of the current device credential. NULL means the credential
+    # was revoked and the device must be re-paired with a new QR code.
+    session_token_hash: Mapped[str | None] = mapped_column(
         String(64),
-        nullable=False,
+        nullable=True,
         unique=True,
         index=True,
+    )
+
+    # Rotation: a new credential is offered as "pending" and becomes current
+    # the first time the device uses it. The replaced credential is accepted
+    # for a short grace period; any later use is treated as theft.
+    pending_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
+    previous_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
+    previous_token_valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    token_rotated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+    # Set on every successful pairing. Browser CSRF tokens are bound to it,
+    # so re-pairing a terminal invalidates previously issued CSRF tokens.
+    paired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
     )
 
     is_enabled: Mapped[bool] = mapped_column(

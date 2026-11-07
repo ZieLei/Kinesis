@@ -3,7 +3,6 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 import logging
-import os
 
 from fastapi import (
     Depends,
@@ -29,7 +28,6 @@ from inventory_routes import router as inventory_router
 from analytics_routes import router as analytics_router
 from terminal_routes import (
     require_admin_or_terminal,
-    require_writable_terminal,
     router as terminal_router,
 )
 from terminal_pairing_routes import router as terminal_pairing_router
@@ -38,9 +36,10 @@ from database_routes import router as database_router
 from settings_routes import router as settings_router
 from sku_generator import generate_product_sku
 from logging_config import initialize_application_logging
+from config_paths import path_settings, resolve_data_path
 from auth.integration import install_admin_authentication
 from auth.config import auth_settings
-from cashier_routes import router as cashier_router
+from cashier_routes import require_writable_cashier, router as cashier_router
 from activity_tracking import install_activity_tracking
 from inventory_tracking import install_inventory_tracking
 from overview_routes import router as overview_router
@@ -51,9 +50,10 @@ logger = logging.getLogger(__name__)
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
 COST_QUANTUM = Decimal("0.0001")
 
-IMAGE_DIRECTORY = Path(
-    os.getenv("KINESIS_IMAGE_DIRECTORY", "uploads/products")
-).resolve()
+IMAGE_DIRECTORY = resolve_data_path(
+    path_settings.image_directory,
+    "uploads/products",
+)
 
 IMAGE_FORMATS = {
     b"\xff\xd8\xff": (".jpg", "image/jpeg"),
@@ -88,15 +88,10 @@ app = FastAPI(
 # --------------------------------------------------
 
 
-origins = set(auth_settings.allowed_origins)
-
-if auth_settings.environment == "development":
-    origins.update(
-        {
-            "http://localhost:8081",
-            "http://127.0.0.1:8081",
-        }
-    )
+# In production the reverse proxy serves each web application from the same
+# origin as its API, so CORS is only exercised by development servers
+# (Vite admin on :5173, Expo web on :8081). Both lists are explicit.
+origins = set(auth_settings.allowed_origins) | set(auth_settings.pos_origins)
 
 app.add_middleware(
     CORSMiddleware,
@@ -110,8 +105,31 @@ app.add_middleware(
         "DELETE",
         "OPTIONS",
     ],
-    allow_headers=["*"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-CSRF-Token",
+        "X-Cashier-Session",
+        "X-Kinesis-Client",
+    ],
 )
+
+
+@app.middleware("http")
+async def baseline_security_headers(request, call_next):
+    """
+    Defence in depth for API responses. The reverse proxy sets the full
+    browser policy (CSP, HSTS, Permissions-Policy) for the web applications.
+    """
+
+    response = await call_next(request)
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+
+    return response
 
 install_admin_authentication(app)
 
@@ -411,7 +429,7 @@ def get_product(
 )
 def create_product(
     product_data: ProductCreate,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product_sku = (
@@ -459,7 +477,7 @@ def create_product(
 def update_product(
     product_id: int,
     product_data: ProductUpdate,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product = db.scalar(
@@ -511,7 +529,7 @@ def update_product(
 async def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
@@ -645,7 +663,7 @@ def get_product_image(
 )
 def delete_product_image(
     product_id: int,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
@@ -699,7 +717,7 @@ def delete_product_image(
 )
 def delete_product(
     product_id: int,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)

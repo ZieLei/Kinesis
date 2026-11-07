@@ -19,6 +19,7 @@ import LogOut from "lucide-react-native/icons/log-out";
 import { useCashierAuth } from "@/app/context/CashierAuthContext";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { ApiError, apiRequest } from "@/lib/api";
+import { credentials } from "@/lib/auth/credentials";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const DEFAULT_LOCK_MINUTES = 5;
@@ -229,6 +230,9 @@ export default function TerminalInactivityGuard({
     try {
       const response = await apiRequest<{
         verified: boolean;
+        // Re-authentication rotates the cashier session (native only;
+        // browser terminals receive a new HttpOnly cookie).
+        session_token?: string;
         cashier: {
           id: string;
           username: string;
@@ -241,6 +245,21 @@ export default function TerminalInactivityGuard({
 
       if (!response.verified) {
         throw new Error("PIN verification was unsuccessful.");
+      }
+
+      if (credentials.transport === "keystore") {
+        try {
+          await credentials.saveCashierSession(response.session_token);
+        } catch {
+          // The previous session was revoked by the server, so a session
+          // that cannot be stored means signing in again.
+          setError(
+            "Your session could not be saved securely. Please sign in again.",
+          );
+
+          await logout();
+          return;
+        }
       }
 
       lastActivityAt.current = Date.now();

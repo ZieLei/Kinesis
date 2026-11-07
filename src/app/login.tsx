@@ -318,7 +318,7 @@ export default function CashierLogin() {
             </View>
 
 
-            {accountError && accounts.length > 0 && (
+            {!!accountError && accounts.length > 0 && (
               <View className="mb-3 rounded-lg border border-ctp-yellow/30 bg-ctp-yellow/10 p-3">
                 <Text className="font-inter-regular text-xs leading-5 text-ctp-yellow">
                   {accountError}

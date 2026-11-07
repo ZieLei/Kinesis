@@ -8,7 +8,10 @@
     "scheme": "kinesis",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Kinesis connects to the point-of-sale server on your shop's local network."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,12 +22,17 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.Kinesis",
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "allowBackup": false
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Kinesis POS",
+      "shortName": "Kinesis",
+      "themeColor": "#1e1e2e",
+      "backgroundColor": "#1e1e2e"
     },
     "plugins": [
       "expo-router",
@@ -47,7 +55,9 @@
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
-      ]
+      ],
+      "expo-sharing",
+      "./plugins/withKinesisNetworkSecurity"
     ],
     "experiments": {
       "typedRoutes": true,

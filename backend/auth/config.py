@@ -1,12 +1,12 @@
-from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from config_paths import ENV_FILE
 
-BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
+
 
 
 class AdminAuthSettings(BaseSettings):
@@ -104,20 +104,47 @@ class AdminAuthSettings(BaseSettings):
         le=1440,
     )
 
+    # POS web clients (Expo web build served by the TLS reverse proxy).
+    # Native apps keep using header credentials and are not affected.
+
+    pos_allowed_origins: str = "http://localhost:8081,http://127.0.0.1:8081"
+
+    pos_cookie_secure: bool = False
+
+    # Terminal device credentials.
+
+    terminal_token_rotation_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+    )
+
+    terminal_token_grace_seconds: int = Field(
+        default=120,
+        ge=10,
+        le=900,
+    )
+
+    terminal_credential_idle_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+    )
+
     model_config = SettingsConfigDict(
-        env_file=BACKEND_DIRECTORY / ".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         env_prefix="KINESIS_",
         extra="ignore",
     )
 
-    @field_validator("admin_allowed_origins")
+    @field_validator("admin_allowed_origins", "pos_allowed_origins")
     @classmethod
     def validate_admin_origins(cls, value: str) -> str:
         supplied_origins = [item.strip() for item in value.split(",") if item.strip()]
 
         if not supplied_origins:
-            raise ValueError("At least one admin origin must be configured.")
+            raise ValueError("At least one browser origin must be configured.")
 
         normalized_origins: list[str] = []
 
@@ -197,6 +224,21 @@ class AdminAuthSettings(BaseSettings):
             ):
                 raise ValueError("Production admin origins must use HTTPS.")
 
+            if not self.pos_cookie_secure:
+                raise ValueError("Production POS sessions must use Secure cookies.")
+
+            if any(
+                not origin.startswith("https://")
+                for origin in self.pos_origins
+            ):
+                raise ValueError("Production POS origins must use HTTPS.")
+
+        if self.pos_origins & self.allowed_origins:
+            raise ValueError(
+                "The POS and admin web applications must use different "
+                "origins (for example, different ports)."
+            )
+
         return self
 
     @property
@@ -206,6 +248,28 @@ class AdminAuthSettings(BaseSettings):
             for origin in self.admin_allowed_origins.split(",")
             if origin.strip()
         )
+
+    @property
+    def pos_origins(self) -> frozenset[str]:
+        return frozenset(
+            origin.strip()
+            for origin in self.pos_allowed_origins.split(",")
+            if origin.strip()
+        )
+
+    @property
+    def terminal_cookie_name(self) -> str:
+        # The __Host- prefix requires Secure, Path=/ and no Domain.
+        # Browsers reject Secure cookies on plain-HTTP development origins.
+        prefix = "__Host-" if self.pos_cookie_secure else ""
+
+        return f"{prefix}kinesis_terminal"
+
+    @property
+    def cashier_cookie_name(self) -> str:
+        prefix = "__Host-" if self.pos_cookie_secure else ""
+
+        return f"{prefix}kinesis_cashier"
 
     @property
     def effective_secret_key(self) -> bytes:

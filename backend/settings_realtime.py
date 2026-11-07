@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -17,6 +16,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from database import SessionLocal
 from models import Terminal
+from auth.config import auth_settings
+from auth.pos_auth import (
+    TOKEN_MAX_LENGTH,
+    is_pos_origin,
+    resolve_terminal_credential,
+)
 from terminal_routes import require_admin_token
 
 
@@ -235,46 +240,62 @@ def get_terminal_connection_metrics(
 async def terminal_settings_websocket(websocket: WebSocket):
     terminal_id: int | None = None
 
+    # Browser terminals authenticate with their HttpOnly cookie during the
+    # handshake. Browsers attach cookies to cross-site WebSocket handshakes
+    # in some configurations and WebSockets are not covered by CORS, so the
+    # Origin must be an explicitly allowed POS origin.
+    cookie_token = websocket.cookies.get(auth_settings.terminal_cookie_name)
+
+    if cookie_token is not None and not is_pos_origin(
+        websocket.headers.get("origin"),
+    ):
+        await websocket.close(code=4403)
+        return
+
     await websocket.accept()
 
     try:
-        # Require authentication immediately after connecting.
-        try:
-            authentication = await asyncio.wait_for(
-                websocket.receive_json(),
-                timeout=10,
-            )
-        except asyncio.TimeoutError:
-            await websocket.close(code=4408)
-            return
+        if cookie_token is not None:
+            raw_token = cookie_token
+        else:
+            # Native apps send their credential as the first message.
+            try:
+                authentication = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=10,
+                )
+            except asyncio.TimeoutError:
+                await websocket.close(code=4408)
+                return
 
-        if not isinstance(authentication, dict):
-            await websocket.close(code=4400)
-            return
+            if not isinstance(authentication, dict):
+                await websocket.close(code=4400)
+                return
 
-        if authentication.get("type") != "authenticate":
-            await websocket.close(code=4400)
-            return
+            if authentication.get("type") != "authenticate":
+                await websocket.close(code=4400)
+                return
 
-        raw_token = authentication.get("session_token")
+            raw_token = authentication.get("session_token")
 
-        if not isinstance(raw_token, str) or not raw_token.strip():
+        if (
+            not isinstance(raw_token, str)
+            or not raw_token.strip()
+            or len(raw_token.strip()) > TOKEN_MAX_LENGTH
+        ):
             await websocket.close(code=4401)
             return
 
-        token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
-
-        # Use the same hashed terminal credentials as HTTP authentication.
+        # Same lookup as HTTP authentication, including rotation, idle
+        # expiry and reuse detection.
         with SessionLocal() as db:
-            terminal = db.scalar(
-                select(Terminal).where(
-                    Terminal.session_token_hash == token_hash,
-                )
-            )
+            resolved = resolve_terminal_credential(db, raw_token.strip())
 
-            if terminal is None:
+            if resolved is None:
                 await websocket.close(code=4401)
                 return
+
+            terminal, _kind = resolved
 
             if not terminal.is_enabled:
                 await websocket.close(code=4403)

@@ -20,17 +20,12 @@ import {
   usePathname,
 } from "expo-router";
 
-import * as SecureStore from "expo-secure-store";
-
 import {
   ApiError,
   apiRequest,
   isNetworkError,
 } from "@/lib/api";
-
-
-export const CASHIER_SESSION_TOKEN_KEY =
-  "kinesis-cashier-session-token";
+import { credentials } from "@/lib/auth/credentials";
 
 
 export type CashierAccount = {
@@ -43,7 +38,8 @@ export type CashierAccount = {
 type CashierLoginResponse = {
   authenticated: boolean;
   cashier: CashierAccount;
-  session_token: string;
+  // Native only. Browser terminals receive an HttpOnly cookie instead.
+  session_token?: string;
   idle_expires_at: string;
   absolute_expires_at: string;
 };
@@ -99,13 +95,13 @@ function getErrorMessage(error: unknown): string {
 
 
 type CashierAuthProviderProps = {
-  terminalSessionToken: string | null;
+  terminalPaired: boolean;
   children: ReactNode;
 };
 
 
 export function CashierAuthProvider({
-  terminalSessionToken,
+  terminalPaired,
   children,
 }: CashierAuthProviderProps) {
   const [status, setStatus] =
@@ -113,9 +109,6 @@ export function CashierAuthProvider({
 
   const [cashier, setCashier] =
     useState<CashierAccount | null>(null);
-
-  const [sessionToken, setSessionToken] =
-    useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -126,10 +119,9 @@ export function CashierAuthProvider({
 
 
   const refreshSession = useCallback(async () => {
-    if (!terminalSessionToken) {
+    if (!terminalPaired) {
       setStatus("terminal-unavailable");
       setCashier(null);
-      setSessionToken(null);
       setError(null);
 
       return;
@@ -139,13 +131,8 @@ export function CashierAuthProvider({
     setError(null);
 
     try {
-      const storedToken = await SecureStore.getItemAsync(
-        CASHIER_SESSION_TOKEN_KEY,
-      );
-
-      if (!storedToken) {
+      if (!(await credentials.mayHaveCashierSession())) {
         setCashier(null);
-        setSessionToken(null);
         setStatus("unauthenticated");
 
         return;
@@ -153,15 +140,9 @@ export function CashierAuthProvider({
 
       const response = await apiRequest<CashierSessionResponse>(
         "/api/cashier-auth/session",
-        {
-          headers: {
-            "X-Cashier-Session": storedToken,
-          },
-        },
       );
 
       setCashier(response.cashier);
-      setSessionToken(storedToken);
       setStatus("authenticated");
       setError(null);
     } catch (requestError) {
@@ -172,9 +153,7 @@ export function CashierAuthProvider({
         // The server explicitly rejected the saved cashier token.
         // This is an expired/invalid session, not a network outage.
         try {
-          await SecureStore.deleteItemAsync(
-            CASHIER_SESSION_TOKEN_KEY,
-          );
+          await credentials.clearCashier();
         } catch (storageError) {
           console.error(
             "[Cashier Auth] Could not clear expired credentials:",
@@ -183,7 +162,6 @@ export function CashierAuthProvider({
         }
 
         setCashier(null);
-        setSessionToken(null);
         setStatus("unauthenticated");
         setError(null);
 
@@ -196,7 +174,7 @@ export function CashierAuthProvider({
       // Keep the saved token locally. The server could not be
       // reached, so we cannot conclude that the session expired.
     }
-  }, [terminalSessionToken]);
+  }, [terminalPaired]);
 
 
   useEffect(() => {
@@ -211,7 +189,7 @@ export function CashierAuthProvider({
 
   const login = useCallback(
     async (username: string, pin: string) => {
-      if (!terminalSessionToken) {
+      if (!terminalPaired) {
         const unavailableError = new Error(
           "This terminal is not connected to the Kinesis server. Check the shop Wi-Fi and try again.",
         );
@@ -237,10 +215,7 @@ export function CashierAuthProvider({
         );
 
         try {
-          await SecureStore.setItemAsync(
-            CASHIER_SESSION_TOKEN_KEY,
-            response.session_token,
-          );
+          await credentials.saveCashierSession(response.session_token);
         } catch (storageError) {
           // Do not leave a server session active if its credential
           // cannot be stored securely on this device.
@@ -249,9 +224,9 @@ export function CashierAuthProvider({
               "/api/cashier-auth/logout",
               {
                 method: "POST",
-                headers: {
-                  "X-Cashier-Session": response.session_token,
-                },
+                headers: response.session_token
+                  ? { "X-Cashier-Session": response.session_token }
+                  : undefined,
               },
             );
           } catch (logoutError) {
@@ -267,7 +242,6 @@ export function CashierAuthProvider({
         }
 
         setCashier(response.cashier);
-        setSessionToken(response.session_token);
         setStatus("authenticated");
         setError(null);
       } catch (loginError) {
@@ -276,12 +250,11 @@ export function CashierAuthProvider({
         setError(message);
         setStatus("unauthenticated");
         setCashier(null);
-        setSessionToken(null);
 
         throw loginError;
       }
     },
-    [terminalSessionToken],
+    [terminalPaired],
   );
 
 
@@ -291,28 +264,13 @@ export function CashierAuthProvider({
 
 
   const logout = useCallback(async () => {
-    let token = sessionToken;
-
     try {
-      token ??= await SecureStore.getItemAsync(
-        CASHIER_SESSION_TOKEN_KEY,
-      );
-    } catch (storageError) {
-      console.error(
-        "[Cashier Auth] Could not read session token during logout:",
-        storageError,
-      );
-    }
-
-    try {
-      if (token && terminalSessionToken) {
+      // The server revokes the session; on web it also clears the cookie.
+      if (terminalPaired && (await credentials.mayHaveCashierSession())) {
         await apiRequest(
           "/api/cashier-auth/logout",
           {
             method: "POST",
-            headers: {
-              "X-Cashier-Session": token,
-            },
           },
         );
       }
@@ -326,9 +284,7 @@ export function CashierAuthProvider({
       );
     } finally {
       try {
-        await SecureStore.deleteItemAsync(
-          CASHIER_SESSION_TOKEN_KEY,
-        );
+        await credentials.clearCashier();
       } catch (storageError) {
         console.error(
           "[Cashier Auth] Could not remove the local cashier session:",
@@ -337,11 +293,10 @@ export function CashierAuthProvider({
       }
 
       setCashier(null);
-      setSessionToken(null);
       setStatus("unauthenticated");
       setError(null);
     }
-  }, [sessionToken, terminalSessionToken]);
+  }, [terminalPaired]);
 
 
   // --------------------------------------------------

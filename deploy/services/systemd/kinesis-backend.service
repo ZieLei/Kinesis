@@ -1,0 +1,37 @@
+# Kinesis backend (FastAPI/uvicorn). Template: adjust paths, then
+#   sudo cp kinesis-*.service kinesis-*.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kinesis-backend kinesis-caddy kinesis-pki-renew.timer
+[Unit]
+Description=Kinesis POS backend
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=kinesis
+Group=kinesis
+Environment=KINESIS_ENV_FILE=/etc/kinesis/kinesis.env
+WorkingDirectory=/opt/kinesis/backend
+# One worker: settings WebSockets, backup locking and console sessions are
+# per-process. Loopback only: devices must come through the TLS proxy.
+ExecStart=/opt/kinesis/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header --timeout-graceful-shutdown 20
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kinesis
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

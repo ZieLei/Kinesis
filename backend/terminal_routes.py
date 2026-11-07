@@ -1,17 +1,14 @@
-import hashlib
 import logging
-import secrets
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Literal
 
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Query,
     Request,
+    Response,
     status,
 )
 from pydantic import BaseModel, Field, field_validator
@@ -20,6 +17,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from auth.pos_auth import (
+    authenticate_terminal,
+    current_terminal_auth,
+    derive_pos_csrf_token,
+    offer_rotation,
+    revoke_terminal_credentials,
+    set_terminal_cookie,
+)
+from config_paths import ENV_FILE
 from database import get_db
 from models import Terminal, TerminalCommand
 
@@ -31,9 +37,6 @@ router = APIRouter(
     tags=["Terminals"],
 )
 
-BACKEND_DIRECTORY = Path(__file__).resolve().parent
-
-
 class TerminalSettings(BaseSettings):
     terminal_heartbeat_timeout_seconds: int = Field(
         default=90,
@@ -42,7 +45,7 @@ class TerminalSettings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=BACKEND_DIRECTORY / ".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         env_prefix="KINESIS_",
         extra="ignore",
@@ -140,69 +143,23 @@ def require_admin_token() -> None:
 
 
 def require_terminal(
-    authorization: str | None = Header(
-        default=None,
-        alias="Authorization",
-    ),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Terminal:
     """
-    Authenticate a registered POS terminal using its Bearer credential.
+    Authenticate a registered POS terminal.
 
-    Terminal tokens are stored in PostgreSQL as SHA-256 digests.
+    Native apps send ``Authorization: Bearer <token>``; browser terminals
+    send an HttpOnly cookie plus Origin/CSRF checks on unsafe methods.
+    Tokens are stored in PostgreSQL as SHA-256 digests. See auth/pos_auth.py
+    for rotation, reuse detection and revocation.
     """
 
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Terminal authentication is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    scheme, separator, raw_token = authorization.partition(" ")
-
-    if (
-        not separator
-        or scheme.lower() != "bearer"
-        or not raw_token.strip()
-        or len(raw_token.strip()) > 256
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Use a valid Bearer token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token_hash = hashlib.sha256(
-        raw_token.strip().encode("utf-8"),
-    ).hexdigest()
-
-    terminal = db.scalar(
-        select(Terminal).where(
-            Terminal.session_token_hash == token_hash,
-        )
-    )
-
-    if terminal is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Terminal credentials are invalid.",
-        )
-
-    if not terminal.is_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This terminal has been disabled by an administrator.",
-        )
-
-    return terminal
+    return authenticate_terminal(request, db).terminal
 
 
 def require_admin_or_terminal(
-    authorization: str | None = Header(
-        default=None,
-        alias="Authorization",
-    ),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Terminal:
     """
@@ -217,7 +174,7 @@ def require_admin_or_terminal(
     """
 
     return require_terminal(
-        authorization,
+        request,
         db,
     )
 
@@ -289,7 +246,9 @@ def get_terminal_or_404(
 
 
 def get_request_ip(request: Request) -> str | None:
-    # Use the direct peer address. Do not trust arbitrary forwarded headers.
+    # The direct peer address. Behind the TLS reverse proxy, uvicorn's
+    # --proxy-headers --forwarded-allow-ips=127.0.0.1 replaces it with the
+    # client address forwarded by the proxy; other clients cannot spoof it.
     if request.client is None:
         return None
 
@@ -371,10 +330,21 @@ def register_terminal_legacy():
 def terminal_heartbeat(
     heartbeat: TerminalHeartbeatRequest,
     request: Request,
+    response: Response,
     terminal: Terminal = Depends(require_terminal),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, private"
+
     now = utc_now()
+    authentication = current_terminal_auth(request)
+
+    # Only the holder of the current credential may receive its successor.
+    rotated_token = (
+        offer_rotation(terminal, now)
+        if authentication.kind == "current"
+        else None
+    )
 
     terminal.last_seen_at = now
     terminal.updated_at = now
@@ -406,7 +376,18 @@ def terminal_heartbeat(
             detail="The terminal heartbeat could not be saved.",
         ) from exc
 
+    rotation: dict = {}
+
+    if rotated_token is not None:
+        if authentication.via_cookie:
+            set_terminal_cookie(response, rotated_token)
+        else:
+            # Native clients replace the keystore entry and use the new
+            # token from the next request on.
+            rotation["session_token"] = rotated_token
+
     return {
+        **rotation,
         "terminal_id": terminal.id,
         "device_id": terminal.device_id,
         "server_time": now.isoformat(),
@@ -422,6 +403,48 @@ def terminal_heartbeat(
         "commands": [
             terminal_command_response(command) for command in pending_commands
         ],
+    }
+
+
+# --------------------------------------------------
+# Terminal: describe the current credential
+# --------------------------------------------------
+
+
+@router.get("/terminals/session")
+def get_terminal_session(
+    request: Request,
+    response: Response,
+    terminal: Terminal = Depends(require_terminal),
+):
+    """
+    Lets a browser terminal (whose credential is an HttpOnly cookie that
+    JavaScript cannot read) check whether it is paired, and obtain the CSRF
+    token for state-changing requests. The CSRF token is only returned to
+    cookie-authenticated clients.
+    """
+
+    response.headers["Cache-Control"] = "no-store, private"
+
+    authentication = current_terminal_auth(request)
+
+    return {
+        "terminal_id": terminal.id,
+        "device_id": terminal.device_id,
+        "is_enabled": terminal.is_enabled,
+        "maintenance_mode": terminal.maintenance_mode,
+        "heartbeat_interval_seconds": max(
+            5,
+            min(
+                30,
+                settings.terminal_heartbeat_timeout_seconds // 3,
+            ),
+        ),
+        "csrf_token": (
+            derive_pos_csrf_token(terminal)
+            if authentication.via_cookie
+            else None
+        ),
     }
 
 
@@ -760,6 +783,10 @@ def disconnect_terminal(
     terminal.maintenance_mode = False
     terminal.updated_at = now
 
+    # Revoke the device credential and its cashier sessions. Re-enabling
+    # the terminal therefore requires a new administrator-issued QR code.
+    revoke_terminal_credentials(db, terminal, now)
+
     pending_commands = db.scalars(
         select(TerminalCommand).where(
             TerminalCommand.terminal_id == terminal.id,
@@ -785,11 +812,30 @@ def disconnect_terminal(
             detail="The terminal could not be disabled.",
         ) from exc
 
+    # Close live settings connections now instead of waiting for the device
+    # to reconnect. Imported here to avoid a circular import.
+    try:
+        import anyio
+
+        from settings_realtime import connection_manager
+
+        anyio.from_thread.run(
+            connection_manager.disconnect_terminal,
+            terminal.id,
+        )
+    except Exception:
+        logger.warning(
+            "Could not close live connections for terminal %s.",
+            terminal.id,
+            exc_info=True,
+        )
+
     return {
         "terminal_id": terminal.id,
         "is_enabled": terminal.is_enabled,
         "message": (
-            "Terminal access disabled. The app will be refused on its next API request."
+            "Terminal access revoked. The device must be re-paired with a "
+            "new QR code before it can be used again."
         ),
     }
 
@@ -813,6 +859,8 @@ def enable_terminal(
     terminal.is_enabled = True
     terminal.updated_at = utc_now()
 
+    requires_pairing = terminal.session_token_hash is None
+
     try:
         db.commit()
 
@@ -829,8 +877,12 @@ def enable_terminal(
     return {
         "terminal_id": terminal.id,
         "is_enabled": terminal.is_enabled,
+        "requires_pairing": requires_pairing,
         "message": (
-            "Terminal access enabled. It will appear connected after its "
+            "Terminal enabled. Its credential was revoked, so pair the device "
+            "again with a new QR code."
+            if requires_pairing
+            else "Terminal access enabled. It will appear connected after its "
             "next successful heartbeat."
         ),
     }

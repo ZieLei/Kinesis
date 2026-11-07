@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Service
-from terminal_routes import require_admin_or_terminal, require_writable_terminal
+from cashier_routes import require_writable_cashier
+from terminal_routes import require_admin_or_terminal
 
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,7 @@ def get_services(
 )
 def create_service(
     service_data: ServiceCreate,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     service = Service(
@@ -190,7 +191,7 @@ def create_service(
 def update_service(
     service_id: int,
     service_data: ServiceUpdate,
-    _terminal: object = Depends(require_writable_terminal),
+    _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
     updates = service_data.model_dump(exclude_unset=True)

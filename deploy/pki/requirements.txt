@@ -1,0 +1,2 @@
+# kinesis-pki (deployment tooling only; not a backend dependency)
+cryptography>=44,<51

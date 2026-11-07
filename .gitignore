@@ -82,3 +82,6 @@ backend/uploads/products/*
 *.tmp
 *.bak
 *.old
+
+# Agents
+.claude

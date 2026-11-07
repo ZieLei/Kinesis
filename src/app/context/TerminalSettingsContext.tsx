@@ -15,7 +15,7 @@ import {
   type ImageURISource,
 } from "react-native";
 
-import * as SecureStore from "expo-secure-store";
+import { deviceCache } from "@/lib/deviceCache";
 
 import {
   connectTerminalSettingsSocket,
@@ -25,7 +25,7 @@ import {
 } from "@/lib/terminalAgentApi";
 
 import {
-  API_BASE_URL,
+  apiFetch,
   isNetworkError,
 } from "@/lib/api";
 
@@ -125,13 +125,13 @@ function blobToDataUri(blob: Blob): Promise<string> {
 
 
 type TerminalSettingsProviderProps = {
-  sessionToken: string | null;
+  terminalPaired: boolean;
   children: ReactNode;
 };
 
 
 export function TerminalSettingsProvider({
-  sessionToken,
+  terminalPaired,
   children,
 }: TerminalSettingsProviderProps) {
   const [settings, setSettings] =
@@ -179,7 +179,7 @@ export function TerminalSettingsProvider({
 
 
   const refreshSettings = useCallback(async () => {
-    if (!sessionToken) {
+    if (!terminalPaired) {
       return;
     }
 
@@ -197,7 +197,6 @@ export function TerminalSettingsProvider({
 
     try {
       const response = await fetchTerminalSettings(
-        sessionToken,
         controller.signal,
       );
 
@@ -218,7 +217,8 @@ export function TerminalSettingsProvider({
       networkFailureLogged.current = false;
 
       try {
-        await SecureStore.setItemAsync(
+        // Non-secret display settings.
+        await deviceCache.setItem(
           SETTINGS_CACHE_KEY,
           JSON.stringify(response),
         );
@@ -270,7 +270,7 @@ export function TerminalSettingsProvider({
         }
       }
     }
-  }, [sessionToken]);
+  }, [terminalPaired]);
 
 
   // --------------------------------------------------
@@ -279,7 +279,7 @@ export function TerminalSettingsProvider({
 
 
   useEffect(() => {
-    if (!sessionToken) {
+    if (!terminalPaired) {
       setSettings(null);
       setVersion(null);
       setUpdatedAt(null);
@@ -374,7 +374,7 @@ export function TerminalSettingsProvider({
       }
 
       try {
-        const socket = connectTerminalSettingsSocket(sessionToken);
+        const socket = connectTerminalSettingsSocket();
 
         activeSocket = socket;
 
@@ -496,7 +496,7 @@ export function TerminalSettingsProvider({
       setError(null);
 
       try {
-        const cached = await SecureStore.getItemAsync(
+        const cached = await deviceCache.getItem(
           SETTINGS_CACHE_KEY,
         );
 
@@ -606,7 +606,7 @@ export function TerminalSettingsProvider({
       }
     };
   }, [
-    sessionToken,
+    terminalPaired,
     refreshSettings,
   ]);
 
@@ -625,7 +625,7 @@ export function TerminalSettingsProvider({
     const filename = settings?.gcashQrImagePath;
 
     if (
-      !sessionToken ||
+      !terminalPaired ||
       !filename ||
       version === null
     ) {
@@ -645,12 +645,11 @@ export function TerminalSettingsProvider({
       setGcashQrImageError(null);
 
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/terminals/gcash-qr?version=${version}`,
+        const response = await apiFetch(
+          `/api/terminals/gcash-qr?version=${encodeURIComponent(String(version))}`,
           {
             method: "GET",
             headers: {
-              Authorization: `Bearer ${sessionToken}`,
               Accept: "image/png,image/jpeg",
             },
             signal: controller.signal,
@@ -727,7 +726,7 @@ export function TerminalSettingsProvider({
       controller.abort();
     };
   }, [
-    sessionToken,
+    terminalPaired,
     settings?.gcashQrImagePath,
     version,
     gcashQrReloadKey,

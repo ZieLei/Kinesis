@@ -10,21 +10,25 @@ import {
 } from "react";
 
 import {
-  Activity,
-  CheckCircle2,
-  CircleAlert,
-  Clock,
   Download,
   Eraser,
   Pause,
   Play,
   RefreshCw,
   Send,
-  Terminal as TerminalIcon,
-  Wifi,
-  WifiOff,
-  X,
 } from "lucide-react";
+
+import Section from "../components/ui/Section";
+import PageHeader from "../components/ui/PageHeader";
+import Notice from "../components/ui/Notice";
+import SearchInput from "../components/ui/SearchInput";
+import StatusDot, { type StatusTone } from "../components/ui/StatusDot";
+import {
+  buttonPrimary,
+  buttonSecondary,
+  buttonSmall,
+  focusRing,
+} from "../components/ui/styles";
 
 import { API_BASE_URL } from "../lib/api";
 
@@ -191,58 +195,37 @@ function getWebSocketUrl(): string {
 // --------------------------------------------------
 
 
+// Rendered inside a `.dark` container, so ctp tokens resolve to Mocha.
 function getLevelStyle(
   level: LogLevel,
 ): string {
   switch (level) {
     case "SUCCESS":
-      return "text-[#a6e3a1]";
+      return "text-ctp-green";
 
     case "WARN":
-      return "text-[#f9e2af]";
+      return "text-ctp-yellow";
 
     case "ERROR":
-      return "text-[#f38ba8]";
+      return "text-ctp-red";
 
     case "DEBUG":
-      return "text-[#9399b2]";
+      return "text-ctp-overlay2";
 
     case "COMMAND":
-      return "text-[#89b4fa]";
+      return "text-ctp-blue";
 
     case "INFO":
     default:
-      return "text-[#cdd6f4]";
+      return "text-ctp-text";
   }
 }
 
 
-function getLevelBadgeStyle(
-  level: LogFilter,
-): string {
-  switch (level) {
-    case "SUCCESS":
-      return "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]";
-
-    case "WARN":
-      return "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]";
-
-    case "ERROR":
-      return "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]";
-
-    case "DEBUG":
-      return "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#9399b2]";
-
-    case "COMMAND":
-      return "border-[#89b4fa]/30 bg-[#89b4fa]/10 text-[#89b4fa]";
-
-    case "INFO":
-      return "border-[#cdd6f4]/20 bg-[#cdd6f4]/5 text-[#cdd6f4]";
-
-    case "ALL":
-    default:
-      return "border-[#585b70] bg-[#313244] text-[#cdd6f4]";
-  }
+function formatFilterLabel(level: LogFilter): string {
+  return level === "ALL"
+    ? "All"
+    : level.charAt(0) + level.slice(1).toLowerCase();
 }
 
 
@@ -793,27 +776,12 @@ export default function Console() {
 
   const statusConfig: Record<
     ConnectionState,
-    { label: string; color: string }
+    { label: string; tone: StatusTone }
   > = {
-    connecting: {
-      label: "Connecting",
-      color: "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]",
-    },
-
-    connected: {
-      label: "Connected",
-      color: "border-[#a6e3a1]/30 bg-[#a6e3a1]/10 text-[#a6e3a1]",
-    },
-
-    disconnected: {
-      label: "Disconnected",
-      color: "border-[#9399b2]/30 bg-[#9399b2]/10 text-[#bac2de]",
-    },
-
-    error: {
-      label: "Connection error",
-      color: "border-[#f38ba8]/30 bg-[#f38ba8]/10 text-[#f38ba8]",
-    },
+    connecting: { label: "Connecting", tone: "warning" },
+    connected: { label: "Connected", tone: "success" },
+    disconnected: { label: "Disconnected", tone: "neutral" },
+    error: { label: "Connection error", tone: "danger" },
   };
 
 
@@ -822,151 +790,86 @@ export default function Console() {
   // --------------------------------------------------
 
   return (
-    <div className="min-w-0 space-y-5 font-line-seed text-[#cdd6f4]">
-      {/* Header */}
-      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div className="flex items-start gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-[#89b4fa]/20 bg-[#89b4fa]/10">
-            <TerminalIcon
-              size={22}
-              className="text-[#89b4fa]"
-            />
-          </div>
-
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              Operational Console
-            </h1>
-
-            <p className="mt-1 max-w-xl text-sm leading-6 text-[#a6adc8]">
-              Inspect backend health, inventory, sales, and registered
-              terminals through approved diagnostic commands.
-            </p>
-          </div>
-        </div>
-
-        <div
-          className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${statusConfig[connection].color}`}
-        >
-          {connection === "connected" ? (
-            <Wifi size={14} />
-          ) : connection === "connecting" ? (
-            <RefreshCw
-              size={14}
-              className="animate-spin"
-            />
-          ) : (
-            <WifiOff size={14} />
-          )}
-
-          {statusConfig[connection].label}
-        </div>
-      </header>
+    <div className="w-full min-w-0 space-y-8 font-line-seed">
+      <PageHeader
+        title="Operational console"
+        description="Inspect backend health, inventory, sales, and registered terminals through approved diagnostic commands."
+        status={
+          <StatusDot
+            tone={statusConfig[connection].tone}
+            pulse={connection === "connecting"}
+          >
+            {statusConfig[connection].label}
+          </StatusDot>
+        }
+      />
 
 
       {/* Connection information */}
-      <section className="rounded-xl border border-[#313244] bg-[#1e1e2e] p-4">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-3">
-            {connection === "connected" ? (
-              <CheckCircle2
-                size={18}
-                className="mt-0.5 shrink-0 text-[#a6e3a1]"
-              />
-            ) : connection === "connecting" ? (
-              <Clock
-                size={18}
-                className="mt-0.5 shrink-0 text-[#f9e2af]"
-              />
-            ) : (
-              <CircleAlert
-                size={18}
-                className="mt-0.5 shrink-0 text-[#f38ba8]"
-              />
-            )}
-
-            <div>
-              <p className="text-sm font-medium text-[#cdd6f4]">
-                {connection === "connected"
-                  ? "Authenticated with the backend"
-                  : connection === "connecting"
-                    ? "Establishing secure console session"
-                    : "Console session is not active"}
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-[#a6adc8]">
-                {connection === "connected"
-                  ? "You can run the supported diagnostic commands below."
-                  : connection === "connecting"
-                    ? "The server is validating your administrator session."
-                    : "Reconnect to establish a new console connection. Your administrator login session is managed by Kinesis."}
-              </p>
-            </div>
-          </div>
-
-
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={connect}
-              disabled={connection === "connecting"}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <RefreshCw
-                size={14}
-                className={
-                  connection === "connecting"
-                    ? "animate-spin"
-                    : ""
-                }
-              />
-
-              Reconnect
-            </button>
-          </div>
-        </div>
-      </section>
+      <Notice
+        role="status"
+        tone={
+          connection === "connected"
+            ? "success"
+            : connection === "connecting"
+              ? "warning"
+              : "danger"
+        }
+        title={
+          connection === "connected"
+            ? "Authenticated with the backend"
+            : connection === "connecting"
+              ? "Establishing secure console session"
+              : "Console session is not active"
+        }
+        action={
+          <button
+            type="button"
+            onClick={connect}
+            disabled={connection === "connecting"}
+            className={buttonSecondary}
+          >
+            <RefreshCw
+              size={14}
+              aria-hidden="true"
+              className={connection === "connecting" ? "animate-spin" : ""}
+            />
+            Reconnect
+          </button>
+        }
+      >
+        {connection === "connected"
+          ? "You can run the supported diagnostic commands below."
+          : connection === "connecting"
+            ? "The server is validating your administrator session."
+            : "Reconnect to establish a new console connection. Your administrator login session is managed by Kinesis."}
+      </Notice>
 
 
       {/* Backend output */}
-      <section className="overflow-hidden rounded-xl border border-[#313244] bg-[#181825]">
-        <div className="flex flex-col justify-between gap-3 border-b border-[#313244] px-4 py-3 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
-            <Activity
-              size={16}
-              className="text-[#89b4fa]"
-            />
-
-            <h2 className="text-sm font-semibold">
-              Backend output
-            </h2>
-
-            <span className="rounded-md bg-[#313244] px-2 py-0.5 text-[11px] tabular-nums text-[#bac2de]">
-              {filteredLogs.length.toLocaleString()} entries
-            </span>
-          </div>
-
-
-          <div className="flex flex-wrap items-center gap-2">
+      <Section
+        id="console-output"
+        title="Backend output"
+        badge={`${filteredLogs.length.toLocaleString()} entries`}
+        actions={
+          <>
             <button
               type="button"
               onClick={() =>
                 setPaused((current) => !current)
               }
+              aria-pressed={paused}
               title={
                 paused
                   ? "Resume incoming log display"
                   : "Pause incoming log display"
               }
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition ${paused
-                  ? "border-[#f9e2af]/30 bg-[#f9e2af]/10 text-[#f9e2af]"
-                  : "border-[#45475a] text-[#bac2de] hover:bg-[#313244]"
-                }`}
+              className={`${buttonSecondary} ${buttonSmall} ${paused ? "!border-ctp-yellow/50 !text-ctp-yellow" : ""}`}
             >
               {paused ? (
-                <Play size={13} />
+                <Play size={13} aria-hidden="true" />
               ) : (
-                <Pause size={13} />
+                <Pause size={13} aria-hidden="true" />
               )}
 
               {paused
@@ -974,153 +877,128 @@ export default function Console() {
                 : "Pause logs"}
             </button>
 
-
             <button
               type="button"
               onClick={exportLogs}
               disabled={logs.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#45475a] px-2.5 py-2 text-xs text-[#bac2de] transition hover:bg-[#313244] disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${buttonSecondary} ${buttonSmall}`}
             >
-              <Download size={13} />
+              <Download size={13} aria-hidden="true" />
               Export
             </button>
-
 
             <button
               type="button"
               onClick={clearLogs}
               disabled={logs.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#45475a] px-2.5 py-2 text-xs text-[#bac2de] transition hover:bg-[#313244] disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${buttonSecondary} ${buttonSmall}`}
             >
-              <Eraser size={13} />
+              <Eraser size={13} aria-hidden="true" />
               Clear
             </button>
-          </div>
-        </div>
-
-
+          </>
+        }
+        bodyClassName="space-y-3"
+      >
         {/* Filters */}
-        <div className="flex flex-col gap-3 border-b border-[#313244] px-4 py-3">
-          <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            role="group"
+            aria-label="Filter by log level"
+            className="inline-flex w-fit max-w-full overflow-x-auto rounded-md border border-ctp-surface1 p-0.5"
+          >
             {LOG_FILTERS.map((item) => (
               <button
                 type="button"
                 key={item}
                 onClick={() => setFilter(item)}
-                className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${filter === item
-                    ? getLevelBadgeStyle(item)
-                    : "border-transparent text-[#9399b2] hover:bg-[#313244] hover:text-[#cdd6f4]"
+                aria-pressed={filter === item}
+                className={`shrink-0 rounded px-2.5 py-1 text-xs transition ${focusRing} ${filter === item
+                    ? "bg-ctp-surface0 font-medium text-ctp-text"
+                    : "text-ctp-subtext0 hover:text-ctp-text"
                   }`}
               >
-                {item}
+                {formatFilterLabel(item)}
               </button>
             ))}
           </div>
 
-
-          <div className="flex items-center gap-2 rounded-lg border border-[#313244] bg-[#1e1e2e] px-3">
-            <Activity
-              size={14}
-              className="shrink-0 text-[#9399b2]"
-            />
-
-            <input
-              type="text"
-              value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
-              placeholder="Filter messages..."
-              aria-label="Filter console messages"
-              className="min-w-0 flex-1 bg-transparent py-2.5 text-xs text-[#cdd6f4] outline-none placeholder:text-[#6c7086]"
-            />
-
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="Clear message filter"
-                className="text-[#9399b2] transition hover:text-[#cdd6f4]"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            label="Filter console messages"
+            placeholder="Filter messages"
+            className="w-full sm:w-72"
+          />
         </div>
 
 
-        {/* Output panel */}
-        <div
-          ref={logContainerRef}
-          className="h-[340px] overflow-auto bg-[#11111b] px-3 py-3 font-mono text-xs leading-5 sm:h-[420px] sm:px-4"
-          aria-live="polite"
-          aria-label="Backend console output"
-        >
-          {filteredLogs.length === 0 ? (
-            <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-2 text-center">
-              <TerminalIcon
-                size={25}
-                className="text-[#45475a]"
-              />
+        <div className="dark overflow-hidden rounded-md border border-ctp-surface0 bg-ctp-crust text-ctp-text">
+          {/* Output panel */}
+          <div
+            ref={logContainerRef}
+            className="h-[340px] overflow-auto px-3 py-3 font-mono text-xs leading-5 sm:h-[420px] sm:px-4"
+            aria-live="polite"
+            aria-label="Backend console output"
+          >
+            {filteredLogs.length === 0 ? (
+              <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-1 text-center">
+                <p className="text-ctp-subtext0">
+                  {logs.length === 0
+                    ? "No console output yet."
+                    : "No entries match your filters."}
+                </p>
 
-              <p className="text-[#a6adc8]">
-                {logs.length === 0
-                  ? "No console output yet."
-                  : "No entries match your filters."}
-              </p>
-
-              <p className="text-[11px] text-[#6c7086]">
-                {logs.length === 0
-                  ? "Connect to the backend or run help to get started."
-                  : "Change the level filter or search term."}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {filteredLogs.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid grid-cols-[66px_58px_minmax(0,1fr)] gap-x-2 sm:grid-cols-[72px_70px_minmax(0,1fr)] sm:gap-x-3"
-                >
-                  <span className="whitespace-nowrap text-[#6c7086]">
-                    {formatTimestamp(entry.timestamp)}
-                  </span>
-
-                  <span
-                    className={`font-semibold ${getLevelStyle(entry.level)}`}
+                <p className="text-ctp-overlay0">
+                  {logs.length === 0
+                    ? "Connect to the backend or run help to get started."
+                    : "Change the level filter or search term."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredLogs.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="grid grid-cols-[66px_58px_minmax(0,1fr)] gap-x-2 sm:grid-cols-[72px_70px_minmax(0,1fr)] sm:gap-x-3"
                   >
-                    {entry.level}
-                  </span>
+                    <span className="whitespace-nowrap text-ctp-overlay0">
+                      {formatTimestamp(entry.timestamp)}
+                    </span>
 
-                  <pre
-                    className={`min-w-0 whitespace-pre-wrap break-words font-mono ${getLevelStyle(entry.level)}`}
-                  >
-                    {entry.message}
-                  </pre>
-                </div>
-              ))}
-            </div>
+                    <span
+                      className={`font-semibold ${getLevelStyle(entry.level)}`}
+                    >
+                      {entry.level}
+                    </span>
+
+                    <pre
+                      className={`min-w-0 whitespace-pre-wrap break-words font-mono ${getLevelStyle(entry.level)}`}
+                    >
+                      {entry.message}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+
+          {paused && (
+            <p className="border-t border-ctp-surface0 bg-ctp-yellow/5 px-4 py-2 text-xs text-ctp-yellow">
+              Incoming backend log messages are hidden until you resume logs.
+              Command results and errors will still appear.
+            </p>
           )}
         </div>
 
 
-        {paused && (
-          <div className="border-t border-[#45475a] bg-[#f9e2af]/5 px-4 py-2 text-[11px] text-[#f9e2af]">
-            Incoming backend log messages are hidden until you resume logs.
-            Command results and errors will still appear.
-          </div>
-        )}
-
-
         {/* Diagnostic command input */}
-        <form
-          onSubmit={handleCommandSubmit}
-          className="border-t border-[#313244] bg-[#1e1e2e] p-3 sm:p-4"
-        >
-          <div className="mb-2 flex items-center justify-between gap-3">
+        <form onSubmit={handleCommandSubmit} className="pt-2">
+          <div className="mb-1.5 flex items-center justify-between gap-3">
             <label
               htmlFor="console-command"
-              className="text-xs font-medium text-[#bac2de]"
+              className="text-sm font-medium text-ctp-text"
             >
               Diagnostic command
             </label>
@@ -1130,7 +1008,8 @@ export default function Console() {
               onClick={() =>
                 setShowCommands((current) => !current)
               }
-              className="text-[11px] text-[#89b4fa] transition hover:text-[#b4befe]"
+              aria-expanded={showCommands}
+              className={`rounded text-xs text-ctp-mauve hover:underline ${focusRing}`}
             >
               {showCommands
                 ? "Hide commands"
@@ -1140,7 +1019,7 @@ export default function Console() {
 
 
           {showCommands && (
-            <div className="mb-3 grid grid-cols-1 gap-1.5 rounded-lg border border-[#313244] bg-[#181825] p-2">
+            <div className="mb-3 grid grid-cols-1 divide-y divide-ctp-surface0 border-y border-ctp-surface0 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-3">
               {COMMAND_EXAMPLES.map((item) => (
                 <button
                   type="button"
@@ -1150,13 +1029,13 @@ export default function Console() {
 
                     commandInputRef.current?.focus();
                   }}
-                  className="flex min-w-0 flex-col items-start rounded-md px-2.5 py-2 text-left transition hover:bg-[#313244]"
+                  className={`flex min-w-0 flex-col items-start px-2 py-2 text-left transition hover:bg-ctp-surface0/50 ${focusRing}`}
                 >
-                  <code className="text-xs text-[#89b4fa]">
+                  <code className="font-mono text-xs text-ctp-text">
                     {item.command}
                   </code>
 
-                  <span className="mt-1 text-[11px] text-[#9399b2]">
+                  <span className="mt-0.5 text-xs text-ctp-subtext0">
                     {item.description}
                   </span>
                 </button>
@@ -1165,28 +1044,33 @@ export default function Console() {
           )}
 
 
-          <div className="flex items-center gap-2 rounded-lg border border-[#45475a] bg-[#11111b] px-3 focus-within:border-[#89b4fa]/60">
-            <span className="select-none font-mono text-sm text-[#a6e3a1]">
-              $
-            </span>
+          <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-ctp-surface1 bg-ctp-mantle px-3 transition focus-within:border-ctp-mauve focus-within:ring-1 focus-within:ring-ctp-mauve">
+              <span
+                aria-hidden="true"
+                className="select-none font-mono text-sm text-ctp-green"
+              >
+                $
+              </span>
 
-            <input
-              id="console-command"
-              ref={commandInputRef}
-              type="text"
-              value={command}
-              onChange={(event) => {
-                setCommand(event.target.value);
-                setHistoryIndex(-1);
-              }}
-              onKeyDown={handleCommandKeyDown}
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={200}
-              placeholder="Type help or a diagnostic command..."
-              disabled={connection !== "connected"}
-              className="min-w-0 flex-1 bg-transparent py-3 font-mono text-xs text-[#cdd6f4] outline-none placeholder:text-[#585b70] disabled:cursor-not-allowed"
-            />
+              <input
+                id="console-command"
+                ref={commandInputRef}
+                type="text"
+                value={command}
+                onChange={(event) => {
+                  setCommand(event.target.value);
+                  setHistoryIndex(-1);
+                }}
+                onKeyDown={handleCommandKeyDown}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={200}
+                placeholder="Type help or a diagnostic command…"
+                disabled={connection !== "connected"}
+                className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-sm text-ctp-text outline-none placeholder:text-ctp-overlay0 disabled:cursor-not-allowed"
+              />
+            </div>
 
             <button
               type="submit"
@@ -1195,9 +1079,9 @@ export default function Console() {
                 !command.trim()
               }
               aria-label="Run diagnostic command"
-              className="inline-flex items-center gap-2 rounded-md bg-[#89b4fa] px-3 py-2 text-xs font-semibold text-[#1e1e2e] transition hover:bg-[#b4befe] disabled:cursor-not-allowed disabled:opacity-40"
+              className={buttonPrimary}
             >
-              <Send size={13} />
+              <Send size={13} aria-hidden="true" />
 
               <span className="hidden sm:inline">
                 Run
@@ -1206,12 +1090,13 @@ export default function Console() {
           </div>
 
 
-          <p className="mt-2 text-[10px] leading-5 text-[#6c7086]">
+          <p className="mt-2 text-xs leading-relaxed text-ctp-subtext0">
             Commands are restricted by the backend allowlist. This console
-            does not provide arbitrary shell or SQL execution.
+            does not provide arbitrary shell or SQL execution. Use ↑ and ↓ to
+            browse command history.
           </p>
         </form>
-      </section>
+      </Section>
     </div>
   );
 }

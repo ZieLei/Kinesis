@@ -1,5 +1,6 @@
 import type { SectionDefinition } from "../../types/settings";
-import { inputClass, navFocusRing } from "./styles";
+import { navFocusRing } from "./styles";
+import SearchInput from "../ui/SearchInput";
 
 export default function SettingsNav({
   search,
@@ -16,13 +17,12 @@ export default function SettingsNav({
 }) {
   return (
     <aside className="min-w-0 lg:sticky lg:top-4">
-      <input
-        type="search"
+      <SearchInput
         value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
+        onChange={onSearchChange}
         placeholder="Search settings"
-        aria-label="Search settings"
-        className={`${inputClass} mb-3`}
+        label="Search settings"
+        className="mb-3"
       />
 
       <nav

@@ -16,7 +16,7 @@ export default function Database() {
   const db = useDatabaseManagement();
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="w-full min-w-0 space-y-8 font-line-seed">
       {/* Database header */}
       <DatabaseHeader
         databaseConfigured={db.databaseConfigured}
@@ -24,6 +24,7 @@ export default function Database() {
         loading={db.loading}
       />
 
+      <div className="space-y-4">
       {/* Database status */}
       <StatusBanner
         adminAuthenticated={true}
@@ -41,6 +42,7 @@ export default function Database() {
         backupCount={db.backupCount}
         backupLoading={db.loading}
       />
+      </div>
 
       {/* Connection information */}
       <ConnectionSection

@@ -1,3 +1,4 @@
+
 import { View, Text, Dimensions, Pressable, Image } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -15,9 +16,9 @@ export default function Home() {
   const CARD_WIDTH = screenWidth * 0.9;
   const POS_PREVIEW = require("../assets/images/pos-preview.jpg");
 
-  const previewDimensions = Image.resolveAssetSource(POS_PREVIEW);
-  const PREVIEW_HEIGHT =
-    (previewDimensions.height / previewDimensions.width) * 200;
+  // Fixed preview dimensions to avoid unsupported asset resolution on web.
+  const PREVIEW_WIDTH = 200;
+  const PREVIEW_HEIGHT = 300;
 
   const workflow = [
     {
@@ -59,9 +60,7 @@ export default function Home() {
       >
         {/* Kinesis Logo */}
         <View className="flex-row items-center">
-          <Text
-            className="text-ctp-text text-2xl font-fredoka -mx-5"
-          >
+          <Text className="text-ctp-text text-2xl font-fredoka -mx-5">
             Kinesis
           </Text>
         </View>
@@ -166,8 +165,8 @@ export default function Home() {
             position: "absolute",
             bottom: 0,
             alignSelf: "center",
-            width: 200,
-            height: 300,
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
             overflow: "hidden",
             borderTopLeftRadius: 20,
             borderTopRightRadius: 20,
@@ -182,7 +181,7 @@ export default function Home() {
               position: "absolute",
               top: 0,
               left: 0,
-              width: 200,
+              width: PREVIEW_WIDTH,
               height: PREVIEW_HEIGHT,
             }}
           />

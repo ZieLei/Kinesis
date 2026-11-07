@@ -5,6 +5,8 @@ module.exports = {
     "./src/components/**/*.{js,jsx,ts,tsx}",
   ],
   presets: [require("nativewind/preset")],
+  // Required for setColorScheme() (theme toggle) on web; native is unaffected.
+  darkMode: "class",
   theme: {
     extend: {
       colors: {

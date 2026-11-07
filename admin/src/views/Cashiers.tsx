@@ -8,6 +8,19 @@ import {
 } from "react";
 
 import { apiRequest } from "../lib/api";
+import Notice from "../components/ui/Notice";
+import PageHeader from "../components/ui/PageHeader";
+import Section from "../components/ui/Section";
+import EmptyState from "../components/ui/EmptyState";
+import StatusDot from "../components/ui/StatusDot";
+import {
+  buttonDanger,
+  buttonPrimary,
+  buttonSecondary,
+  focusRing,
+  inputClass,
+  tableHead,
+} from "../components/ui/styles";
 
 type Cashier = {
   id: string;
@@ -40,24 +53,14 @@ const EMPTY_FORM: CashierForm = {
   is_supervisor: false,
 };
 
-const FOCUS_RING =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ctp-blue";
-
-const INPUT =
-  "w-full min-w-0 rounded-md border border-ctp-surface1 bg-ctp-mantle px-3 py-1.5 text-sm text-ctp-text outline-none transition placeholder:text-ctp-overlay0 focus:border-ctp-blue focus:ring-1 focus:ring-ctp-blue disabled:cursor-not-allowed disabled:opacity-50";
-
-const BUTTON_BASE = `inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS_RING}`;
-
-const PRIMARY = `${BUTTON_BASE} bg-ctp-blue text-ctp-base hover:brightness-110`;
-const SECONDARY = `${BUTTON_BASE} border border-ctp-surface1 text-ctp-text hover:bg-ctp-surface0`;
-const DANGER = `${BUTTON_BASE} border border-ctp-red/40 text-ctp-red hover:bg-ctp-red/10`;
-const SUCCESS = `${BUTTON_BASE} border border-ctp-green/40 text-ctp-green hover:bg-ctp-green/10`;
-const LINK = `rounded text-sm text-ctp-blue hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline ${FOCUS_RING}`;
-
+const PRIMARY = buttonPrimary;
+const SECONDARY = buttonSecondary;
+const DANGER = buttonDanger;
+const SUCCESS = buttonSecondary;
+const LINK = `rounded text-sm text-ctp-mauve hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline ${focusRing}`;
+const INPUT = inputClass;
 const LABEL = "mb-1 block text-xs font-medium text-ctp-subtext1";
-
-const TH =
-  "px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ctp-subtext0";
+const TH = tableHead;
 
 function formatDate(value: string | null): string {
   if (!value) return "Never";
@@ -327,77 +330,57 @@ export default function Cashiers() {
 
   return (
     <section
-      className="w-full min-w-0 space-y-6 font-line-seed"
+      className="w-full min-w-0 space-y-8 font-line-seed"
       aria-busy={showInitialLoading}
     >
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-ctp-surface0 pb-4">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-ctp-text">
-            Cashiers
-          </h1>
-          <p className="mt-0.5 text-xs text-ctp-subtext0">
-            {hasLoaded ? (
-              <span className="tabular-nums">
-                {cashiers.length} {cashiers.length === 1 ? "account" : "accounts"}
-                {" · "}
-                {activeCount} active
-                {" · "}
-                {supervisorCount}{" "}
-                {supervisorCount === 1 ? "supervisor" : "supervisors"}
-              </span>
-            ) : (
-              "Employee accounts, supervisor access, and PINs."
-            )}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void loadCashiers()}
-          disabled={loading}
-          className={SECONDARY}
-        >
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
-      </header>
+      <PageHeader
+        title="Cashiers"
+        description={
+          hasLoaded ? (
+            <span className="tabular-nums">
+              {cashiers.length} {cashiers.length === 1 ? "account" : "accounts"}
+              {" · "}
+              {activeCount} active
+              {" · "}
+              {supervisorCount}{" "}
+              {supervisorCount === 1 ? "supervisor" : "supervisors"}
+            </span>
+          ) : (
+            "Employee accounts, supervisor access, and PINs."
+          )
+        }
+        actions={
+          <button
+            type="button"
+            onClick={() => void loadCashiers()}
+            disabled={loading}
+            className={SECONDARY}
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        }
+      />
 
       {(error || notice) && (
         <div className="space-y-2">
           {error && (
-            <div
-              role="alert"
-              className="rounded-r-md border-l-2 border-ctp-red bg-ctp-red/5 px-3 py-2.5 text-sm text-ctp-red"
-            >
-              {error}
-            </div>
+            <Notice tone="danger" role="alert" title={error} />
           )}
 
           {notice && (
-            <div
-              role="status"
-              className="rounded-r-md border-l-2 border-ctp-green bg-ctp-green/5 px-3 py-2.5 text-sm text-ctp-green"
-            >
-              {notice}
-            </div>
+            <Notice tone="success" role="status" title={notice} />
           )}
         </div>
       )}
 
-      <section aria-labelledby="new-account-heading">
-        <h2
-          id="new-account-heading"
-          className="text-sm font-semibold text-ctp-text"
-        >
-          New account
-        </h2>
-        <p className="mt-0.5 text-xs text-ctp-subtext0">
-          Cashiers sign in on POS terminals with their username and a
-          six-digit PIN.
-        </p>
-
+      <Section
+        id="new-account"
+        title="New account"
+        description="Cashiers sign in on POS terminals with their username and a six-digit PIN."
+      >
         <form
           onSubmit={handleCreateCashier}
-          className="mt-3 border-t border-ctp-surface0 pt-4"
+          className="border-y border-ctp-surface0 py-4"
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_12rem]">
             <label className="min-w-0">
@@ -472,7 +455,7 @@ export default function Cashiers() {
                     is_supervisor: event.target.checked,
                   }))
                 }
-                className="mt-0.5 size-4 accent-[var(--ctp-blue)]"
+                className="mt-0.5 size-4 accent-[var(--ctp-mauve)]"
               />
               <span className="text-sm text-ctp-text">
                 Supervisor
@@ -487,51 +470,43 @@ export default function Cashiers() {
             </button>
           </div>
         </form>
-      </section>
+      </Section>
 
-      <section aria-labelledby="accounts-heading">
-        <h2
-          id="accounts-heading"
-          className="text-sm font-semibold text-ctp-text"
-        >
-          Accounts
-        </h2>
-
+      <Section
+        id="accounts"
+        title="Accounts"
+        badge={hasLoaded ? cashiers.length : undefined}
+        bodyClassName=""
+      >
         {showInitialLoading ? (
           <p
             role="status"
-            className="mt-3 border-y border-ctp-surface0 py-8 text-sm text-ctp-subtext0"
+            className="border-y border-ctp-surface0 py-8 text-sm text-ctp-subtext0"
           >
             Loading accounts…
           </p>
         ) : !hasLoaded ? (
-          <div className="mt-3 border-y border-ctp-surface0 py-8">
-            <p className="text-sm font-medium text-ctp-text">
-              Could not load accounts
-            </p>
-            <p className="mt-1 text-xs text-ctp-subtext0">
-              Check the connection and try again.
-            </p>
-            <button
-              type="button"
-              onClick={() => void loadCashiers()}
-              disabled={loading}
-              className={`${SECONDARY} mt-3`}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            title="Could not load accounts"
+            description="Check the connection and try again."
+            action={
+              <button
+                type="button"
+                onClick={() => void loadCashiers()}
+                disabled={loading}
+                className={SECONDARY}
+              >
+                Try again
+              </button>
+            }
+          />
         ) : cashiers.length === 0 ? (
-          <div className="mt-3 border-y border-ctp-surface0 py-8">
-            <p className="text-sm font-medium text-ctp-text">
-              No accounts yet
-            </p>
-            <p className="mt-1 text-xs text-ctp-subtext0">
-              Use the form above to create the first cashier account.
-            </p>
-          </div>
+          <EmptyState
+            title="No accounts yet"
+            description="Use the form above to create the first cashier account."
+          />
         ) : (
-          <div className="mt-3 w-full overflow-x-auto border-y border-ctp-surface0">
+          <div className="w-full overflow-x-auto border-y border-ctp-surface0">
             <table className="w-full min-w-[44rem] border-collapse text-sm">
               <caption className="sr-only">Cashier accounts</caption>
 
@@ -565,7 +540,7 @@ export default function Cashiers() {
                   return (
                     <Fragment key={cashier.id}>
                       <tr className="align-top">
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-3">
                           <p
                             className={`max-w-[14rem] truncate font-medium ${cashier.is_active
                                 ? "text-ctp-text"
@@ -579,7 +554,7 @@ export default function Cashiers() {
                           </p>
                         </td>
 
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-3">
                           <p className="text-ctp-text">
                             {cashier.is_supervisor ? "Supervisor" : "Cashier"}
                           </p>
@@ -597,28 +572,16 @@ export default function Cashiers() {
                           </button>
                         </td>
 
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-2">
-                            <span
-                              aria-hidden="true"
-                              className={`size-2 shrink-0 rounded-full ${cashier.is_active
-                                  ? "bg-ctp-green"
-                                  : "bg-ctp-overlay0"
-                                }`}
-                            />
-                            <span
-                              className={
-                                cashier.is_active
-                                  ? "text-ctp-text"
-                                  : "text-ctp-subtext0"
-                              }
-                            >
-                              {cashier.is_active ? "Active" : "Disabled"}
-                            </span>
-                          </span>
+                        <td className="px-3 py-3">
+                          <StatusDot
+                            tone={cashier.is_active ? "success" : "neutral"}
+                            muted
+                          >
+                            {cashier.is_active ? "Active" : "Disabled"}
+                          </StatusDot>
                         </td>
 
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-3">
                           <p className="text-ctp-text">
                             {formatDate(cashier.last_login_at)}
                           </p>
@@ -627,7 +590,7 @@ export default function Cashiers() {
                           </p>
                         </td>
 
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-3">
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
@@ -658,7 +621,7 @@ export default function Cashiers() {
 
                       {isResetOpen && (
                         <tr id={`reset-pin-${cashier.id}`}>
-                          <td colSpan={5} className="bg-ctp-base px-4 py-3">
+                          <td colSpan={5} className="bg-ctp-mantle px-4 py-3">
                             <form
                               onSubmit={(event) => {
                                 event.preventDefault();
@@ -728,7 +691,7 @@ export default function Cashiers() {
             </table>
           </div>
         )}
-      </section>
+      </Section>
     </section>
   );
 }

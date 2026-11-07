@@ -1,5 +1,7 @@
 
-import { apiRequest, API_BASE_URL } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
+import { credentials } from "@/lib/auth/credentials";
+import { INSECURE_TRANSPORT_ERROR, websocketUrl } from "@/lib/config";
 
 export type TerminalRegistrationRequest = {
   device_id: string;
@@ -12,7 +14,10 @@ export type TerminalRegistrationRequest = {
 export type TerminalPairingResponse = {
   terminal_id: number;
   device_id: string;
-  session_token: string;
+  // Native clients receive the credential; browsers get an HttpOnly cookie
+  // and a CSRF token instead.
+  session_token?: string;
+  csrf_token?: string;
   is_enabled: boolean;
   maintenance_mode: boolean;
   heartbeat_interval_seconds: number;
@@ -26,6 +31,8 @@ export type TerminalCommand = {
 };
 
 export type TerminalHeartbeatResponse = {
+  // Present when the server rotates a native terminal's credential.
+  session_token?: string;
   terminal_id: number;
   device_id: string;
   server_time: string;
@@ -103,16 +110,12 @@ export function pairTerminal(
 }
 
 export function sendTerminalHeartbeat(
-  sessionToken: string,
   appVersion: string | null,
 ): Promise<TerminalHeartbeatResponse> {
   return apiRequest<TerminalHeartbeatResponse>(
     "/api/terminals/heartbeat",
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
       body: JSON.stringify({
         app_version: appVersion,
       }),
@@ -121,7 +124,6 @@ export function sendTerminalHeartbeat(
 }
 
 export function acknowledgeTerminalCommand(
-  sessionToken: string,
   commandId: number,
   commandStatus: "acknowledged" | "failed",
   resultMessage: string | null = null,
@@ -130,9 +132,6 @@ export function acknowledgeTerminalCommand(
     `/api/terminals/commands/${commandId}/ack`,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
       body: JSON.stringify({
         status: commandStatus,
         result_message: resultMessage,
@@ -142,41 +141,30 @@ export function acknowledgeTerminalCommand(
 }
 
 export function fetchTerminalSettings(
-  sessionToken: string,
   signal?: AbortSignal,
 ): Promise<TerminalSettingsResponse> {
   return apiRequest<TerminalSettingsResponse>(
     "/api/terminals/settings",
     {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
       signal,
     },
   );
 }
 
-export function connectTerminalSettingsSocket(
-  sessionToken: string,
-): WebSocket {
-  const websocketBaseUrl = API_BASE_URL
-    .replace(/^https:/i, "wss:")
-    .replace(/^http:/i, "ws:");
+export function connectTerminalSettingsSocket(): WebSocket {
+  if (INSECURE_TRANSPORT_ERROR) {
+    throw new Error(INSECURE_TRANSPORT_ERROR);
+  }
 
-  const socket = new WebSocket(
-    `${websocketBaseUrl}/api/terminals/ws`,
-  );
+  const socket = new WebSocket(websocketUrl("/api/terminals/ws"));
 
   socket.onopen = () => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(
-        JSON.stringify({
-          type: "authenticate",
-          session_token: sessionToken,
-        }),
-      );
-    }
+    // Native: send the keystore credential as the first message.
+    // Web: the HttpOnly cookie already authenticated the handshake.
+    void credentials.authenticateSocket(socket).catch(() => {
+      socket.close();
+    });
   };
 
   return socket;

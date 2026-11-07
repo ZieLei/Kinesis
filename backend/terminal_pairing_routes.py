@@ -3,12 +3,19 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from auth.pos_auth import (
+    derive_pos_csrf_token,
+    issue_terminal_credential,
+    require_pos_origin,
+    set_terminal_cookie,
+    wants_browser_credentials,
+)
 from database import get_db
 from models import Terminal, TerminalPairingChallenge
 from terminal_routes import (
@@ -80,12 +87,21 @@ def hash_pairing_token(token: str) -> str:
 
 def terminal_pairing_response(
     terminal: Terminal,
-    raw_session_token: str,
+    raw_session_token: str | None,
+    csrf_token: str | None = None,
 ) -> dict:
+    # Browser terminals receive the credential as an HttpOnly cookie and
+    # never see the raw token; native apps receive it for the keystore.
+    credential = (
+        {"session_token": raw_session_token}
+        if raw_session_token is not None
+        else {"csrf_token": csrf_token}
+    )
+
     return {
+        **credential,
         "terminal_id": terminal.id,
         "device_id": terminal.device_id,
-        "session_token": raw_session_token,
         "is_enabled": terminal.is_enabled,
         "maintenance_mode": terminal.maintenance_mode,
         "heartbeat_interval_seconds": max(
@@ -290,8 +306,16 @@ def get_terminal_pairing_challenge_status(
 def pair_terminal(
     pairing: TerminalPairingRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store, private"
+
+    browser_client = wants_browser_credentials(request)
+
+    if browser_client:
+        require_pos_origin(request)
+
     raw_pairing_token = pairing.pairing_token.get_secret_value().strip()
 
     if not raw_pairing_token or len(raw_pairing_token) > 128:
@@ -327,47 +351,64 @@ def pair_terminal(
     registration = pairing.registration
 
     existing_terminal = db.scalar(
-        select(Terminal).where(
+        select(Terminal)
+        .where(
             Terminal.device_id == registration.device_id,
         )
+        .with_for_update()
     )
 
-    if existing_terminal is not None:
+    if (
+        existing_terminal is not None
+        and existing_terminal.session_token_hash is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 "This device is already registered. "
-                "Use its existing terminal credentials or request "
-                "an administrator-authorized re-pair operation."
+                "Use its existing terminal credentials, or disconnect it in "
+                "Terminal Management before pairing it again."
             ),
         )
 
-    raw_session_token = secrets.token_urlsafe(32)
+    if existing_terminal is not None:
+        # Re-pair a terminal whose credential was revoked (disconnected by
+        # an administrator, expired, or revoked after credential reuse).
+        # A fresh administrator-issued QR code authorizes it again.
+        terminal = existing_terminal
+        terminal.name = registration.name
+        terminal.device_type = registration.device_type
+        terminal.platform = registration.platform
+        terminal.app_version = registration.app_version
+        terminal.ip_address = get_request_ip(request)
+        terminal.is_enabled = True
+        terminal.maintenance_mode = False
+        terminal.last_seen_at = now
+        terminal.updated_at = now
+    else:
+        terminal = Terminal(
+            device_id=registration.device_id,
+            name=registration.name,
+            device_type=registration.device_type,
+            platform=registration.platform,
+            app_version=registration.app_version,
+            ip_address=get_request_ip(request),
+            is_enabled=True,
+            maintenance_mode=False,
+            first_seen_at=now,
+            last_seen_at=now,
+            created_at=now,
+            updated_at=now,
+        )
 
-    session_token_hash = hashlib.sha256(
-        raw_session_token.encode("utf-8"),
-    ).hexdigest()
-
-    terminal = Terminal(
-        device_id=registration.device_id,
-        name=registration.name,
-        device_type=registration.device_type,
-        platform=registration.platform,
-        app_version=registration.app_version,
-        ip_address=get_request_ip(request),
-        session_token_hash=session_token_hash,
-        is_enabled=True,
-        maintenance_mode=False,
-        first_seen_at=now,
-        last_seen_at=now,
-        created_at=now,
-        updated_at=now,
-    )
+    raw_session_token = issue_terminal_credential(terminal, now)
 
     challenge.consumed_at = now
 
     try:
-        db.add(terminal)
+        if existing_terminal is None:
+            db.add(terminal)
+
         db.commit()
         db.refresh(terminal)
 
@@ -393,6 +434,15 @@ def pair_terminal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The terminal could not be paired.",
         ) from exc
+
+    if browser_client:
+        set_terminal_cookie(response, raw_session_token)
+
+        return terminal_pairing_response(
+            terminal,
+            None,
+            csrf_token=derive_pos_csrf_token(terminal),
+        )
 
     return terminal_pairing_response(
         terminal,

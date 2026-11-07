@@ -1,0 +1,29 @@
+<!--
+  WinSW service definition for the Kinesis backend.
+  Rename WinSW-x64.exe to kinesis-backend.exe, place it next to this file,
+  then (elevated PowerShell):  .\kinesis-backend.exe install ; .\kinesis-backend.exe start
+  WinSW sends Ctrl+C first so uvicorn can shut down gracefully, then
+  terminates after stoptimeout.
+-->
+<service>
+  <id>kinesis-backend</id>
+  <name>Kinesis POS backend</name>
+  <description>Kinesis point-of-sale API (FastAPI/uvicorn, loopback only).</description>
+  <executable>C:\Program Files\Kinesis\venv\Scripts\uvicorn.exe</executable>
+  <arguments>main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header --timeout-graceful-shutdown 20</arguments>
+  <workingdirectory>C:\Program Files\Kinesis\app\backend</workingdirectory>
+  <env name="KINESIS_ENV_FILE" value="C:\ProgramData\Kinesis\config\kinesis.env" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <depend>postgresql-x64-17</depend>
+  <stoptimeout>30 sec</stoptimeout>
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <logpath>C:\ProgramData\Kinesis\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

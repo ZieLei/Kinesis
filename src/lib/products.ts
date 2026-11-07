@@ -20,9 +20,14 @@ export const formatPrice = (price: number) =>
 export function getImageUri(product: Product | null | undefined) {
   if (!product?.image_url) return null;
 
-  const url = product.image_url.startsWith("http")
-    ? product.image_url
-    : `${API_BASE_URL}${product.image_url.startsWith("/") ? "" : "/"}${product.image_url}`;
+  // Product images are served by the Kinesis API only. Refuse absolute or
+  // protocol-relative URLs so data from the server cannot point the app
+  // at another host (tracking pixels, credentials sent elsewhere, CSP).
+  if (!product.image_url.startsWith("/") || product.image_url.startsWith("//")) {
+    return null;
+  }
+
+  const url = `${API_BASE_URL}${product.image_url}`;
 
   const separator = url.includes("?") ? "&" : "?";
 

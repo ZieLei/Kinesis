@@ -4,23 +4,37 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  Share,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 
+import { exportReceipt } from "@/lib/receiptExport";
 import { fetchSale } from "@/lib/salesApi";
 import type { SaleRecord } from "@/types/sale";
+
+type CurrencyPlacement = "before" | "after";
+
+type ReceiptLine = {
+  key: string;
+  kind: "PART" | "SERVICE";
+  name: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
 
 function formatMoney(
   amount: number,
   currencySymbol: string,
-  currencyPlacement: "before" | "after",
+  currencyPlacement: CurrencyPlacement,
   decimalPrecision: number,
 ): string {
-  const formatted = amount.toLocaleString("en-PH", {
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+  const formatted = safeAmount.toLocaleString("en-PH", {
     minimumFractionDigits: decimalPrecision,
     maximumFractionDigits: decimalPrecision,
   });
@@ -54,7 +68,10 @@ function formatDate(value: string) {
 
 function getReceiptSettings(sale: SaleRecord) {
   const snapshot = sale.settings_snapshot ?? {};
-  const requestedPrecision = Number(snapshot.decimalPrecision ?? "2");
+
+  const requestedPrecision = Number(
+    snapshot.decimalPrecision ?? "2",
+  );
 
   const decimalPrecision =
     Number.isInteger(requestedPrecision) &&
@@ -65,25 +82,20 @@ function getReceiptSettings(sale: SaleRecord) {
 
   return {
     currencySymbol: snapshot.currencySymbol || "₱",
-    currencyPlacement: snapshot.currencyPlacement ?? "before",
+    currencyPlacement:
+      snapshot.currencyPlacement === "after"
+        ? "after" as const
+        : "before" as const,
     decimalPrecision,
     receiptHeader:
-      snapshot.receiptHeader?.trim() || "KINESIS MOTORCYCLE PARTS",
+      snapshot.receiptHeader?.trim() ||
+      "KINESIS MOTORCYCLE PARTS",
     receiptFooter:
-      snapshot.receiptFooter?.trim() || "Thank you for your purchase!",
+      snapshot.receiptFooter?.trim() ||
+      "Thank you for your purchase!",
     receiptNotes: snapshot.receiptNotes?.trim() || "",
   };
 }
-
-type ReceiptLine = {
-  key: string;
-  kind: "PART" | "SERVICE";
-  name: string;
-  description?: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-};
 
 function getReceiptLines(sale: SaleRecord): ReceiptLine[] {
   const productLines: ReceiptLine[] = sale.items.map((item) => ({
@@ -110,65 +122,370 @@ function getReceiptLines(sale: SaleRecord): ReceiptLine[] {
   return [...productLines, ...serviceLines];
 }
 
-function createReceiptText(sale: SaleRecord): string {
-  const { date, time } = formatDate(sale.created_at);
-  const settings = getReceiptSettings(sale);
-  const receiptLines = getReceiptLines(sale);
-
-  const money = (amount: number) =>
-    formatMoney(
-      amount,
-      settings.currencySymbol,
-      settings.currencyPlacement,
-      settings.decimalPrecision,
-    );
-
+function getSaleAmounts(sale: SaleRecord) {
   const taxAmount = sale.tax_amount ?? 0;
+  const discountAmount = sale.discount_amount ?? 0;
 
   const roundingAdjustment =
     sale.rounding_adjustment ??
     sale.total - sale.subtotal - taxAmount;
 
-  const itemLines = receiptLines.map((item) => {
-    const description =
-      item.kind === "SERVICE" && item.description
-        ? ` (${item.description})`
-        : "";
+  return {
+    grossSubtotal: sale.gross_subtotal,
+    discountAmount,
+    discountPercent: sale.discount_percent ?? 0,
+    subtotal: sale.subtotal,
+    taxAmount,
+    roundingAdjustment,
+    total: sale.total,
+  };
+}
 
-    return (
-      `${item.kind}: ${item.name}${description} — ` +
-      `${item.quantity} x ${money(item.unitPrice)} = ${money(item.lineTotal)}`
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function createReceiptHtml(sale: SaleRecord): string {
+  const settings = getReceiptSettings(sale);
+  const amounts = getSaleAmounts(sale);
+  const { date, time } = formatDate(sale.created_at);
+  const lines = getReceiptLines(sale);
+
+  const money = (amount: number) =>
+    escapeHtml(
+      formatMoney(
+        amount,
+        settings.currencySymbol,
+        settings.currencyPlacement,
+        settings.decimalPrecision,
+      ),
     );
-  });
 
-  return [
-    settings.receiptHeader,
-    "Transaction Receipt",
-    "",
-    `Transaction: ${sale.transaction_code}`,
-    `Date: ${date}`,
-    `Time: ${time}`,
-    "",
-    ...itemLines,
-    "",
-    `Subtotal: ${money(sale.subtotal)}`,
-    `Tax: ${money(taxAmount)}`,
-    ...(roundingAdjustment !== 0
-      ? [`Cash rounding: ${money(roundingAdjustment)}`]
-      : []),
-    `TOTAL: ${money(sale.total)}`,
-    `Payment: ${sale.payment_method.toUpperCase()}`,
-    ...(sale.reference_number
-      ? [`Reference: ${sale.reference_number}`]
-      : []),
-    `Amount received/paid: ${money(sale.amount_tendered)}`,
-    `Change: ${money(sale.change_due)}`,
-    "",
-    ...(settings.receiptNotes
-      ? [settings.receiptNotes, ""]
-      : []),
-    settings.receiptFooter,
-  ].join("\n");
+  const itemRows = lines
+    .map(
+      (item) => `
+        <div class="item">
+          <div class="item-main">
+            <div class="kind">${escapeHtml(item.kind)}</div>
+            <div class="item-name">${escapeHtml(item.name)}</div>
+            ${item.description
+          ? `<div class="description">${escapeHtml(item.description)}</div>`
+          : ""
+        }
+            <div class="unit-price">
+              ${item.quantity} × ${money(item.unitPrice)}
+            </div>
+          </div>
+          <div class="item-total">${money(item.lineTotal)}</div>
+        </div>
+      `,
+    )
+    .join("");
+
+  const discountRow =
+    amounts.discountAmount > 0
+      ? `
+        <div class="summary-row discount">
+          <span>Discount (${escapeHtml(amounts.discountPercent)}%)</span>
+          <span>-${money(amounts.discountAmount)}</span>
+        </div>
+      `
+      : "";
+
+  const roundingRow =
+    amounts.roundingAdjustment !== 0
+      ? `
+        <div class="summary-row">
+          <span>Cash rounding</span>
+          <span>${amounts.roundingAdjustment > 0 ? "+" : ""
+      }${money(amounts.roundingAdjustment)}</span>
+        </div>
+      `
+      : "";
+
+  const referenceRow = sale.reference_number
+    ? `
+      <div class="summary-row">
+        <span>Reference</span>
+        <span>${escapeHtml(sale.reference_number)}</span>
+      </div>
+    `
+    : "";
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+            padding: 32px;
+            background: #ffffff;
+            color: #222222;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+          }
+
+          .receipt {
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto;
+          }
+
+          .header {
+            text-align: center;
+            margin-bottom: 8px;
+          }
+
+          .header h1 {
+            font-size: 22px;
+            margin: 0;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+          }
+
+          .subtitle {
+            color: #777777;
+            font-size: 11px;
+            margin-top: 5px;
+          }
+
+          .divider {
+            border-top: 1px dashed #aaaaaa;
+            margin: 16px 0;
+          }
+
+          .meta-row,
+          .summary-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 9px;
+          }
+
+          .meta-row span:first-child,
+          .summary-row span:first-child {
+            color: #666666;
+          }
+
+          .meta-row span:last-child,
+          .summary-row span:last-child {
+            text-align: right;
+            overflow-wrap: anywhere;
+          }
+
+          .item-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-bottom: 14px;
+          }
+
+          .item {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+          }
+
+          .item-main {
+            flex: 1;
+            min-width: 0;
+          }
+
+          .kind {
+            color: #4779bb;
+            font-size: 9px;
+            font-weight: bold;
+            margin-bottom: 3px;
+          }
+
+          .item-name {
+            font-size: 12px;
+            font-weight: bold;
+            overflow-wrap: anywhere;
+          }
+
+          .description {
+            margin-top: 3px;
+            color: #777777;
+            font-size: 10px;
+          }
+
+          .unit-price {
+            margin-top: 5px;
+            color: #777777;
+            font-size: 10px;
+          }
+
+          .item-total {
+            white-space: nowrap;
+            text-align: right;
+          }
+
+          .discount {
+            color: #25834b;
+            font-weight: bold;
+          }
+
+          .total {
+            font-size: 15px;
+            font-weight: bold;
+            color: #222222;
+          }
+
+          .payment-title {
+            font-weight: bold;
+            margin-bottom: 12px;
+          }
+
+          .notes {
+            text-align: center;
+            white-space: pre-wrap;
+            color: #666666;
+            line-height: 1.6;
+          }
+
+          .footer {
+            text-align: center;
+            font-weight: bold;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+          }
+
+          .status {
+            font-weight: bold;
+            text-transform: uppercase;
+          }
+
+          @media print {
+            body {
+              padding: 12px;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <main class="receipt">
+
+          <header class="header">
+            <h1>${escapeHtml(settings.receiptHeader)}</h1>
+            <div class="subtitle">Transaction Receipt</div>
+          </header>
+
+          <div class="divider"></div>
+
+          <div class="meta-row">
+            <span>Transaction</span>
+            <strong>${escapeHtml(sale.transaction_code)}</strong>
+          </div>
+
+          <div class="meta-row">
+            <span>Date</span>
+            <span>${escapeHtml(date)}</span>
+          </div>
+
+          <div class="meta-row">
+            <span>Time</span>
+            <span>${escapeHtml(time)}</span>
+          </div>
+
+          <div class="meta-row">
+            <span>Status</span>
+            <span class="status">${escapeHtml(sale.status)}</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="item-header">
+            <span>ITEM</span>
+            <span>TOTAL</span>
+          </div>
+
+          ${itemRows}
+
+          <div class="divider"></div>
+
+          <div class="summary-row">
+            <span>Original subtotal</span>
+            <span>${money(amounts.grossSubtotal)}</span>
+          </div>
+
+          ${discountRow}
+
+          <div class="summary-row">
+            <strong>Subtotal after discount</strong>
+            <strong>${money(amounts.subtotal)}</strong>
+          </div>
+
+          <div class="summary-row">
+            <span>Tax</span>
+            <span>${money(amounts.taxAmount)}</span>
+          </div>
+
+          ${roundingRow}
+
+          <div class="divider"></div>
+
+          <div class="summary-row total">
+            <span>TOTAL</span>
+            <span>${money(amounts.total)}</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="payment-title">Payment Information</div>
+
+          <div class="summary-row">
+            <span>Payment method</span>
+            <strong>${escapeHtml(sale.payment_method.toUpperCase())}</strong>
+          </div>
+
+          ${referenceRow}
+
+          <div class="summary-row">
+            <span>Amount received / paid</span>
+            <span>${money(sale.amount_tendered)}</span>
+          </div>
+
+          <div class="summary-row">
+            <span>Change</span>
+            <span>${money(sale.change_due)}</span>
+          </div>
+
+          ${settings.receiptNotes
+      ? `
+                <div class="divider"></div>
+                <div class="notes">${escapeHtml(settings.receiptNotes)}</div>
+              `
+      : ""
+    }
+
+          <div class="divider"></div>
+
+          <div class="footer">
+            ${escapeHtml(settings.receiptFooter)}
+          </div>
+
+        </main>
+      </body>
+    </html>
+  `;
 }
 
 export default function Receipt() {
@@ -182,6 +499,7 @@ export default function Receipt() {
 
   const [sale, setSale] = useState<SaleRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
 
@@ -195,6 +513,7 @@ export default function Receipt() {
     if (!transactionCode) {
       setError("No transaction code was provided for this receipt.");
       setLoading(false);
+
       return () => controller.abort();
     }
 
@@ -223,15 +542,26 @@ export default function Receipt() {
   }, [transactionCode, retryCount]);
 
   const handleExport = async () => {
-    if (!sale) return;
+    if (!sale || exporting) return;
+
+    setError("");
+    setExporting(true);
 
     try {
-      await Share.share({
-        title: `Kinesis Receipt ${sale.transaction_code}`,
-        message: createReceiptText(sale),
-      });
-    } catch {
-      setError("The receipt could not be shared.");
+      // Native: PDF file + share sheet. Web: browser print dialog
+      // ("Save as PDF"). See src/lib/receiptExport.*.ts.
+      await exportReceipt(
+        createReceiptHtml(sale),
+        `Kinesis Receipt ${sale.transaction_code}`,
+      );
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "The receipt could not be exported.",
+      );
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -250,13 +580,7 @@ export default function Receipt() {
     );
   };
 
-  const taxAmount = sale?.tax_amount ?? 0;
-
-  const roundingAdjustment = sale
-    ? sale.rounding_adjustment ??
-    sale.total - sale.subtotal - taxAmount
-    : 0;
-
+  const amounts = sale ? getSaleAmounts(sale) : null;
   const receiptLines = sale ? getReceiptLines(sale) : [];
 
   return (
@@ -306,8 +630,11 @@ export default function Receipt() {
               </Text>
             </Pressable>
           </View>
-        ) : sale && receiptSettings ? (
+        ) : sale && receiptSettings && amounts ? (
           <View className="w-full max-w-sm self-center rounded-lg border border-ctp-surface0 bg-ctp-mantle p-5">
+
+            {/* Header */}
+
             <Text className="whitespace-pre-wrap text-center font-fredoka text-2xl font-bold text-ctp-text">
               {receiptSettings.receiptHeader}
             </Text>
@@ -317,6 +644,8 @@ export default function Receipt() {
             </Text>
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
+
+            {/* Transaction information */}
 
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
@@ -361,6 +690,8 @@ export default function Receipt() {
             </View>
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
+
+            {/* Items */}
 
             <View className="gap-3">
               <View className="flex-row items-center">
@@ -412,14 +743,38 @@ export default function Receipt() {
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
+            {/* Financial summary */}
+
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                  Subtotal
+                  Original subtotal
                 </Text>
 
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                  {money(sale.subtotal)}
+                  {money(amounts.grossSubtotal)}
+                </Text>
+              </View>
+
+              {amounts.discountAmount > 0 ? (
+                <View className="flex-row justify-between gap-3">
+                  <Text className="text-[11px] font-inter-semibold text-ctp-green">
+                    Discount ({amounts.discountPercent}%)
+                  </Text>
+
+                  <Text className="text-[11px] font-inter-semibold text-ctp-green">
+                    -{money(amounts.discountAmount)}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View className="flex-row justify-between gap-3">
+                <Text className="text-[11px] font-inter-semibold text-ctp-text">
+                  Subtotal after discount
+                </Text>
+
+                <Text className="text-[11px] font-inter-semibold text-ctp-text">
+                  {money(amounts.subtotal)}
                 </Text>
               </View>
 
@@ -429,25 +784,27 @@ export default function Receipt() {
                 </Text>
 
                 <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                  {money(taxAmount)}
+                  {money(amounts.taxAmount)}
                 </Text>
               </View>
 
-              {roundingAdjustment !== 0 ? (
+              {amounts.roundingAdjustment !== 0 ? (
                 <View className="flex-row justify-between gap-3">
                   <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
                     Cash rounding
                   </Text>
 
                   <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
-                    {roundingAdjustment > 0 ? "+" : ""}
-                    {money(roundingAdjustment)}
+                    {amounts.roundingAdjustment > 0 ? "+" : ""}
+                    {money(amounts.roundingAdjustment)}
                   </Text>
                 </View>
               ) : null}
             </View>
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
+
+            {/* Final total and payment */}
 
             <View className="gap-2">
               <View className="flex-row justify-between gap-3">
@@ -456,7 +813,7 @@ export default function Receipt() {
                 </Text>
 
                 <Text className="text-xs font-inter-bold text-ctp-text">
-                  {money(sale.total)}
+                  {money(amounts.total)}
                 </Text>
               </View>
 
@@ -503,6 +860,8 @@ export default function Receipt() {
               </View>
             </View>
 
+            {/* Receipt notes */}
+
             {receiptSettings.receiptNotes ? (
               <>
                 <View className="my-3 border-t border-dashed border-ctp-surface1" />
@@ -515,19 +874,24 @@ export default function Receipt() {
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
+            {/* Footer */}
+
             <Text className="whitespace-pre-wrap text-center text-[11px] font-inter-semibold text-ctp-text">
               {receiptSettings.receiptFooter}
             </Text>
 
             {error ? (
-              <Text className="mt-2 text-center text-xs text-ctp-red">
+              <Text className="mt-3 text-center text-xs leading-5 text-ctp-red">
                 {error}
               </Text>
             ) : null}
 
+            {/* Actions */}
+
             <View className="mt-5 items-center gap-2 pb-2">
               <Pressable
                 onPress={() => router.replace("/new-sale")}
+                disabled={exporting}
                 className="w-full rounded-lg border border-ctp-blue bg-ctp-blue px-4 py-3"
               >
                 <Text className="text-center text-sm font-inter-semibold text-ctp-crust">
@@ -536,7 +900,10 @@ export default function Receipt() {
               </Pressable>
 
               <Pressable
-                onPress={() => router.replace("/(tabs)/dashboard")}
+                onPress={() =>
+                  router.replace("/(tabs)/dashboard")
+                }
+                disabled={exporting}
                 className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3"
               >
                 <Text className="text-center text-sm font-inter-semibold text-ctp-text">
@@ -546,10 +913,27 @@ export default function Receipt() {
 
               <Pressable
                 onPress={handleExport}
-                className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3"
+                disabled={exporting}
+                accessibilityRole="button"
+                accessibilityLabel="Export receipt as PDF"
+                accessibilityState={{
+                  disabled: exporting,
+                  busy: exporting,
+                }}
+                className={`w-full flex-row items-center justify-center gap-2 rounded-lg border border-ctp-surface1 px-4 py-3 ${exporting ? "bg-ctp-surface0" : "bg-ctp-base"
+                  }`}
               >
+                {exporting ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#89B4FA"
+                  />
+                ) : null}
+
                 <Text className="text-center text-sm font-inter-semibold text-ctp-text">
-                  Export Receipt
+                  {exporting
+                    ? "Generating PDF..."
+                    : "Export Receipt (PDF)"}
                 </Text>
               </Pressable>
             </View>

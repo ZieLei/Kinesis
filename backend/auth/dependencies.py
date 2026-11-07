@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 from fastapi import (
     Depends,
-    Header,
     HTTPException,
     Request,
     status,
@@ -16,6 +15,7 @@ from auth.security import (
     derive_csrf_token,
     verify_csrf_token,
 )
+from auth.pos_auth import has_terminal_credential
 from auth.sessions import resolve_admin_session
 from database import get_db
 from terminal_routes import require_terminal
@@ -145,20 +145,23 @@ def require_admin_session(
 
 def require_admin_session_or_terminal(
     request: Request,
-    authorization: str | None = Header(
-        default=None,
-        alias="Authorization",
-    ),
     db: Session = Depends(get_db),
 ) -> AdminUser | object:
     """
-    Allow an administrator browser session or an enabled POS terminal.
+    Allow an enabled POS terminal or an administrator browser session.
 
-    Administrator sessions are checked first.
-
-    If no administrator cookie is present, the request must provide
-    a valid registered terminal Bearer credential.
+    An explicit terminal credential (Bearer header or terminal cookie) is
+    checked first. Cookies are shared across ports on the same host, so a
+    browser that is both a POS terminal and an admin console may carry both
+    cookies; the terminal credential must not be shadowed by an unrelated or
+    stale administrator session.
     """
+
+    if has_terminal_credential(request):
+        return require_terminal(
+            request,
+            db,
+        )
 
     raw_cookie = request.cookies.get(
         auth_settings.admin_cookie_name,
@@ -172,7 +175,8 @@ def require_admin_session_or_terminal(
 
         return principal.user
 
-    return require_terminal(
-        authorization,
-        db,
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Terminal or administrator authentication is required.",
+        headers={"WWW-Authenticate": "Bearer"},
     )

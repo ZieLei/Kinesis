@@ -1,4 +1,3 @@
-
 import {
   Bell,
   Users,
@@ -9,13 +8,19 @@ import {
   RotateCcw,
   Wrench,
   Check,
-  X,
-  Server,
-  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import TopbarButtonProps from "./components/TopbarButtonProps";
+import TabButton from "./components/TabButton";
+import Notice from "./components/ui/Notice";
+import Dialog from "./components/ui/Dialog";
+import StatusDot from "./components/ui/StatusDot";
+import {
+  buttonDangerSolid,
+  buttonSecondary,
+  focusRing,
+  iconButton,
+} from "./components/ui/styles";
 import Overview from "./views/Overview";
 import Cashiers from "./views/Cashiers";
 import Terminals from "./views/Terminals";
@@ -24,6 +29,7 @@ import Database from "./views/Database";
 import Settings from "./views/Settings";
 
 import { API_BASE_URL, apiRequest } from "./lib/api";
+
 
 const tabs = [
   "Overview",
@@ -280,25 +286,25 @@ export default function Dashboard() {
       className={
         compact
           ? "min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
-          : "my-5 w-full overflow-x-auto rounded-lg border border-ctp-surface0 bg-ctp-surface2/20 p-2"
+          : "mb-6 mt-4 w-full overflow-x-auto border-b border-ctp-surface0"
       }
     >
-      <div
-        className={`flex min-w-max flex-row gap-2 ${compact ? "items-center" : ""
-          }`}
-      >
+      <div className="flex min-w-max flex-row">
         {tabs.map((tab) => (
-          <TopbarButtonProps
+          <TabButton
             key={tab}
             active={activeTab === tab}
+            compact={compact}
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-          </TopbarButtonProps>
+          </TabButton>
         ))}
       </div>
     </nav>
   );
+
+  const menuItemClass = `flex w-full items-start gap-3 rounded px-2.5 py-2 text-left transition ${focusRing}`;
 
   // Shared server action controls.
   const renderServerControls = (compact = false) => (
@@ -311,17 +317,12 @@ export default function Dashboard() {
         aria-pressed={theme === "dark"}
         title={`Switch to ${theme === "dark" ? "light" : "dark"
           } mode`}
-        className={`flex items-center justify-center rounded-lg border border-ctp-surface1 bg-ctp-mantle text-ctp-text transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve ${compact ? "h-9 w-9" : "h-11 gap-2 px-3"
-          }`}
+        className={compact ? iconButton : buttonSecondary}
       >
-        {theme === "dark" ? (
-          <Sun size={18} className="text-ctp-yellow" />
-        ) : (
-          <Moon size={18} className="text-ctp-mauve" />
-        )}
+        {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
 
         {!compact && (
-          <span className="hidden text-sm font-medium sm:inline">
+          <span className="hidden sm:inline">
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </span>
         )}
@@ -336,10 +337,9 @@ export default function Dashboard() {
             "Notifications are not connected to the backend yet.",
           )
         }
-        className={`relative flex items-center justify-center rounded-lg border border-ctp-surface1 bg-ctp-mantle text-ctp-subtext1 transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve ${compact ? "h-9 w-9" : "h-11 w-11"
-          }`}
+        className={iconButton}
       >
-        <Bell size={18} />
+        <Bell size={16} />
       </button>
 
       <div
@@ -353,11 +353,10 @@ export default function Dashboard() {
             setMenuOpen(false);
             setPendingAction("shutdown");
           }}
-          className={`flex items-center justify-center gap-2 rounded-l-lg bg-ctp-red text-sm font-semibold text-ctp-base transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-red ${compact ? "h-9 w-9 px-0" : "h-11 px-4"
-            }`}
+          className={`${buttonDangerSolid} rounded-r-none ${compact ? "!px-2" : ""}`}
         >
-          <Power size={17} />
-          {!compact && <span>Shut Down</span>}
+          <Power size={15} />
+          {!compact && <span>Shut down</span>}
         </button>
 
         <button
@@ -366,11 +365,10 @@ export default function Dashboard() {
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
-          className={`flex items-center justify-center rounded-r-lg border-l border-ctp-base/20 bg-ctp-red text-ctp-base transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-red ${compact ? "h-9 px-2" : "h-11 px-3"
-            }`}
+          className={`${buttonDangerSolid} rounded-l-none border-l border-ctp-base/25 !px-2`}
         >
           <ChevronDown
-            size={17}
+            size={15}
             className={`transition-transform duration-200 ${menuOpen ? "rotate-180" : ""
               }`}
           />
@@ -379,23 +377,21 @@ export default function Dashboard() {
         {menuOpen && (
           <div
             role="menu"
-            className="absolute right-0 top-full z-[70] mt-2 w-64 overflow-hidden rounded-xl border border-ctp-surface1 bg-ctp-mantle p-1.5 text-left shadow-xl shadow-black/10"
+            className="absolute right-0 top-full z-[70] mt-1.5 w-64 rounded-md border border-ctp-surface1 bg-ctp-mantle p-1 text-left shadow-lg"
           >
-            <div className="px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-ctp-subtext0">
-                Server actions
-              </p>
-            </div>
+            <p className="px-2.5 pb-1 pt-1.5 text-xs text-ctp-subtext0">
+              Server actions
+            </p>
 
             <button
               type="button"
               role="menuitem"
               onClick={() => handleServerAction("restart")}
-              className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve"
+              className={`${menuItemClass} hover:bg-ctp-surface0`}
             >
               <RotateCcw
-                size={17}
-                className="mt-0.5 shrink-0 text-ctp-blue"
+                size={15}
+                className="mt-0.5 shrink-0 text-ctp-subtext1"
               />
 
               <span>
@@ -415,11 +411,11 @@ export default function Dashboard() {
               onClick={() =>
                 handleServerAction("maintenance")
               }
-              className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve"
+              className={`${menuItemClass} hover:bg-ctp-surface0`}
             >
               <Wrench
-                size={17}
-                className="mt-0.5 shrink-0 text-ctp-yellow"
+                size={15}
+                className="mt-0.5 shrink-0 text-ctp-subtext1"
               />
 
               <span className="min-w-0 flex-1">
@@ -436,22 +432,22 @@ export default function Dashboard() {
 
               {maintenanceMode && (
                 <Check
-                  size={16}
+                  size={15}
                   className="mt-0.5 shrink-0 text-ctp-green"
                 />
               )}
             </button>
 
-            <div className="my-1.5 border-t border-ctp-surface0" />
+            <div className="my-1 border-t border-ctp-surface0" />
 
             <button
               type="button"
               role="menuitem"
               onClick={() => handleServerAction("shutdown")}
-              className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-ctp-red/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-red"
+              className={`${menuItemClass} hover:bg-ctp-red/10`}
             >
               <Power
-                size={17}
+                size={15}
                 className="mt-0.5 shrink-0 text-ctp-red"
               />
 
@@ -473,44 +469,27 @@ export default function Dashboard() {
 
   const backendStatusStyles: Record<
     BackendStatus,
-    { label: string; dot: string; text: string }
+    { label: string; tone: "warning" | "success" | "danger" }
   > = {
-    checking: {
-      label: "Checking backend",
-      dot: "bg-ctp-yellow animate-pulse",
-      text: "text-ctp-yellow",
-    },
-    connected: {
-      label: "Backend connected",
-      dot: "bg-ctp-green",
-      text: "text-ctp-green",
-    },
-    disconnected: {
-      label: "Backend offline",
-      dot: "bg-ctp-red",
-      text: "text-ctp-red",
-    },
+    checking: { label: "Checking backend", tone: "warning" },
+    connected: { label: "Backend connected", tone: "success" },
+    disconnected: { label: "Backend offline", tone: "danger" },
   };
 
   const currentBackendStatus =
     backendStatusStyles[backendStatus];
 
   return (
-    <div className="min-h-screen bg-ctp-base p-5 text-ctp-text transition-colors duration-200 sm:p-8 lg:p-10">
+    <div className="min-h-screen bg-ctp-base px-5 py-5 font-line-seed text-ctp-text transition-colors duration-200 sm:px-8 lg:px-10">
       {/* Compact floating navigation */}
       <div
-        className={`fixed inset-x-0 top-0 z-[60] px-3 pt-3 sm:px-6 ${compactHeader
-            ? "pointer-events-auto"
-            : "pointer-events-none"
+        className={`fixed inset-x-0 top-0 z-[60] border-b border-ctp-surface0 bg-ctp-base transition-opacity duration-200 ${compactHeader
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
           }`}
+        aria-hidden={!compactHeader}
       >
-        <div
-          className={`mx-auto flex max-w-7xl items-center gap-3 rounded-2xl border border-ctp-surface1/80 bg-ctp-mantle/95 p-2 shadow-xl shadow-black/10 backdrop-blur-xl transition-[opacity,transform] duration-300 ease-out ${compactHeader
-              ? "translate-y-0 scale-100 opacity-100"
-              : "-translate-y-5 scale-[0.98] opacity-0"
-            }`}
-          aria-hidden={!compactHeader}
-        >
+        <div className="mx-auto flex max-w-[1500px] items-center gap-4 px-3 sm:px-8 lg:px-10">
           <button
             type="button"
             onClick={() =>
@@ -520,10 +499,10 @@ export default function Dashboard() {
               })
             }
             tabIndex={compactHeader ? 0 : -1}
-            className="hidden shrink-0 px-2 sm:block"
+            className={`hidden shrink-0 rounded sm:block ${focusRing}`}
             title="Back to top"
           >
-            <span className="block font-fredoka text-lg leading-none text-ctp-text">
+            <span className="block font-fredoka text-base leading-none text-ctp-text">
               Kinesis
             </span>
           </button>
@@ -532,7 +511,7 @@ export default function Dashboard() {
             {renderTabs(true)}
           </div>
 
-          <div className="hidden sm:block">
+          <div className="hidden py-1.5 sm:block">
             {renderServerControls(true)}
           </div>
 
@@ -543,191 +522,129 @@ export default function Dashboard() {
               aria-label="Open server actions"
               aria-expanded={menuOpen}
               tabIndex={compactHeader ? 0 : -1}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ctp-surface1 bg-ctp-surface0 text-ctp-text"
+              className={iconButton}
             >
-              <Power size={17} />
+              <Power size={16} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Full header */}
-      <header
-        ref={headerRef}
-        className="flex flex-wrap items-center justify-between gap-4"
-      >
-        <div>
-          <p className="font-fredoka text-2xl text-ctp-text">
-            Kinesis
-          </p>
-
-          <p className="mt-1 text-xs text-ctp-subtext0">
-            Server administration
-          </p>
-        </div>
-
-        {renderServerControls(false)}
-      </header>
-
-      {/* Connection status */}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Users size={16} className="text-ctp-subtext0" />
-
-          <p className="text-sm text-ctp-subtext1">
-            2 users connected
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {maintenanceMode && (
-            <span className="flex items-center gap-1.5 rounded-md border border-ctp-yellow/25 bg-ctp-yellow/10 px-2.5 py-1 text-xs font-medium text-ctp-yellow">
-              <Wrench size={13} />
-              Maintenance preview
-            </span>
-          )}
-
-          <span
-            role="status"
-            aria-live="polite"
-            title={`Health endpoint: ${API_BASE_URL}/api/health`}
-            className={`flex items-center gap-1.5 rounded-md border border-ctp-surface1 bg-ctp-mantle px-2.5 py-1 text-xs ${currentBackendStatus.text}`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${currentBackendStatus.dot}`}
-            />
-
-            {currentBackendStatus.label}
-          </span>
-        </div>
-      </div>
-
-      {/* Action feedback */}
-      {notice && (
-        <div
-          role="status"
-          className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-ctp-blue/20 bg-ctp-blue/5 px-4 py-3"
+      <div className="mx-auto w-full max-w-[1500px]">
+        {/* Full header */}
+        <header
+          ref={headerRef}
+          className="flex flex-wrap items-center justify-between gap-4"
         >
-          <div className="flex items-start gap-2.5">
-            <Server
-              size={16}
-              className="mt-0.5 shrink-0 text-ctp-blue"
-            />
+          <div className="flex items-baseline gap-3">
+            <p className="font-fredoka text-2xl leading-none text-ctp-text">
+              Kinesis
+            </p>
 
-            <p className="text-sm leading-relaxed text-ctp-subtext1">
-              {notice}
+            <p className="text-xs text-ctp-subtext0">
+              Server administration
             </p>
           </div>
 
-          <button
-            type="button"
-            aria-label="Dismiss notification"
-            onClick={() => setNotice("")}
-            className="shrink-0 rounded-md p-1 text-ctp-subtext0 hover:bg-ctp-surface0 hover:text-ctp-text"
-          >
-            <X size={15} />
-          </button>
+          {renderServerControls(false)}
+        </header>
+
+        {/* Connection status */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <p className="flex items-center gap-1.5 text-ctp-subtext1">
+            <Users size={14} className="text-ctp-subtext0" aria-hidden="true" />
+            2 users connected
+          </p>
+
+          <div className="flex flex-wrap items-center gap-4">
+            {maintenanceMode && (
+              <StatusDot tone="warning">Maintenance preview</StatusDot>
+            )}
+
+            <span
+              role="status"
+              aria-live="polite"
+              title={`Health endpoint: ${API_BASE_URL}/api/health`}
+            >
+              <StatusDot
+                tone={currentBackendStatus.tone}
+                pulse={backendStatus === "checking"}
+              >
+                {currentBackendStatus.label}
+              </StatusDot>
+            </span>
+          </div>
         </div>
-      )}
 
-      {/* Full dashboard tabs */}
-      {renderTabs(false)}
+        {/* Action feedback */}
+        {notice && (
+          <Notice
+            tone="info"
+            role="status"
+            className="mt-4"
+            onDismiss={() => setNotice("")}
+          >
+            {notice}
+          </Notice>
+        )}
 
-      {/* Active page */}
-      <main>
-        {activeTab === "Overview" && <Overview />}
-        {activeTab === "Cashiers" && <Cashiers />}
-        {activeTab === "Terminals" && <Terminals />}
-        {activeTab === "Console" && <Console />}
-        {activeTab === "Database" && <Database />}
-        {activeTab === "Settings" && <Settings />}
-      </main>
+        {/* Full dashboard tabs */}
+        {renderTabs(false)}
+
+        {/* Active page */}
+        <main>
+          {activeTab === "Overview" && <Overview />}
+          {activeTab === "Cashiers" && <Cashiers />}
+          {activeTab === "Terminals" && <Terminals />}
+          {activeTab === "Console" && <Console />}
+          {activeTab === "Database" && <Database />}
+          {activeTab === "Settings" && <Settings />}
+        </main>
+      </div>
 
       {/* Server action confirmation */}
-      {pendingAction && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-ctp-crust/60 p-4 backdrop-blur-sm"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setPendingAction(null);
-            }
-          }}
-        >
-          <section
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="server-action-title"
-            aria-describedby="server-action-description"
-            className="w-full max-w-md rounded-2xl border border-ctp-surface1 bg-ctp-mantle p-6 shadow-2xl"
-          >
-            <div
-              className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${pendingAction === "shutdown"
-                  ? "bg-ctp-red/10 text-ctp-red"
-                  : "bg-ctp-yellow/10 text-ctp-yellow"
-                }`}
+      <Dialog
+        open={pendingAction !== null}
+        onClose={() => setPendingAction(null)}
+        role="alertdialog"
+        labelledBy="server-action-title"
+        title={
+          pendingAction === "shutdown"
+            ? "Shut down the server?"
+            : "Restart the server?"
+        }
+        description={
+          pendingAction === "shutdown"
+            ? "Stopping the backend may disconnect all terminals and interrupt new sales until the service starts again."
+            : "Restarting the backend may temporarily disconnect terminals. Pending offline sales should remain safely queued on each terminal."
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setPendingAction(null)}
+              className={buttonSecondary}
             >
-              {pendingAction === "shutdown" ? (
-                <Power size={23} />
-              ) : (
-                <AlertTriangle size={23} />
-              )}
-            </div>
+              Cancel
+            </button>
 
-            <h2
-              id="server-action-title"
-              className="text-lg font-semibold text-ctp-text"
+            <button
+              type="button"
+              onClick={confirmServerAction}
+              className={buttonDangerSolid}
             >
               {pendingAction === "shutdown"
-                ? "Shut down the server?"
-                : "Restart the server?"}
-            </h2>
-
-            <p
-              id="server-action-description"
-              className="mt-2 text-sm leading-relaxed text-ctp-subtext0"
-            >
-              {pendingAction === "shutdown"
-                ? "Stopping the backend may disconnect all terminals and interrupt new sales until the service starts again."
-                : "Restarting the backend may temporarily disconnect terminals. Pending offline sales should remain safely queued on each terminal."}
-            </p>
-
-            <div className="mt-4 flex items-start gap-2 rounded-lg border border-ctp-yellow/20 bg-ctp-yellow/5 p-3">
-              <AlertTriangle
-                size={16}
-                className="mt-0.5 shrink-0 text-ctp-yellow"
-              />
-
-              <p className="text-xs leading-relaxed text-ctp-subtext0">
-                Backend actions are not implemented yet. Confirming here will
-                only display a notice; it will not stop or restart anything.
-              </p>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingAction(null)}
-                className="rounded-lg border border-ctp-surface1 px-4 py-2.5 text-sm font-medium text-ctp-subtext1 transition hover:bg-ctp-surface0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ctp-mauve"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={confirmServerAction}
-                className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-ctp-base transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 ${pendingAction === "shutdown"
-                    ? "bg-ctp-red focus-visible:ring-ctp-red"
-                    : "bg-ctp-yellow focus-visible:ring-ctp-yellow"
-                  }`}
-              >
-                {pendingAction === "shutdown"
-                  ? "Confirm shutdown"
-                  : "Confirm restart"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+                ? "Confirm shutdown"
+                : "Confirm restart"}
+            </button>
+          </>
+        }
+      >
+        <Notice tone="warning" role="note">
+          Backend actions are not implemented yet. Confirming here will
+          only display a notice; it will not stop or restart anything.
+        </Notice>
+      </Dialog>
     </div>
   );
 }

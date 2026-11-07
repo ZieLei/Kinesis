@@ -88,6 +88,20 @@ def _record(
     terminal_id=None,
     details: dict | None = None,
 ):
+    # Requests authenticated as a cashier register the actor on the
+    # database session; use it for events that would otherwise be
+    # recorded as anonymous "system" changes.
+    actor = session.info.get("kinesis_actor")
+
+    if actor_type == "system" and actor:
+        actor_type = actor["actor_type"]
+        actor_id = actor["actor_id"]
+        actor_name = actor["actor_name"]
+        cashier_id = cashier_id or actor["cashier_id"]
+
+        if terminal_id is None:
+            terminal_id = actor["terminal_id"]
+
     session.add(
         ActivityEvent(
             event_type=event_type,
