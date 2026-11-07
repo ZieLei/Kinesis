@@ -51,9 +51,26 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Kinesis to scan terminal pairing QR codes.",
+          "cameraPermission": "Allow Kinesis to scan GCash payment receipts and terminal pairing QR codes.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "rn-mlkit-ocr",
+        {
+          "ocrModels": [
+            "latin"
+          ],
+          "ocrUseBundled": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
         }
       ],
       "expo-sharing",

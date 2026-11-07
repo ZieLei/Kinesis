@@ -17,6 +17,7 @@ import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import Banknote from "lucide-react-native/icons/banknote";
 
 import { styledIcon } from "@/components/StyledIcon";
+import GcashReferenceScanner from "@/components/GcashReferenceScanner";
 import { useCart } from "@/app/context/CartContext";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { createSale, fetchSale } from "@/lib/salesApi";
@@ -161,6 +162,7 @@ export default function Checkout() {
   const [referenceNumber, setReferenceNumber] = useState("");
   const [gcashVerified, setGcashVerified] = useState(false);
   const [gcashQrLoadFailed, setGcashQrLoadFailed] = useState(false);
+  const [gcashScannerVisible, setGcashScannerVisible] = useState(false);
 
   const [discountPercent, setDiscountPercent] = useState("0");
   const [supervisorUsername, setSupervisorUsername] = useState("");
@@ -744,8 +746,8 @@ export default function Checkout() {
                 selected: paymentMethod === "cash",
               }}
               className={`flex-1 items-center gap-2 rounded-md border bg-ctp-mantle p-5 ${paymentMethod === "cash"
-                  ? "border-ctp-blue"
-                  : "border-ctp-surface1"
+                ? "border-ctp-blue"
+                : "border-ctp-surface1"
                 }`}
             >
               <View className="h-20 w-full items-center justify-center">
@@ -768,8 +770,8 @@ export default function Checkout() {
                 selected: paymentMethod === "gcash",
               }}
               className={`flex-1 items-center gap-2 rounded-md border bg-ctp-mantle p-5 ${paymentMethod === "gcash"
-                  ? "border-ctp-blue"
-                  : "border-ctp-surface1"
+                ? "border-ctp-blue"
+                : "border-ctp-surface1"
                 }`}
             >
               <View className="h-20 w-full items-center justify-center">
@@ -889,21 +891,41 @@ export default function Checkout() {
                   Reference Number
                 </Text>
 
-                <TextInput
-                  value={referenceNumber}
-                  onChangeText={(value) => {
-                    setReferenceNumber(value);
-                    setGcashVerified(false);
-                    setError("");
-                    setRequestFailed(false);
-                  }}
-                  editable={!submitting}
-                  autoCapitalize="characters"
-                  placeholder="Enter reference number"
-                  placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
-                  selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                  className="rounded-md border border-ctp-surface1 bg-ctp-mantle px-4 py-3 font-inter-medium text-lg text-ctp-text"
-                />
+                <View className="flex-row items-center gap-2">
+                  <TextInput
+                    value={referenceNumber}
+                    onChangeText={(value) => {
+                      setReferenceNumber(value);
+                      setGcashVerified(false);
+                      setError("");
+                      setRequestFailed(false);
+                    }}
+                    editable={!submitting}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={64}
+                    placeholder="Scan or enter reference number"
+                    placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
+                    selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
+                    className="min-w-0 flex-1 rounded-md border border-ctp-surface1 bg-ctp-mantle px-4 py-3 font-inter-medium text-base text-ctp-text"
+                  />
+
+                  <Pressable
+                    onPress={() => setGcashScannerVisible(true)}
+                    disabled={submitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scan GCash reference number"
+                    className="items-center justify-center rounded-md bg-ctp-blue px-4 py-3"
+                  >
+                    <Text className="font-inter-semibold text-sm text-ctp-crust">
+                      Scan
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <Text className="font-inter-regular text-xs leading-5 text-ctp-subtext0">
+                  Scan the customer's GCash receipt, review the detected number, and correct it if needed. Manual entry is still available.
+                </Text>
               </View>
 
               <Pressable
@@ -917,8 +939,8 @@ export default function Checkout() {
               >
                 <View
                   className={`mt-0.5 h-5 w-5 items-center justify-center rounded border ${gcashVerified
-                      ? "border-ctp-blue bg-ctp-blue"
-                      : "border-ctp-overlay1"
+                    ? "border-ctp-blue bg-ctp-blue"
+                    : "border-ctp-overlay1"
                     }`}
                 >
                   {gcashVerified ? (
@@ -961,16 +983,16 @@ export default function Checkout() {
               )
             }
             className={`mt-8 flex-row items-center justify-center gap-2 rounded-lg py-4 ${submitting ||
-                items.length === 0 ||
-                !settingsReady ||
-                !discountInputValid ||
-                supervisorApprovalDisabled ||
-                (
-                  supervisorRequired &&
-                  !supervisorCredentialsValid
-                )
-                ? "bg-ctp-blue/50"
-                : "bg-ctp-blue"
+              items.length === 0 ||
+              !settingsReady ||
+              !discountInputValid ||
+              supervisorApprovalDisabled ||
+              (
+                supervisorRequired &&
+                !supervisorCredentialsValid
+              )
+              ? "bg-ctp-blue/50"
+              : "bg-ctp-blue"
               }`}
           >
             {submitting ? (
@@ -993,6 +1015,20 @@ export default function Checkout() {
             </Text>
           </Pressable>
         </ScrollView>
+
+        {gcashScannerVisible ? (
+          <GcashReferenceScanner
+            visible={gcashScannerVisible}
+            onClose={() => setGcashScannerVisible(false)}
+            onConfirm={(value) => {
+              setReferenceNumber(value);
+              setGcashVerified(false);
+              setError("");
+              setRequestFailed(false);
+              setGcashScannerVisible(false);
+            }}
+          />
+        ) : null}
       </View>
     </SafeAreaView>
   );
