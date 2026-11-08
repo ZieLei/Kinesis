@@ -67,9 +67,10 @@ htmlcov/
 *.sqlite3
 *.db
 
-# Uploaded product images (runtime data)
+# Uploaded images (runtime data): product photos and the shop's GCash QR
 backend/uploads/products/*
 !backend/uploads/products/.gitkeep
+backend/uploads/gcash/*
 
 # Editor and OS files
 .idea/
