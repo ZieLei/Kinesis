@@ -68,7 +68,7 @@ database password.
 | `chmod 0700/0600` on backups | No effect on Windows | Documented: data-directory ACL |
 | README `uvicorn --reload --host 0.0.0.0` | Development flags, exposes the API on the LAN | Development only; production uses the service templates |
 | Single process assumed (`threading.Lock`, in-memory WebSocket registry) | Breaks with several workers | Documented: `--workers 1` |
-| Python version not pinned | Wheel availability differs by OS | **Fixed**: hash-locked `backend/requirements.lock` and `deploy/pki/requirements.lock`, tested on Python 3.12–3.14; prebuilt wheels for Linux x86-64/arm64, Windows x64 and Apple-silicon macOS (not Intel macOS). `tzdata` added for Windows. |
+| Python version not pinned | Wheel availability differs by OS | **Fixed**: hash-locked `backend/requirements.lock` and `deploy/pki/requirements.lock`, tested on Python 3.12–3.14; prebuilt wheels for Linux x86-64/arm64, Windows x64 and Apple-silicon macOS; Intel macOS uses `requirements-macos-intel.lock` (both selected automatically by `deploy/install/macos/install-kinesis.sh`). `tzdata` added for Windows. |
 
 No other OS coupling was found. The app code uses no signals, `fcntl`/`pwd`,
 or hard-coded `/tmp` or `/etc` paths, and the console is an allow-listed

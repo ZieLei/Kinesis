@@ -34,7 +34,7 @@ number or account names; they are not needed.
 
 | Question | How to find it | Why it matters |
 |---|---|---|
-| Chip: Apple silicon (M1 or later) or Intel? | Apple menu → About This Mac, or `uname -m` (`arm64` / `x86_64`) | Apple silicon uses the tested lock file. Intel needs a separate, older lock (section 1.2). |
+| Chip: Apple silicon (M1 or later) or Intel? | Apple menu → About This Mac | For the record only: both are supported, and the installer detects the chip itself (section 1.4). |
 | macOS version | About This Mac, or `sw_vers -productVersion` | PostgreSQL 18's installer is tested on **macOS 13 Ventura or later**. Caddy needs **macOS 12 or later**, and future Caddy builds will need 13. |
 | Memory and free disk space | About This Mac → More Info; `df -h /` | 8 GB RAM and 20 GB free are comfortable for one shop. |
 | Battery condition | System Settings → Battery → Battery Health, or `system_profiler SPPowerDataType` | It will be plugged in all the time; a worn battery is still useful as a short power-cut buffer. |
@@ -62,10 +62,10 @@ number or account names; they are not needed.
 
 | Component | macOS | Windows |
 |---|---|---|
-| Python packages (hash-checked lock) | Apple silicon: every package has wheels for **macOS 11+** (checked against PyPI). Intel: the pinned `cryptography` 50.0.1 and `argon2-cffi-bindings` 26.1.0 have no Intel-Mac wheels. A binary-only Intel set does resolve with `cryptography` 48.0.1 and `argon2-cffi-bindings` 25.1.0 (checked), but it would need its own lock file and one test run. | x64: all wheels present; `tzdata` included. ARM: not supported. |
+| Python packages (hash-checked lock) | Apple silicon: `requirements.lock`. Intel: `requirements-macos-intel.lock`. Both install from prebuilt wheels needing at most macOS 11 (checked against PyPI). Section 1.4 covers the selection. | x64: all wheels present; `tzdata` included. ARM: not supported. |
 | Python | 3.12–3.14 (python.org installer) | 3.12–3.14 x64 (python.org installer) |
 | PostgreSQL 18 | **EDB installer**: runs at boot as a system service; tested on macOS 13+. Postgres.app also runs on older macOS, but it starts only when a user logs in, so it does not suit an unattended server. | EDB installer, service `postgresql-x64-18` |
-| Caddy | Official `darwin_arm64` / `darwin_amd64` binary; Go 1.25+ needs macOS 12+ | Official `windows_amd64` binary, run as a Windows service |
+| Caddy | Official 2.11.4 `mac_arm64` / `mac_amd64` build, chosen and SHA-512-verified by the installer; both binaries declare macOS 12.0 as minimum | Official `windows_amd64` binary, run as a Windows service |
 | Services | launchd daemons, start at boot without login | WinSW (backend) + Caddy's built-in service support |
 | `kinesis.local` | Built in: set the Bonjour name to `kinesis` | Name the computer `kinesis` (to be confirmed on the device) |
 
@@ -80,11 +80,10 @@ number or account names; they are not needed.
 | TLS keys separated from the backend | Yes (separate `_kinesis` / `_kinesisproxy` accounts) | No: both services run as LocalSystem; the folder ACL protects the keys from other users |
 | Shared use | If it is also the owner's personal laptop, it must not leave the shop or sleep | Usually a dedicated machine |
 
-**Current recommendation:** the MacBook, if it is **Apple silicon on macOS
-13 or later** and can stay plugged in at the shop with its lid open. If it
-is an Intel Mac, it still works, after one extra lock-and-test step. If it
-must leave the shop daily, the repaired Windows PC is the better host,
-provided its disk is healthy and it is 64-bit x64.
+**Current recommendation:** the MacBook, Apple silicon or Intel, if it
+runs **macOS 13 or later** and can stay plugged in at the shop with its
+lid open. If it must leave the shop daily, the repaired Windows PC is the
+better host, provided its disk is healthy and it is 64-bit x64.
 
 ### 1.3 macOS long-running operation
 
@@ -112,6 +111,60 @@ provided its disk is healthy and it is 64-bit x64.
   These files cannot be rotated while running. The backend template
   therefore turns off per-request access logging, and errors are still
   recorded. Check the folder size monthly.
+
+
+### 1.4 macOS compatibility (both processors)
+
+**Platform requirements**
+
+| | Requirement |
+|---|---|
+| macOS | **13 Ventura or later.** The installer refuses older versions. PostgreSQL 18's installer is tested on macOS 13+; Caddy and the Python wheels need 12 and 11. |
+| Processor | **Apple silicon (arm64) or Intel (x86_64)**, detected automatically |
+| Python | **3.13** from python.org (universal2: one installer for both processors); 3.12 and 3.14 also work |
+| PostgreSQL | **18** (EDB installer); no older version |
+| Caddy | 2.11.4, the build for the detected processor |
+| Hardware | Any MacBook that runs macOS 13: Apple-silicon models, MacBook Pro 2017 and later, MacBook Air 2018 and later, 12-inch MacBook 2017. 8 GB RAM and 20 GB free disk space recommended. |
+
+**How the processor is handled**
+
+| | Apple silicon | Intel |
+|---|---|---|
+| Backend lock | `backend/requirements.lock` | `backend/requirements-macos-intel.lock` |
+| PKI-tool lock | `deploy/pki/requirements.lock` | `deploy/pki/requirements-macos-intel.lock` |
+| Caddy build | `caddy_2.11.4_mac_arm64` | `caddy_2.11.4_mac_amd64` |
+| Differences in the lock | — | `argon2-cffi-bindings` 25.1.0 and `cryptography` 48.0.1: the newer releases ship no Intel-Mac wheels. Everything else is identical. |
+
+* **Detection.** The installer reads the hardware (`hw.optional.arm64`),
+  not the current process. A Terminal running under Rosetta still counts
+  as Apple silicon, and the installer restarts itself natively.
+* **Mismatches are refused, not installed.** That covers:
+  - an x86_64-only Python on Apple silicon (for example an Intel Homebrew
+    Python);
+  - a PostgreSQL or Caddy binary without native code;
+  - an existing venv built for the other processor, which is rebuilt;
+  - any compiled package without native code (checked with `lipo`).
+* **Password and PIN hashes** are compatible between the two
+  `argon2-cffi-bindings` versions (verified both ways). Moving the database
+  between an Apple-silicon and an Intel host keeps every login working.
+* **`cryptography` 48.0.1** (Intel only) has three published advisories
+  (CVE-2026-69247, -69248, -69249). They cover PKCS#7 decryption and the
+  `x509.verification` path-building verifier, neither of which Kinesis
+  uses. Only the certificate tools import `cryptography`; the backend never
+  does. Re-check this when the lock is regenerated.
+* Everything else is the same on both processors: the launchd daemons,
+  folders, accounts, ports, origins, certificates and terminal pairing.
+
+**Operational requirements**, separate from compatibility (section 1.3):
+
+* the Mac stays at the shop;
+* it stays plugged in with the lid open;
+* sleep is prevented;
+* automatic macOS updates do not install;
+* it is on wired Ethernet, or on Wi-Fi with Private Wi-Fi Address off;
+* the owner has decided about FileVault.
+
+A compatible Mac that leaves the shop or sleeps still stops the POS.
 
 ---
 
@@ -198,12 +251,12 @@ Quote every path that contains a space.
 
 | # | Item | Who | Status |
 |---|---|---|---|
-| 0.1 | Release committed and tagged | owner | **Done:** `v1.4.1` on `release/v1.4.0` (merge and push still open) |
+| 0.1 | Release committed and tagged | owner | **Done:** `v1.4.2` on `release/v1.4.0` (merge and push still open) |
 | 0.2 | Move the root CA key off Shimamura's internal disk: copy `~/kinesis-root-key/root-ca.key.enc` to two USB drives, verify one copy (0.3), then delete the internal copy | owner | open |
 | 0.3 | `python3 deploy/pki/kinesis_pki.py --pki-dir ~/kinesis-local/pki verify-root-key --root-key /path/to/USB/root-ca.key.enc` (prompts; writes nothing). If the passphrase is lost, see section 9 | owner | open |
 | 0.4 | Read-only baseline of the live database | | **Done:** 2026-11-08, `~/kinesis-migration/baseline-phase0-20261108.json` |
 | 0.5 | **Host facts collected (section 1.1) and host chosen** | owner | open |
-| 0.6 | Intel Mac only: produce and test the Intel lock file | developer | only if needed |
+| 0.6 | Intel Mac support | developer | **Done** in v1.4.2: Intel lock files plus automatic selection (section 1.4) |
 | 0.7 | Router admin access. Shimamura's Wi-Fi (`24:b2:b9:fd:74:e7`) holds `.199` today on a 24-hour DHCP lease | owner | open |
 | 0.8 | Two USB drives (cutover transfer; offline root key) | owner | open |
 
@@ -216,7 +269,7 @@ address until the cutover.
 
 1. Build the release on Shimamura:
    ```sh
-   git archive --format=tar.gz -o kinesis-v1.4.1.tar.gz v1.4.1
+   git archive --format=tar.gz -o kinesis-v1.4.2.tar.gz v1.4.2
    npx expo export -p web --output-dir /tmp/kinesis-web/pos
    npm --prefix admin run build -- --outDir /tmp/kinesis-web/admin --emptyOutDir
    python3 deploy/tools/check_web_build.py /tmp/kinesis-web/pos --caddyfile deploy/caddy/Caddyfile
@@ -227,7 +280,8 @@ address until the cutover.
    <PY> -m pip install --require-hashes --only-binary :all: -r <CODE>/backend/requirements.lock
    <PY> -m pip install --require-hashes --only-binary :all: -r <CODE>/deploy/pki/requirements.lock
    ```
-   On an Intel Mac, use the Intel lock from 0.6.
+   On a Mac, the installer (section 5.1) runs this step itself with the
+   lock for the Mac's processor.
 3. PostgreSQL 18:
    - Set `listen_addresses = 'localhost'` in `postgresql.conf`. Installers may default to all interfaces.
    - Keep only `scram-sha-256` lines for `127.0.0.1/32` and `::1/128` in `pg_hba.conf`.
@@ -256,43 +310,45 @@ address until the cutover.
 
 ### 5.1 macOS specifics (primary)
 
-1. Install, as an administrator:
-   - PostgreSQL 18 (EDB installer from postgresql.org);
-   - Python 3.13 (python.org installer);
-   - Caddy (official macOS binary for the Mac's chip), copied to
-     `/Library/Application Support/Kinesis/bin/caddy`. A binary downloaded
-     with a browser is quarantined; remove that with
-     `xattr -d com.apple.quarantine <file>`.
-2. Hidden service accounts. Pick two unused IDs below 500; check with
-   `dscl . -list /Users UniqueID`. For each of `_kinesis` and
-   `_kinesisproxy`, create a group, then a user with `UserShell
-   /usr/bin/false`, `NFSHomeDirectory /var/empty` and `IsHidden 1`
-   (`dscl . -create …`). Confirm with `id _kinesis`.
-3. Folders under `/Library/Application Support/Kinesis`:
+1. Install, as an administrator. Each is one installer that works on both
+   Apple silicon and Intel Macs:
+   - **Python 3.13** from python.org ("macOS 64-bit universal2 installer");
+   - **PostgreSQL 18** from postgresql.org (EDB installer).
+2. Run the installer, first as a dry run, then with `--apply`:
+   ```sh
+   deploy/install/macos/install-kinesis.sh --release ./kinesis-v1.4.2 --web-pos ./pos --web-admin ./admin
+   sudo deploy/install/macos/install-kinesis.sh --release ./kinesis-v1.4.2 --web-pos ./pos --web-admin ./admin --apply
+   ```
+   It detects the processor (section 1.4) and then:
+   - checks that Python 3.13 and PostgreSQL 18 run natively;
+   - creates the hidden `_kinesis` and `_kinesisproxy` accounts and the
+     folders below with their permissions;
+   - copies the code and web apps;
+   - builds the venv from the lock for the processor and checks that every
+     compiled extension is native;
+   - downloads and SHA-512-verifies Caddy 2.11.4 for the processor (or uses
+     `--caddy-binary` offline), and allows it in the macOS firewall;
+   - installs the launchd daemons **without starting them**.
+
+   Folders it creates under `/Library/Application Support/Kinesis`:
 
    | Folder | Owner | Mode |
    |---|---|---|
-   | `app`, `venv`, `bin`, `web` | root:wheel | 755 |
-   | `config` | root:wheel | 755 |
-   | `config/kinesis.env` | root:_kinesis | 640 |
-   | `config/caddy.env` | root:_kinesisproxy | 640 |
+   | `app`, `venv`, `bin`, `web`, `config`, `logs` | root:wheel | 755 |
    | `uploads` | _kinesis | 750 |
    | `backups` | _kinesis | 700 |
-   | `pki` | _kinesisproxy | 700 |
-   | `caddy` | _kinesisproxy | 700 |
+   | `pki`, `caddy` | _kinesisproxy | 700 |
    | `onboarding` | _kinesisproxy | 755 |
-   | `logs` | root | 755 |
+   | `logs/backend.log` | _kinesis | 640 |
+   | `logs/caddy.log`, `logs/pki-renew.log` | _kinesisproxy | 640 |
 
-   Pre-create `logs/backend.log` (owned by `_kinesis`) and `logs/caddy.log`
-   and `logs/pki-renew.log` (owned by `_kinesisproxy`).
-4. Bonjour name: `sudo scutil --set LocalHostName kinesis`, so the Mac
+   The config files from step 4 are `config/kinesis.env` (root:_kinesis
+   640) and `config/caddy.env` (root:_kinesisproxy 640).
+3. Bonjour name: `sudo scutil --set LocalHostName kinesis`, so the Mac
    answers to `kinesis.local`.
-5. Power, updates, network and firewall as in section 1.3. Allow Caddy:
-   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "/Library/Application Support/Kinesis/bin/caddy"`
-   and `--unblockapp` with the same path.
-6. Copy the three plists from `deploy/services/launchd` to
-   `/Library/LaunchDaemons/` (root:wheel 644). Do not bootstrap them yet.
-   Daemons start at boot without a login (FileVault caveat in 1.3).
+4. Power, updates, network and FileVault as in section 1.3.
+5. The `<caddy binary>` for step 5 of the common steps is
+   `/Library/Application Support/Kinesis/bin/caddy`.
 
 ### 5.2 Windows specifics (fallback)
 
@@ -429,4 +485,5 @@ after the cutover.
 | `deploy/migration/preflight.py` | Offline config check: origins vs. sites, certificate names, production flags, placeholders, permissions, web roots. |
 | `deploy/migration/smoke_test.py` | Read-only network check (standard library only; any OS). |
 | `deploy/pki/kinesis_pki.py verify` / `verify-root-key` | Read-only certificate chain and key checks. |
-| `deploy/install/linux/install-kinesis.sh` | Linux provisioning only (dry run unless `--apply`). |
+| `deploy/install/macos/install-kinesis.sh` | macOS provisioning, Apple silicon or Intel detected automatically (dry run unless `--apply`). |
+| `deploy/install/linux/install-kinesis.sh` | Linux provisioning (dry run unless `--apply`). |

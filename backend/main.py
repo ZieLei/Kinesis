@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Kinesis API",
-    version="1.4.1",
+    version="1.4.2",
     description=(
         "Inventory, services, checkout, reporting, settings, and terminal "
         "management API for the Kinesis point-of-sale system."
