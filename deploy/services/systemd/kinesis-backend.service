@@ -7,6 +7,9 @@ Description=Kinesis POS backend
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
+# Debian/Ubuntu (PGDG): postgresql.service starts every cluster, e.g.
+# postgresql@18-main. If the database is not ready yet, the backend still
+# starts and reconnects on the first request (pool_pre_ping).
 
 [Service]
 Type=exec
@@ -21,6 +24,8 @@ KillSignal=SIGTERM
 TimeoutStopSec=30
 Restart=on-failure
 RestartSec=3
+# Uploads and backups are created owner/group-only.
+UMask=0027
 
 # Hardening
 NoNewPrivileges=yes

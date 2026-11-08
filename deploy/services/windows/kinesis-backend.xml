@@ -15,7 +15,8 @@
   <env name="KINESIS_ENV_FILE" value="C:\ProgramData\Kinesis\config\kinesis.env" />
   <startmode>Automatic</startmode>
   <delayedAutoStart>true</delayedAutoStart>
-  <depend>postgresql-x64-17</depend>
+  <!-- Must match the installed PostgreSQL service: Get-Service postgresql* -->
+  <depend>postgresql-x64-18</depend>
   <stoptimeout>30 sec</stoptimeout>
   <onfailure action="restart" delay="5 sec" />
   <onfailure action="restart" delay="10 sec" />

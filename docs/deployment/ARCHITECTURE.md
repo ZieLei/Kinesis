@@ -6,6 +6,8 @@ LAN, with **no internet connection required**.
 
 This document is the recommended architecture. It is not an installer.
 Templates live in `deploy/`.
+To move an existing installation to a dedicated shop PC, follow
+[MIGRATION.md](MIGRATION.md).
 
 ```
  iPhone Safari / PWA ─┐                       ┌──────────── Host (Linux | macOS | Windows) ───────────┐
@@ -66,7 +68,7 @@ database password.
 | `chmod 0700/0600` on backups | No effect on Windows | Documented: data-directory ACL |
 | README `uvicorn --reload --host 0.0.0.0` | Development flags, exposes the API on the LAN | Development only; production uses the service templates |
 | Single process assumed (`threading.Lock`, in-memory WebSocket registry) | Breaks with several workers | Documented: `--workers 1` |
-| Python version not pinned | Wheel availability differs by OS | **To do**: pin Python 3.12/3.13 and add a hash-locked `requirements.lock` with an offline wheelhouse per OS/arch |
+| Python version not pinned | Wheel availability differs by OS | **Fixed**: hash-locked `backend/requirements.lock` and `deploy/pki/requirements.lock`, tested on Python 3.12–3.14; prebuilt wheels for Linux x86-64/arm64, Windows x64 and Apple-silicon macOS (not Intel macOS). `tzdata` added for Windows. |
 
 No other OS coupling was found. The app code uses no signals, `fcntl`/`pwd`,
 or hard-coded `/tmp` or `/etc` paths, and the console is an allow-listed
@@ -88,6 +90,9 @@ in reverse order; uvicorn drains requests for up to 20 seconds.
 Migrations are deliberately **not** run automatically at service start.
 
 ### Backups (what to copy off the host)
+How the current manual backup and restore work, and how to keep an
+off-host copy: [BACKUPS.md](BACKUPS.md).
+
 - **Database**: the admin console's backup (`pg_dump` custom format) into
   `<DATA_DIR>/backups`. **Recommended next step**: a scheduled daily backup.
   Today, backups are only made on demand.

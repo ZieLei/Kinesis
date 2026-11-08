@@ -26,6 +26,17 @@ to the specific subfolders.)
 
 ## 2. Backend service (WinSW)
 
+Create the virtual environment from the pinned, hash-checked lock files
+(Python 3.12 to 3.14 from python.org). `tzdata` is included on Windows;
+without it the backend cannot load the Asia/Manila time zone.
+
+```powershell
+py -3.13 -m venv "C:\Program Files\Kinesis\venv"
+$pip = "C:\Program Files\Kinesis\venv\Scripts\pip.exe"
+& $pip install --require-hashes --only-binary :all: -r "C:\Program Files\Kinesis\app\backend\requirements.lock"
+& $pip install --require-hashes --only-binary :all: -r "C:\Program Files\Kinesis\app\deploy\pki\requirements.lock"
+```
+
 The PostgreSQL service name in `kinesis-backend.xml` (`<depend>`) must match
 the installed one: `Get-Service postgresql*`.
 
@@ -58,14 +69,21 @@ Register-ScheduledTask -TaskName "Kinesis certificate renewal" -TaskPath "\Kines
 
 ## 5. Firewall (private network profile only)
 
+Open exactly the ports that `caddy.env` uses: the port of every
+`KINESIS_POS_SITES` / `KINESIS_ADMIN_SITES` address, the onboarding port,
+and optionally `KINESIS_HTTP_PORT` (HTTP to HTTPS redirect). For the
+standard Kinesis shop layout (`docs/deployment/MIGRATION.md`):
+
 ```powershell
-New-NetFirewallRule -DisplayName "Kinesis HTTPS" -Direction Inbound -Protocol TCP -LocalPort 80,443,8443 -Profile Private -Action Allow
-New-NetFirewallRule -DisplayName "Kinesis onboarding" -Direction Inbound -Protocol TCP -LocalPort 8080 -Profile Private -Action Allow
-New-NetFirewallRule -DisplayName "Kinesis mDNS" -Direction Inbound -Protocol UDP -LocalPort 5353 -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Kinesis POS and admin" -Direction Inbound -Protocol TCP -LocalPort 9443,9444 -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Kinesis onboarding" -Direction Inbound -Protocol TCP -LocalPort 9080 -Profile Private -Action Allow
+# Only if the kinesis_mdns.py responder is used:
+# New-NetFirewallRule -DisplayName "Kinesis mDNS" -Direction Inbound -Protocol UDP -LocalPort 5353 -Profile Private -Action Allow
 ```
 
 Make sure the shop network is set to **Private** (Settings > Network >
-Properties). Port 8000 (backend) and 5432 (PostgreSQL) must **not** be opened.
+Properties). Port 8000 (backend), 5432 (PostgreSQL) and 2019 (Caddy admin
+API) must **not** be opened.
 
 ## 6. Power
 

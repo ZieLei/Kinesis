@@ -27,6 +27,8 @@ Commands
   renew                reissue the server cert when due or when names change
   status               show fingerprints, names and expiry dates
   export-ca            write the root certificate for device onboarding
+  verify               check chain, key pairs, validity and names (read-only)
+  verify-root-key      check the offline root key and passphrase (read-only)
   rotate-intermediate  replace the issuing CA (needs the offline root key)
   issue-constraint-test  create a deliberately invalid certificate to prove
                          that client devices enforce the name constraints
@@ -873,6 +875,114 @@ pair the terminal there.</p>
 """
 
 
+def _same_public_key(key, certificate: x509.Certificate) -> bool:
+    return key.public_key().public_numbers() == (
+        certificate.public_key().public_numbers()
+    )
+
+
+def command_verify(args) -> None:
+    """
+    Check the installed hierarchy without changing anything: signatures
+    (server -> issuing CA -> root), key/certificate pairs, validity periods,
+    and that the server certificate names match pki.json. Private keys are
+    only loaded in memory to compare public keys.
+    """
+
+    directory = Path(args.pki_dir).resolve()
+    state = PkiState.load(directory)
+    now = utc_now()
+    problems: list[str] = []
+
+    root = read_certificate(directory / ROOT_CERT)
+    intermediate = read_certificate(directory / INTERMEDIATE_CERT)
+    chain = read_certificates(directory / SERVER_CERT)
+    leaf = chain[0]
+
+    checks = [
+        ("issuing CA signed by root", lambda: intermediate.verify_directly_issued_by(root)),
+        ("server certificate signed by issuing CA", lambda: leaf.verify_directly_issued_by(intermediate)),
+    ]
+
+    for label, check in checks:
+        try:
+            check()
+            print(f"OK   {label}")
+        except Exception as exc:  # cryptography raises several types
+            problems.append(f"{label}: {str(exc) or type(exc).__name__}")
+
+    if len(chain) < 2 or chain[1] != intermediate:
+        problems.append(f"{SERVER_CERT} must contain the server certificate followed by the issuing CA")
+    else:
+        print(f"OK   {SERVER_CERT} contains the full chain")
+
+    for name, key_file, certificate in (
+        ("issuing CA", INTERMEDIATE_KEY, intermediate),
+        ("server", SERVER_KEY, leaf),
+    ):
+        if _same_public_key(read_private_key(directory / key_file), certificate):
+            print(f"OK   {key_file} matches the {name} certificate")
+        else:
+            problems.append(f"{key_file} does not match the {name} certificate")
+
+    for name, certificate in (("root", root), ("issuing CA", intermediate), ("server", leaf)):
+        if not certificate.not_valid_before_utc <= now <= certificate.not_valid_after_utc:
+            problems.append(f"the {name} certificate is not valid now (check the clock)")
+        else:
+            days = (certificate.not_valid_after_utc - now).days
+            print(f"OK   {name} certificate valid for {days} more days")
+
+    dns, ips = leaf_names(leaf)
+
+    if dns != set(state.hostnames) or ips != set(state.ip_addresses):
+        problems.append(
+            "server certificate names differ from pki.json: "
+            f"certificate {sorted(dns)} {sorted(ips)}, "
+            f"pki.json {state.hostnames} {state.ip_addresses}"
+        )
+    else:
+        print(f"OK   server names: {', '.join(sorted(dns) + sorted(ips))}")
+
+    for expected in args.expect_ip or []:
+        if parse_ip(expected) not in ips:
+            problems.append(f"the server certificate does not cover IP {expected}")
+
+    for expected in args.expect_hostname or []:
+        if normalize_hostname(expected) not in dns:
+            problems.append(f"the server certificate does not cover {expected}")
+
+    print(f"Root fingerprint (SHA-256): {fingerprint(root)}")
+
+    if problems:
+        raise PkiError("verification failed:\n  - " + "\n  - ".join(problems))
+
+    print("PKI verification passed.")
+
+
+def command_verify_root_key(args) -> None:
+    """
+    Confirm that an encrypted root key file and its passphrase still work,
+    and that the key belongs to this root certificate. Nothing is written;
+    the decrypted key exists only in memory for the comparison.
+    """
+
+    directory = Path(args.pki_dir).resolve()
+    root = read_certificate(directory / ROOT_CERT)
+    passphrase = read_passphrase(args, confirm=False)
+
+    try:
+        root_key = read_private_key(Path(args.root_key), passphrase)
+    except (ValueError, TypeError) as exc:
+        raise PkiError("Could not decrypt the root key (wrong passphrase or damaged file).") from exc
+
+    if not _same_public_key(root_key, root):
+        raise PkiError("That key does not belong to this Kinesis root CA.")
+
+    del root_key
+    print("The root key decrypts and matches the root certificate.")
+    print(f"Root fingerprint (SHA-256): {fingerprint(root)}")
+
+
 def command_rotate_intermediate(args) -> None:
     directory = Path(args.pki_dir).resolve()
     state = PkiState.load(directory)
@@ -993,6 +1103,16 @@ def build_parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export-ca", help="Write device onboarding files.")
     export.add_argument("--out", required=True, help="Output directory (served by the onboarding page).")
     export.set_defaults(handler=command_export_ca)
+
+    verify = commands.add_parser("verify", help="Check chain, key pairs, validity and names (read-only).")
+    verify.add_argument("--expect-ip", action="append", help="Fail unless the server certificate covers this IP (repeatable).")
+    verify.add_argument("--expect-hostname", action="append", help="Fail unless the server certificate covers this name (repeatable).")
+    verify.set_defaults(handler=command_verify)
+
+    verify_root = commands.add_parser("verify-root-key", help="Check that the offline root key and passphrase still work (read-only).")
+    verify_root.add_argument("--root-key", required=True, help="Encrypted root key file.")
+    verify_root.add_argument("--passphrase-file", help="Read the passphrase from a file instead of prompting.")
+    verify_root.set_defaults(handler=command_verify_root_key)
 
     rotate = commands.add_parser("rotate-intermediate", help="Replace the issuing CA.")
     rotate.add_argument("--root-key", required=True, help="Encrypted root key from offline storage.")

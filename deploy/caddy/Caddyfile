@@ -9,7 +9,6 @@
 #   caddy run --config Caddyfile --adapter caddyfile --envfile <DATA_DIR>/config/caddy.env
 #
 # See deploy/config/caddy.env.example. Nothing here contacts the internet.
-
 {
 	# Certificates are issued by kinesis-pki. Never request public
 	# certificates: the shop network is offline. HTTP->HTTPS redirects stay on.

@@ -16,7 +16,9 @@ Each device trusts that CA **once**.
 
 ## 1. Host setup (once)
 
-Requirements: Python 3.11+ with `pip install -r deploy/pki/requirements.txt`.
+Requirements: Python 3.11+ with
+`pip install --require-hashes --only-binary :all: -r deploy/pki/requirements.lock`
+(installed into the Kinesis venv by `deploy/install/linux/install-kinesis.sh`).
 
 1. **Give the server a fixed LAN address.** Reserve it in the router's DHCP
    settings (for example `192.168.1.10`).
@@ -44,7 +46,16 @@ Requirements: Python 3.11+ with `pip install -r deploy/pki/requirements.txt`.
    python deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki export-ca --out /var/lib/kinesis/onboarding
    ```
 
-5. Renewal is automatic. The daily `renew` job (systemd timer, launchd job or
+5. Check the result at any time (read-only; also run it on a new host after
+   copying the PKI directory):
+
+   ```sh
+   python deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki verify --expect-ip 192.168.1.10
+   ```
+
+   It checks every signature in the chain, that each key matches its
+   certificate, the validity periods, and the certificate names.
+6. Renewal is automatic. The daily `renew` job (systemd timer, launchd job or
    Windows scheduled task in `deploy/services/`) reissues the server
    certificate 60 days before it expires, or when the LAN address changes
    (`renew --ip <new-address>`), and reloads Caddy. Devices need nothing new.
@@ -131,4 +142,5 @@ does not enforce name constraints; record that in the security report.
 | Server stolen, or server files copied | The issuing CA key and server key are exposed. Run `rotate-intermediate` with the offline root key on the new server. Name constraints limit misuse to the Kinesis names and LAN ranges. |
 | USB stick with the root key lost, passphrase safe | The key is encrypted. Create a new CA (`init --force`) at your convenience and re-onboard devices. |
 | Root key **and** passphrase compromised | Run `init --force` immediately, remove the old "Kinesis Local Root CA" from every device, and onboard them again. |
+| Unsure whether the offline root key or its passphrase still works | `verify-root-key --root-key <file>` (prompts for the passphrase, writes nothing, compares the key with `root-ca.crt`). Do this once a year. |
 | Server's LAN address changed | `renew --ip <new-address>`, then update `caddy.env` site addresses. Addresses must stay in a private (RFC 1918) range. |

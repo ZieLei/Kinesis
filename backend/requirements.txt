@@ -7,3 +7,5 @@ psycopg[binary]
 pydantic-settings
 python-multipart
 argon2-cffi>=23.1.0,<26.0.0
+# zoneinfo needs the IANA database; Windows has none built in.
+tzdata; sys_platform == "win32"

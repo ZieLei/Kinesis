@@ -11,3 +11,4 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/kinesis/pki
+Environment=XDG_DATA_HOME=/var/lib/kinesis/caddy XDG_CONFIG_HOME=/var/lib/kinesis/caddy
