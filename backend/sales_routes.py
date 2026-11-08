@@ -20,7 +20,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import Date as SQLDate, String, case, cast, func, literal, select
+from sqlalchemy import Date as SQLDate, String, case, cast, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
@@ -59,8 +59,54 @@ COST_PRECISION = Decimal("0.0001")
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$")
 PIN_PATTERN = re.compile(r"^\d{6}$")
 
+# GCash reference numbers are 13 ASCII digits. Receipts and cashiers often
+# group them ("1234 567 890123") or add hyphens, so whitespace and hyphens
+# are removed before validation (the same separators the POS scanner
+# strips, src/lib/gcashReferenceCandidates.ts). [0-9] rather than \d keeps
+# full-width and other Unicode digits out.
+GCASH_REFERENCE_SEPARATORS = re.compile(r"[\s-]+")
+GCASH_REFERENCE_PATTERN = re.compile(r"[0-9]{13}")
+
 PaymentMethod = Literal["cash", "gcash"]
 ReportPeriod = Literal["daily", "weekly", "monthly", "yearly"]
+
+
+def normalize_gcash_reference(value: str) -> str:
+    """Canonical form of a GCash reference: separators removed."""
+
+    return GCASH_REFERENCE_SEPARATORS.sub("", value)
+
+
+def reference_already_recorded(db: Session, reference: str) -> bool:
+    """
+    True when a sale already uses this canonical GCash reference.
+
+    New sales store the canonical value, so the exact match covers them and
+    can use the unique index. Sales recorded before normalization may hold
+    the same digits with spaces or hyphens; the second comparison
+    normalizes stored values the same way so they still count as
+    duplicates. Stored rows are never rewritten.
+    """
+
+    return (
+        db.scalar(
+            select(Sale.id)
+            .where(
+                or_(
+                    Sale.reference_number == reference,
+                    func.regexp_replace(
+                        Sale.reference_number,
+                        r"[[:space:]-]+",
+                        "",
+                        "g",
+                    )
+                    == reference,
+                )
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 DEFAULT_SETTINGS = {
@@ -163,7 +209,9 @@ class CheckoutCreate(BaseModel):
         if value is None:
             return None
 
-        return value.strip() or None
+        # Canonical form at the trust boundary. Format is checked in
+        # validate_checkout, where the payment method is known.
+        return normalize_gcash_reference(value) or None
 
     @field_validator("supervisor_username")
     @classmethod
@@ -223,8 +271,14 @@ class CheckoutCreate(BaseModel):
             if self.reference_number is not None:
                 raise ValueError("Cash payments must not include a GCash reference.")
 
-        if self.payment_method == "gcash" and not self.reference_number:
-            raise ValueError("GCash payments require a reference number.")
+        if self.payment_method == "gcash":
+            if not self.reference_number:
+                raise ValueError("GCash payments require a reference number.")
+
+            if not GCASH_REFERENCE_PATTERN.fullmatch(self.reference_number):
+                raise ValueError(
+                    "GCash reference numbers must contain exactly 13 digits."
+                )
 
         return self
 
@@ -959,18 +1013,13 @@ def create_sale(
         # Duplicate GCash reference protection
         # --------------------------------------------------
 
-        if checkout.reference_number:
-            duplicate_reference = db.scalar(
-                select(Sale.id).where(
-                    Sale.reference_number == checkout.reference_number
-                )
+        if checkout.reference_number and reference_already_recorded(
+            db, checkout.reference_number
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=("This GCash reference number has already been recorded."),
             )
-
-            if duplicate_reference is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=("This GCash reference number has already been recorded."),
-                )
 
         # --------------------------------------------------
         # Calculate original line prices and acquisition costs
@@ -1233,18 +1282,13 @@ def create_sale(
         ):
             return sale_response(existing)
 
-        if checkout.reference_number:
-            duplicate_reference = db.scalar(
-                select(Sale.id).where(
-                    Sale.reference_number == checkout.reference_number
-                )
-            )
-
-            if duplicate_reference is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=("This GCash reference number has already been recorded."),
-                ) from exc
+        if checkout.reference_number and reference_already_recorded(
+            db, checkout.reference_number
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=("This GCash reference number has already been recorded."),
+            ) from exc
 
         logger.warning("Checkout failed due to a database constraint.")
 
