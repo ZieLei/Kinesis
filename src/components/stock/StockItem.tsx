@@ -10,7 +10,7 @@ import Animated, {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import Pencil from "lucide-react-native/icons/pencil";
-import Trash from "lucide-react-native/icons/trash";
+import ArchiveIcon from "lucide-react-native/icons/archive";
 
 import { styledIcon } from "@/components/StyledIcon";
 import { usePOSFormatting } from "@/hooks/usePOSFormatting";
@@ -18,7 +18,7 @@ import { LOW_STOCK_THRESHOLD, getImageUri } from "@/lib/products";
 import type { Product } from "@/types/product";
 
 const StyledPencil = styledIcon(Pencil);
-const StyledTrash = styledIcon(Trash);
+const StyledArchive = styledIcon(ArchiveIcon);
 
 const ACTION_WIDTH = 120;
 const OPEN_THRESHOLD = 60;
@@ -50,16 +50,17 @@ type StockItemProps = {
   /** Shared across the list so only one row stays swiped open. */
   openItemId: SharedValue<number | null>;
   onEdit: (item: Product) => void;
-  onDelete: (item: Product) => void;
-  deleting: boolean;
+  /** Archive (restorable by an administrator), never a permanent delete. */
+  onArchive: (item: Product) => void;
+  archiving: boolean;
 };
 
 export default function StockItem({
   item,
   openItemId,
   onEdit,
-  onDelete,
-  deleting,
+  onArchive,
+  archiving,
 }: StockItemProps) {
   const { settings, formatCurrency } = usePOSFormatting();
 
@@ -126,16 +127,16 @@ export default function StockItem({
         </Pressable>
 
         <Pressable
-          onPress={() => onDelete(item)}
-          disabled={deleting}
+          onPress={() => onArchive(item)}
+          disabled={archiving}
           accessibilityRole="button"
-          accessibilityLabel={`Delete ${item.name}`}
+          accessibilityLabel={`Archive ${item.name}`}
           className="h-[40px] w-[40px] items-center justify-center rounded-lg bg-ctp-mantle"
         >
-          {deleting ? (
-            <ActivityIndicator size="small" color="#F38BA8" />
+          {archiving ? (
+            <ActivityIndicator size="small" color="#FAB387" />
           ) : (
-            <StyledTrash size={20} className="text-ctp-red" />
+            <StyledArchive size={20} className="text-ctp-peach" />
           )}
         </Pressable>
       </View>

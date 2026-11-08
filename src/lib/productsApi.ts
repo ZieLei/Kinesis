@@ -90,17 +90,21 @@ export function deleteProductImage(id: number): Promise<Product> {
   });
 }
 
-export function deleteProduct(id: number) {
-  // Products with sales or inventory history are archived, not deleted.
+/**
+ * Archive a product (the POS "Archive" action). Never deletes: stock, cost,
+ * SKU and image are kept, the product leaves inventory and sales, and an
+ * administrator can restore it. Archiving an archived product is a no-op.
+ */
+export function archiveProduct(id: number) {
   return apiRequest<{
     message: string;
     id: number;
-    archived?: boolean;
-    deleted?: boolean;
+    archived: boolean;
+    deleted: boolean;
   }>(
-    `/api/products/${id}`,
+    `/api/products/${id}/archive`,
     {
-      method: "DELETE",
+      method: "POST",
     },
   );
 }

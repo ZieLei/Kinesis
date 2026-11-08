@@ -1,7 +1,6 @@
 
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   Text,
   View,
@@ -17,8 +16,11 @@ import Animated, {
 } from "react-native-reanimated";
 import Plus from "lucide-react-native/icons/plus";
 import PackagePlus from "lucide-react-native/icons/package-plus";
+import ArchiveIcon from "lucide-react-native/icons/archive";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import FilterModal from "@/components/modals/FilterModal";
+import Snackbar from "@/components/Snackbar";
 import CategoryTabs from "@/components/CategoryTabs";
 import EditProductSheet from "@/components/stock/EditProductSheet";
 import ReceiveStockSheet from "@/components/stock/ReceiveStockSheet";
@@ -36,6 +38,7 @@ import type { Product, ProductFormValues } from "@/types/product";
 import type { InventoryReceiptCreate } from "@/types/inventory";
 
 const StyledPlus = styledIcon(Plus);
+const StyledArchive = styledIcon(ArchiveIcon);
 
 export default function Stock() {
   const { canGoBack, goBack } = useBackNavigation();
@@ -64,7 +67,7 @@ export default function Stock() {
     refreshInventory,
     addProduct,
     saveProduct,
-    removeProduct,
+    archiveProduct,
     receiveStock,
   } = useInventory();
 
@@ -87,7 +90,12 @@ export default function Stock() {
   const [editingItem, setEditingItem] = useState<Product | null>(null);
   const [addingProduct, setAddingProduct] = useState(false);
   const [receivingStock, setReceivingStock] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Product awaiting archive confirmation, and the in-flight request.
+  const [archiveTarget, setArchiveTarget] = useState<Product | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const hideNotice = useCallback(() => setNotice(null), []);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,10 +128,7 @@ export default function Stock() {
 
       closeProductSheet();
 
-      Alert.alert(
-        "Product updated",
-        `${savedProduct.name} was saved successfully.`,
-      );
+      setNotice(`${savedProduct.name} was saved.`);
 
       return;
     }
@@ -132,10 +137,7 @@ export default function Stock() {
 
     closeProductSheet();
 
-    Alert.alert(
-      "Product created",
-      `${createdProduct.name} was added to your inventory.`,
-    );
+    setNotice(`${createdProduct.name} was added to your inventory.`);
   };
 
   const handleReceiveStock = async (
@@ -144,60 +146,50 @@ export default function Stock() {
     const receipt = await receiveStock(values);
     const receivedItem = receipt.items[0];
 
-    Alert.alert(
-      "Stock received",
-      `${receivedItem.product_name}: ${receivedItem.quantity} units recorded.\n\nReceipt total: ₱${receipt.total_cost.toLocaleString(
-        "en-PH",
-        {
+    setNotice(
+      `${receivedItem.product_name}: ${receivedItem.quantity} units received · ` +
+        `total ₱${receipt.total_cost.toLocaleString("en-PH", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        },
-      )}`,
+        })}`,
     );
   };
 
-  const confirmDeleteProduct = (product: Product) => {
-    Alert.alert(
-      "Delete product?",
-      `"${product.name}" will be removed from the inventory.\n\n` +
-        "If it has sales or stock records, it will be archived instead of " +
-        "permanently deleted: its sales history and stock are kept, and an " +
-        "administrator can restore it. Otherwise it is permanently deleted.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setDeletingId(product.id);
+  const requestArchive = (product: Product) => {
+    setArchiveError("");
+    setArchiveTarget(product);
+  };
 
-            try {
-              const { archived } = await removeProduct(product.id);
+  const cancelArchive = () => {
+    if (archiving) return;
+    setArchiveTarget(null);
+    setArchiveError("");
+  };
 
-              setEditingItem((current) =>
-                current?.id === product.id ? null : current,
-              );
+  const confirmArchive = async () => {
+    const product = archiveTarget;
+    if (!product || archiving) return;
 
-              Alert.alert(
-                archived ? "Product archived" : "Product deleted",
-                archived
-                  ? `${product.name} has sales or stock records, so it was archived. Its history is kept and an administrator can restore it.`
-                  : `${product.name} was permanently deleted.`,
-              );
-            } catch (error) {
-              Alert.alert(
-                "Delete failed",
-                error instanceof Error
-                  ? error.message
-                  : "Could not delete this product.",
-              );
-            } finally {
-              setDeletingId(null);
-            }
-          },
-        },
-      ],
-    );
+    setArchiving(true);
+    setArchiveError("");
+
+    try {
+      await archiveProduct(product.id);
+
+      setEditingItem((current) =>
+        current?.id === product.id ? null : current,
+      );
+      setArchiveTarget(null);
+      setNotice(`${product.name} was archived.`);
+    } catch (error) {
+      setArchiveError(
+        error instanceof Error
+          ? error.message
+          : "Could not archive this product. Check your connection and try again.",
+      );
+    } finally {
+      setArchiving(false);
+    }
   };
 
   return (
@@ -318,8 +310,8 @@ export default function Stock() {
                     item={item}
                     openItemId={openItemId}
                     onEdit={setEditingItem}
-                    onDelete={confirmDeleteProduct}
-                    deleting={deletingId === item.id}
+                    onArchive={requestArchive}
+                    archiving={archiving && archiveTarget?.id === item.id}
                   />
                 )}
                 ListEmptyComponent={
@@ -378,6 +370,30 @@ export default function Stock() {
           onClose={() => setReceivingStock(false)}
           onReceive={handleReceiveStock}
         />
+
+        <ConfirmDialog
+          visible={archiveTarget !== null}
+          title="Archive product?"
+          message={
+            archiveTarget
+              ? `"${archiveTarget.name}" will be removed from inventory and ` +
+                "sales. Its stock, cost, SKU and sales history are kept, and " +
+                "an administrator can restore it from the admin console."
+              : ""
+          }
+          confirmLabel="Archive"
+          icon={
+            <View className="h-11 w-11 items-center justify-center rounded-full bg-ctp-surface0">
+              <StyledArchive size={22} className="text-ctp-text" />
+            </View>
+          }
+          busy={archiving}
+          error={archiveError}
+          onConfirm={() => void confirmArchive()}
+          onCancel={cancelArchive}
+        />
+
+        <Snackbar message={notice} onHide={hideNotice} />
       </View>
     </SafeAreaView>
   );

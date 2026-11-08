@@ -921,6 +921,46 @@ def delete_product(
     return archive_or_delete_product(db, product_id)
 
 
+@app.post(
+    "/api/products/{product_id}/archive",
+    tags=["Products"],
+)
+def archive_product(
+    product_id: int,
+    _cashier: object = Depends(require_writable_cashier),
+    db: Session = Depends(get_db),
+):
+    """
+    Archive a product, never delete it (the POS "Archive" action).
+
+    Unlike DELETE, this keeps products without history too: stock, cost,
+    SKU and image stay as they are, the product leaves inventory and sale
+    lists, and an administrator can restore it. Archiving twice is a no-op.
+    """
+
+    try:
+        product = lock_product(db, product_id)
+
+        if product.archived_at is not None:
+            result = archive_response(product, "Product is already archived.")
+            db.rollback()
+            return result
+
+        return archive_locked_product(db, product)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Could not archive product.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The product could not be archived.",
+        ) from exc
+
+
 def archive_or_delete_product(db: Session, product_id: int) -> dict:
     """
     Archive a product with history; permanently delete one without.

@@ -234,3 +234,78 @@ def test_restore_unknown_product_is_404(client_factory, db_session):
     )
 
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# POST /api/products/{id}/archive: the POS "Archive" action never deletes.
+
+
+def test_archive_keeps_a_product_without_history(pos, db_session):
+    client, headers = pos
+    product = add_product(db_session, stock=4)
+    product.image_path = "products/brake.webp"
+    db_session.commit()
+
+    response = client.post(f"/api/products/{product.id}/archive", headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["archived"], body["deleted"]) == (True, False)
+    assert body["id"] == product.id
+
+    kept = reload(db_session, product.id)
+    assert kept is not None and kept.archived_at is not None
+    assert (kept.stock, kept.sku, kept.image_path) == (4, "BRK-001", "products/brake.webp")
+
+    [event] = events(db_session, "inventory.product_archived")
+    assert event.actor_type == "cashier"
+    assert events(db_session, "inventory.product_deleted") == []
+
+    listed = client.get("/api/products", headers=headers).json()["items"]
+    assert product.id not in [item["id"] for item in listed]
+
+
+def test_archive_is_idempotent(pos, db_session):
+    client, headers = pos
+    product = add_product(db_session)
+
+    first = client.post(f"/api/products/{product.id}/archive", headers=headers)
+    archived_at = reload(db_session, product.id).archived_at
+    again = client.post(f"/api/products/{product.id}/archive", headers=headers)
+
+    assert (first.status_code, again.status_code) == (200, 200)
+    assert again.json()["archived"] is True
+    assert reload(db_session, product.id).archived_at == archived_at
+    assert len(events(db_session, "inventory.product_archived")) == 1
+
+
+def test_archived_without_history_can_be_restored(pos, client_factory, db_session):
+    client, headers = pos
+    product = add_product(db_session, stock=4)
+    assert client.post(f"/api/products/{product.id}/archive", headers=headers).status_code == 200
+
+    admin, csrf = admin_client(client_factory, db_session)
+    response = admin.post(
+        f"/api/admin/products/{product.id}/restore",
+        headers={"Origin": ADMIN_ORIGIN, "X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200, response.text
+    assert (response.json()["archived"], response.json()["stock"]) == (False, 4)
+
+
+def test_archive_unknown_product_is_404(pos):
+    client, headers = pos
+
+    assert client.post("/api/products/999999/archive", headers=headers).status_code == 404
+
+
+def test_archive_requires_a_cashier_session(pos, db_session):
+    client, headers = pos
+    product = add_product(db_session)
+    terminal_only = {k: v for k, v in headers.items() if k != "X-Cashier-Session"}
+
+    response = client.post(f"/api/products/{product.id}/archive", headers=terminal_only)
+
+    assert response.status_code in (401, 403)
+    assert reload(db_session, product.id).archived_at is None
