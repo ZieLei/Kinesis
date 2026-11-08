@@ -2,6 +2,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -83,7 +84,13 @@ export default function EditProductSheet({
   onClose,
   onSave,
 }: EditProductSheetProps) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+
+  // The form scrolls between a fixed header and pinned Save/Cancel actions.
+  // Sized from the current window height, so when the keyboard opens (the
+  // web app resizes its viewport for it) the form shrinks and the actions
+  // stay visible above the keyboard instead of being pushed under it.
+  const formMaxHeight = Math.max(140, Math.round(height * 0.85) - 190);
 
   const {
     isDark,
@@ -135,15 +142,40 @@ export default function EditProductSheet({
   };
 
   return (
-    <Host style={{ position: "absolute", width }}>
+    <Host
+      style={
+        Platform.OS === "web"
+          ? // The web sheet is portalled to <body>, so this host is an empty
+            // box. Sized to the window but starting inside the screen's 20px
+            // padding, it stuck out 20px on the right; Android Chrome then
+            // widened the whole page and the sheet with it (clipped content).
+            { position: "absolute", left: 0, top: 0, width: 0, height: 0 }
+          : { position: "absolute", width }
+      }
+    >
       <BottomSheet
         isPresented={isPresented}
         onDismiss={handleClose}
         containerColor={sheetBackground}
+        // Full-bleed: the form's own px-5 is the only horizontal inset. The
+        // web sheet otherwise adds 16px per side on top of a window-wide
+        // form, which pushed the content right and cut off its right edge.
+        contentPadding={0}
       >
-        <RNHostView matchContents>
-          <View style={{ width }} className="bg-ctp-base px-5 pb-8 pt-5">
-            <View className="mb-6 flex-row items-center justify-between">
+        <RNHostView
+          matchContents
+          // On web matchContents is `width: fit-content`, which can't shrink
+          // below the form's widest row: on phones narrower than ~360px the
+          // form overflowed and clipped on the right. Pin it to the sheet.
+          style={Platform.OS === "web" ? { width: "100%" } : undefined}
+        >
+          <View
+            // Native sizes the sheet from its content, so it needs the
+            // window width; on web the sheet already spans the window.
+            style={{ width: Platform.OS === "web" ? "100%" : width }}
+            className="bg-ctp-base px-5 pb-6 pt-3"
+          >
+            <View className="mb-4 flex-row items-center justify-between">
               <Pressable
                 onPress={handleClose}
                 disabled={saving}
@@ -162,9 +194,10 @@ export default function EditProductSheet({
             </View>
 
             <ScrollView
-              style={{ maxHeight: 590 }}
+              style={{ maxHeight: formMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
             >
               <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">
                 <View className="mb-4">

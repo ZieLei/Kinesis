@@ -19,9 +19,14 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+        {/*
+          interactive-widget=resizes-content: the on-screen keyboard shrinks
+          the page (like the native app's adjustResize) instead of covering
+          it, so sheets, dialogs and pinned buttons stay above the keyboard.
+        */}
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="theme-color" content="#1e1e2e" />
         <meta name="referrer" content="no-referrer" />

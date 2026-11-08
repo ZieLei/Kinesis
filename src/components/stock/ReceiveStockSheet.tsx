@@ -1,6 +1,6 @@
 
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -200,6 +200,13 @@ export default function ReceiveStockSheet({
     }
   };
 
+  // Return key moves through the form like a native form sheet.
+  const unitCostRef = useRef<TextInput>(null);
+  const openingCostRef = useRef<TextInput>(null);
+  const supplierRef = useRef<TextInput>(null);
+  const referenceRef = useRef<TextInput>(null);
+  const notesRef = useRef<TextInput>(null);
+
   const mutedColor = isDark ? "#A6ADC8" : "#6C6F85";
   const textColor = isDark ? "#CDD6F4" : "#4C4F69";
   const placeholderColor = mutedColor;
@@ -215,8 +222,11 @@ export default function ReceiveStockSheet({
       onRequestClose={close}
       statusBarTranslucent
     >
+      {/* iOS lifts the sheet above the keyboard here. Android's modal
+          window and the web app (interactive-widget=resizes-content) already
+          resize for the keyboard, so padding there would double-adjust. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1 justify-end"
       >
         <Pressable
@@ -226,7 +236,7 @@ export default function ReceiveStockSheet({
           accessibilityLabel="Close receive stock sheet"
         />
 
-        <View className="max-h-[92%] rounded-t-3xl bg-ctp-base px-5 pb-8 pt-3">
+        <View className="max-h-[92%] rounded-t-3xl bg-ctp-base px-5 pb-6 pt-3">
           <View className="mb-5 items-center">
             <View className="h-1.5 w-12 rounded-full bg-ctp-surface2" />
           </View>
@@ -259,8 +269,12 @@ export default function ReceiveStockSheet({
             </Pressable>
           </View>
 
+          {/* The form scrolls; the header above and the actions below stay
+              put, so Receive/Cancel are always reachable, keyboard or not. */}
           <ScrollView
+            style={{ flexGrow: 0, flexShrink: 1 }}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
           >
             <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
@@ -362,6 +376,9 @@ export default function ReceiveStockSheet({
                 setFormError("");
               }}
               keyboardType="number-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => unitCostRef.current?.focus()}
               placeholder="1"
               placeholderTextColor={placeholderColor}
               selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
@@ -373,12 +390,18 @@ export default function ReceiveStockSheet({
             </Text>
 
             <TextInput
+              ref={unitCostRef}
               value={unitCost}
               onChangeText={(value) => {
                 setUnitCost(value);
                 setFormError("");
               }}
               keyboardType="decimal-pad"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() =>
+                (needsOpeningCost ? openingCostRef : supplierRef).current?.focus()
+              }
               placeholder="e.g. 150.00"
               placeholderTextColor={placeholderColor}
               selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
@@ -396,12 +419,16 @@ export default function ReceiveStockSheet({
                 </Text>
 
                 <TextInput
+                  ref={openingCostRef}
                   value={openingStockUnitCost}
                   onChangeText={(value) => {
                     setOpeningStockUnitCost(value);
                     setFormError("");
                   }}
                   keyboardType="decimal-pad"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => supplierRef.current?.focus()}
                   placeholder="Estimated existing unit cost"
                   placeholderTextColor={placeholderColor}
                   selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
@@ -415,8 +442,12 @@ export default function ReceiveStockSheet({
             </Text>
 
             <TextInput
+              ref={supplierRef}
               value={supplierName}
               onChangeText={setSupplierName}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => referenceRef.current?.focus()}
               placeholder="Supplier name (optional)"
               placeholderTextColor={placeholderColor}
               selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
@@ -429,8 +460,12 @@ export default function ReceiveStockSheet({
             </Text>
 
             <TextInput
+              ref={referenceRef}
               value={referenceNumber}
               onChangeText={setReferenceNumber}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => notesRef.current?.focus()}
               placeholder="Invoice or receipt number (optional)"
               placeholderTextColor={placeholderColor}
               selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
@@ -443,6 +478,7 @@ export default function ReceiveStockSheet({
             </Text>
 
             <TextInput
+              ref={notesRef}
               value={notes}
               onChangeText={setNotes}
               placeholder="Additional details (optional)"
@@ -461,44 +497,44 @@ export default function ReceiveStockSheet({
                 </Text>
               </View>
             ) : null}
-
-            <View className="mb-2 flex-row gap-3">
-              <Pressable
-                onPress={close}
-                disabled={saving}
-                className="flex-1 items-center justify-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4 py-3"
-              >
-                <Text className="font-inter-semibold text-sm text-ctp-text">
-                  Cancel
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => void handleReceive()}
-                disabled={saving || products.length === 0}
-                className={`flex-1 flex-row items-center justify-center rounded-lg px-4 py-3 ${saving || products.length === 0
-                    ? "bg-ctp-blue/50"
-                    : "bg-ctp-blue"
-                  }`}
-              >
-                {saving ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={isDark ? "#11111B" : "#FFFFFF"}
-                  />
-                ) : (
-                  <PackagePlus
-                    size={17}
-                    color={isDark ? "#11111B" : "#FFFFFF"}
-                  />
-                )}
-
-                <Text className="ml-2 font-inter-semibold text-sm text-white">
-                  {saving ? "Saving..." : "Receive Stock"}
-                </Text>
-              </Pressable>
-            </View>
           </ScrollView>
+
+          <View className="mt-3 flex-row gap-3">
+            <Pressable
+              onPress={close}
+              disabled={saving}
+              className="flex-1 items-center justify-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4 py-3"
+            >
+              <Text className="font-inter-semibold text-sm text-ctp-text">
+                Cancel
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => void handleReceive()}
+              disabled={saving || products.length === 0}
+              className={`flex-1 flex-row items-center justify-center rounded-lg px-4 py-3 ${saving || products.length === 0
+                  ? "bg-ctp-blue/50"
+                  : "bg-ctp-blue"
+                }`}
+            >
+              {saving ? (
+                <ActivityIndicator
+                  size="small"
+                  color={isDark ? "#11111B" : "#FFFFFF"}
+                />
+              ) : (
+                <PackagePlus
+                  size={17}
+                  color={isDark ? "#11111B" : "#FFFFFF"}
+                />
+              )}
+
+              <Text className="ml-2 font-inter-semibold text-sm text-white">
+                {saving ? "Saving..." : "Receive Stock"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>

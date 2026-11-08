@@ -55,7 +55,7 @@ export default function PricingSection({
           placeholder="0.00"
           placeholderTextColor={placeholder}
           selectionColor={selection}
-          className="flex-1 py-3 font-inter-medium text-ctp-text"
+          className="min-w-0 flex-1 py-3 font-inter-medium text-ctp-text"
         />
       </View>
 
@@ -90,7 +90,7 @@ export default function PricingSection({
           placeholder="e.g. 12 or -5"
           placeholderTextColor={placeholder}
           selectionColor={selection}
-          className="flex-1 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
+          className="min-w-0 flex-1 rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-medium text-ctp-text"
         />
         <Pressable
           onPress={onApplyCustomPercentage}

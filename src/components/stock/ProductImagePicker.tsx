@@ -47,7 +47,9 @@ export default function ProductImagePicker({
         )}
       </View>
 
-      <View className="flex-1 gap-2">
+      {/* min-w-0 lets this column shrink on narrow phones (web flex items
+          otherwise refuse to go below their content width). */}
+      <View className="min-w-0 flex-1 gap-2">
         <Pressable
           onPress={onChoose}
           disabled={disabled}
@@ -58,7 +60,7 @@ export default function ProductImagePicker({
             className={isDark ? "text-ctp-crust" : "text-white"}
           />
           <Text
-            className={`font-inter-semibold text-sm ${isDark ? "text-ctp-crust" : "text-white"
+            className={`shrink text-center font-inter-semibold text-sm ${isDark ? "text-ctp-crust" : "text-white"
               }`}
           >
             {previewUri ? "Change image" : "Choose image"}

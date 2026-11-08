@@ -24,6 +24,7 @@ import {
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { TerminalAgent } from "@/components/TerminalAgent";
 import TerminalInactivityGuard from "@/components/TerminalInactivityGuard";
+import { useKeepFocusedFieldVisible } from "@/hooks/useKeepFocusedFieldVisible";
 
 import { latte, mocha } from "@/theme";
 
@@ -46,6 +47,9 @@ const styles = StyleSheet.create({
 
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
+
+  // Web: scroll the focused field above the on-screen keyboard.
+  useKeepFocusedFieldVisible();
 
   // Web: React Native's <Modal> renders into a portal on document.body,
   // outside the root View below that carries the theme variables. Mirror the
