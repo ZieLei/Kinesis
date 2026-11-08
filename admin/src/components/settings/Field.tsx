@@ -7,6 +7,8 @@ export default function Field({
   htmlFor,
   descriptionId,
   stacked = false,
+  notInEffect,
+  notInEffectId,
   children,
 }: {
   label: string;
@@ -14,6 +16,8 @@ export default function Field({
   htmlFor?: string;
   descriptionId?: string;
   stacked?: boolean;
+  notInEffect?: string;
+  notInEffectId?: string;
   children: ReactNode;
 }) {
   return (
@@ -26,6 +30,11 @@ export default function Field({
       <div className={`min-w-0 ${stacked ? "" : "sm:pt-1.5"}`}>
         <label htmlFor={htmlFor} className={labelClass}>
           {label}
+          {notInEffect && (
+            <span className="ml-2 inline-block rounded border border-ctp-yellow/40 bg-ctp-yellow/10 px-1.5 py-px align-middle text-[10px] font-medium uppercase tracking-wide text-ctp-yellow">
+              Not in effect
+            </span>
+          )}
         </label>
         {description && (
           <p
@@ -33,6 +42,14 @@ export default function Field({
             className="mt-0.5 text-xs leading-relaxed text-ctp-subtext0"
           >
             {description}
+          </p>
+        )}
+        {notInEffect && (
+          <p
+            id={notInEffectId}
+            className="mt-1 text-xs leading-relaxed text-ctp-yellow"
+          >
+            {notInEffect}
           </p>
         )}
       </div>

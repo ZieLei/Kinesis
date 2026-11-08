@@ -67,6 +67,12 @@ export type FieldDefinition = {
   suffix?: string;
   disabled?: (settings: SettingsState) => boolean;
   transform?: (value: string) => string;
+  /**
+   * Set when the backend stores this value but nothing acts on it yet.
+   * The control is shown read-only with this explanation, and the saved
+   * value is kept unchanged (the settings document must stay complete).
+   */
+  notInEffect?: string;
 };
 
 export type SectionDefinition = {

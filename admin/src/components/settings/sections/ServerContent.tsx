@@ -15,24 +15,21 @@ export default function ServerContent({
   settings: SettingsState;
   onUpdate: UpdateSetting;
 }) {
+  // These stored values are not applied to the running server (see the
+  // field notes), so no warning is derived from them here.
   return (
     <>
+      <Notice tone="info" role="note" title="Set by the deployment">
+        The backend's bind address, port and allowed browser origins come
+        from its startup command or service definition and its environment
+        file (kinesis.env). Changing them here has no effect.
+      </Notice>
+
       <FieldList
         fields={section.fields}
         settings={settings}
         onUpdate={onUpdate}
       />
-
-      {settings.listenAddress === "0.0.0.0" && (
-        <Notice
-          tone="warning"
-          role="note"
-          title="Listening on all network interfaces"
-        >
-          Other devices on the network can reach this server. Allow access
-          only from trusted devices.
-        </Notice>
-      )}
     </>
   );
 }

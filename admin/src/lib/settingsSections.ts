@@ -155,6 +155,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "receiptOutput",
+        notInEffect:
+          "The POS does not use this preference. Receipts are shown on the terminal and printed or shared from there.",
         label: "Default receipt output",
         description: "Default destination after a sale.",
         type: "select",
@@ -166,6 +168,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "digitalReceipts",
+        notInEffect:
+          "Digital receipt delivery is not implemented. This switch has no effect.",
         label: "Enable digital receipts",
         description: "Allow electronic receipt delivery.",
         type: "select",
@@ -217,6 +221,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "allowCustomLineItems",
+        notInEffect:
+          "Checkout accepts only catalog products and services. Custom line items are not implemented.",
         label: "Allow custom line items",
         description: "Allow manually priced services, such as labor charges.",
         type: "select",
@@ -254,13 +260,16 @@ export const sections: SectionDefinition[] = [
   {
     id: "server",
     title: "Server & network",
-    description: "Configure the laptop-hosted API and terminal connections.",
+    description:
+      "Stored network preferences. The running server's address, port and allowed origins come from its deployment configuration.",
     keywords: "backend api host address port cors websocket heartbeat offline queue network lan restart",
     icon: Server,
     badge: "Backend",
     fields: [
       {
         key: "listenAddress",
+        notInEffect:
+          "The backend's bind address is set by how it is started (service definition or uvicorn command), not here.",
         label: "Listen address",
         description: "Network interface the API binds to.",
         type: "select",
@@ -271,6 +280,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "httpPort",
+        notInEffect:
+          "The backend's port is set by how it is started (service definition or uvicorn command), not here.",
         label: "HTTP port",
         description: "Port used by the API and WebSocket endpoint.",
         type: "number",
@@ -279,6 +290,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "websocketHeartbeat",
+        notInEffect:
+          "Connection checks use built-in intervals and KINESIS_TERMINAL_HEARTBEAT_TIMEOUT_SECONDS from the backend environment file.",
         label: "WebSocket heartbeat",
         description: "Interval used to detect disconnected terminals.",
         type: "number",
@@ -288,6 +301,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "offlineQueueStrategy",
+        notInEffect:
+          "Terminals do not queue operations. Sales and stock changes need a connection to the Kinesis server.",
         label: "Offline queue strategy",
         description: "How pending terminal operations are handled during outages.",
         type: "select",
@@ -299,6 +314,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "corsOrigins",
+        notInEffect:
+          "Allowed origins come from KINESIS_ADMIN_ALLOWED_ORIGINS and KINESIS_POS_ALLOWED_ORIGINS in the backend environment file.",
         label: "CORS allowed origins",
         description:
           "Enter one origin per line, including scheme and port. Avoid wildcards in production.",
@@ -310,14 +327,16 @@ export const sections: SectionDefinition[] = [
   {
     id: "backups",
     title: "Database backups",
-    description: "Choose how often the backend should create backups.",
+    description: "Backups are created manually from the Database page.",
     keywords: "database backup restore schedule storage retention local automatic",
     icon: HardDrive,
     fields: [
       {
         key: "backupSchedule",
+        notInEffect:
+          "Kinesis does not create automatic backups. Create backups manually under Database → Create and download.",
         label: "Automatic backup schedule",
-        description: "The server should create a recoverable backup at this interval.",
+        description: "Saved preference for a future automatic backup feature.",
         type: "select",
         options: [
           { label: "Every 6 hours", value: "every-6-hours" },
@@ -351,6 +370,8 @@ export const sections: SectionDefinition[] = [
       },
       {
         key: "consoleBufferLines",
+        notInEffect:
+          "The admin console keeps a fixed 2,000 log lines.",
         label: "Console buffer retention",
         description: "Maximum log lines kept in the admin console's memory.",
         type: "select",

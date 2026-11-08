@@ -26,10 +26,18 @@ export default function FieldRenderer({
   onUpdate: UpdateSetting;
 }) {
   const id = useId();
-  const descriptionId = field.description ? `${id}-description` : undefined;
+  const notInEffectId = field.notInEffect ? `${id}-not-in-effect` : undefined;
+  const describedIds = [
+    field.description ? `${id}-description` : undefined,
+    notInEffectId,
+  ].filter(Boolean);
+  const descriptionId = describedIds.length ? describedIds.join(" ") : undefined;
 
   const value = String(settings[field.key]);
-  const disabled = field.disabled?.(settings) ?? false;
+  // Settings that nothing acts on are read-only so the page does not
+  // suggest that changing them has an effect. The stored value is kept.
+  const disabled =
+    Boolean(field.notInEffect) || (field.disabled?.(settings) ?? false);
 
   const handleChange = (nextValue: string) => {
     const finalValue = field.transform
@@ -64,7 +72,9 @@ export default function FieldRenderer({
       label={field.label}
       description={field.description}
       htmlFor={id}
-      descriptionId={descriptionId}
+      descriptionId={field.description ? `${id}-description` : undefined}
+      notInEffect={field.notInEffect}
+      notInEffectId={notInEffectId}
       stacked={isTextarea}
     >
       {field.type === "select" ? (
