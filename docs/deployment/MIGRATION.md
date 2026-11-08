@@ -147,11 +147,25 @@ better host, provided its disk is healthy and it is 64-bit x64.
 * **Password and PIN hashes** are compatible between the two
   `argon2-cffi-bindings` versions (verified both ways). Moving the database
   between an Apple-silicon and an Intel host keeps every login working.
-* **`cryptography` 48.0.1** (Intel only) has three published advisories
-  (CVE-2026-69247, -69248, -69249). They cover PKCS#7 decryption and the
-  `x509.verification` path-building verifier, neither of which Kinesis
-  uses. Only the certificate tools import `cryptography`; the backend never
-  does. Re-check this when the lock is regenerated.
+* **Security exception: `cryptography` 48.0.1 (Intel only).** It is the
+  newest release with Intel-Mac wheels. It carries two kinds of gap:
+  - three `cryptography` advisories (CVE-2026-69247, -69248, -69249), in
+    PKCS#7 decryption and the `x509.verification` verifier;
+  - the OpenSSL 4.0.1 it bundles (seen in the Linux wheel), which lacks
+    the 4.0.2 fixes (Moderate or lower) in CMS, DTLS, OCSP, CMP, QUIC,
+    RPK and AEAD code.
+
+  Only `kinesis_pki.py` and `preflight.py` import it, and they use none of
+  those features. They only parse and sign X.509 certificates, handle EC
+  keys and use PEM/PKCS#8. The backend never imports it.
+
+  Limits:
+  - The assessment covers the code as of v1.4.2.
+  - The CA's name constraints are enforced by each device's TLS stack, not
+    by this library; test devices with `issue-constraint-test`.
+  - Apple-silicon hosts use `cryptography` 50.0.1 with OpenSSL 4.0.2.
+
+  Re-check whenever the lock is regenerated.
 * Everything else is the same on both processors: the launchd daemons,
   folders, accounts, ports, origins, certificates and terminal pairing.
 
@@ -251,7 +265,7 @@ Quote every path that contains a space.
 
 | # | Item | Who | Status |
 |---|---|---|---|
-| 0.1 | Release committed and tagged | owner | **Done:** `v1.4.2` on `release/v1.4.0` (merge and push still open) |
+| 0.1 | Release committed and tagged | owner | **Done:** tag `v1.4.2` (pushing to GitHub is a separate decision) |
 | 0.2 | Move the root CA key off Shimamura's internal disk: copy `~/kinesis-root-key/root-ca.key.enc` to two USB drives, verify one copy (0.3), then delete the internal copy | owner | open |
 | 0.3 | `python3 deploy/pki/kinesis_pki.py --pki-dir ~/kinesis-local/pki verify-root-key --root-key /path/to/USB/root-ca.key.enc` (prompts; writes nothing). If the passphrase is lost, see section 9 | owner | open |
 | 0.4 | Read-only baseline of the live database | | **Done:** 2026-11-08, `~/kinesis-migration/baseline-phase0-20261108.json` |

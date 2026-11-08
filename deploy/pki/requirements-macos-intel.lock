@@ -1,16 +1,26 @@
 # Pinned, hash-checked dependencies of deploy/pki/kinesis_pki.py for INTEL
 # macOS hosts (x86_64). Other hosts use requirements.lock.
 #
-# cryptography 48.0.1 is the newest release with Intel-Mac wheels. It has
-# three published advisories, none in code Kinesis uses:
-#   CVE-2026-69247  PKCS#7 EnvelopedData decryption timing oracle
-#   CVE-2026-69249  path building in the x509.verification verifier
-#   CVE-2026-69248  name-constraint check in the x509.verification verifier
-# kinesis_pki.py and preflight.py never decrypt PKCS#7 and never use the
-# x509.verification verifier (they check signatures directly with
-# verify_directly_issued_by); browsers and phones enforce the CA's name
-# constraints themselves. The backend never imports cryptography.
-# Re-evaluate whenever this file is regenerated.
+# SECURITY EXCEPTION (Intel Macs only; reviewed 2026-11-08).
+# cryptography 48.0.1 is the newest release with Intel-Mac wheels. Known gaps:
+#   * Three cryptography advisories, fixed in 49/50:
+#       CVE-2026-69247  PKCS#7 EnvelopedData decryption timing oracle
+#       CVE-2026-69249  path building in the x509.verification verifier
+#       CVE-2026-69248  name-constraint check in the x509.verification verifier
+#   * Its wheel bundles OpenSSL 4.0.1 (seen in the Linux wheel; the Mac wheel
+#     is expected to match but was not inspected). OpenSSL 4.0.2 fixed
+#     Moderate-or-lower issues in CMS, DTLS, OCSP, CMP, QUIC, RPK and AEAD
+#     code. Those are not covered by the advisories above.
+# Why it is accepted: only deploy/pki/kinesis_pki.py and
+# deploy/migration/preflight.py import cryptography, and they only parse and
+# sign X.509 certificates, handle EC keys and read/write PEM and PKCS#8. They
+# never decrypt PKCS#7, never use x509.verification, and never use CMS, DTLS,
+# OCSP, CMP, QUIC or RPK. The backend never imports cryptography.
+# Limits: this holds for the code as of v1.4.2 only; code that needs those
+# APIs cannot run on Intel Macs with this lock. The CA's name constraints are
+# enforced by each phone's or browser's TLS stack, not by this library; check
+# devices with kinesis_pki.py issue-constraint-test (deploy/README-tls.md).
+# Re-check advisories whenever this file is regenerated.
 #
 # Install:  pip install --require-hashes --only-binary :all: -r deploy/pki/requirements-macos-intel.lock
 cffi==2.1.1 \

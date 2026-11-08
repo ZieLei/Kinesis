@@ -16,6 +16,11 @@ Each device trusts that CA **once**.
 
 ## 1. Host setup (once)
 
+The commands below use the Linux layout and the template's default ports
+as examples. For the shop's host, use the paths in
+`docs/deployment/MIGRATION.md` (section 3) and the shop's ports: POS 9443,
+admin 9444, onboarding `http://<LAN-IP>:9080`.
+
 Requirements: Python 3.11+ with
 `pip install --require-hashes --only-binary :all: -r deploy/pki/requirements.lock`
 (installed into the Kinesis venv by `deploy/install/linux/install-kinesis.sh`).

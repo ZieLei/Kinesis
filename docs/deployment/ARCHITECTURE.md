@@ -123,8 +123,11 @@ Devices keep working because the root CA is unchanged.
   harmless. A wrong clock does affect session expiry and receipts.
 
 ### Firewall
-Open TCP 80, 443, 8443 (HTTPS), TCP 8080 (onboarding) and UDP 5353 (mDNS)
-on the **private** network profile only. Never open 8000 (backend) or 5432
+Open the ports configured in `caddy.env`: every POS and admin site port,
+the onboarding port, optionally `KINESIS_HTTP_PORT`, and UDP 5353 (mDNS).
+The template defaults are 443, 8443, 8080 and 80. The shop uses 9443,
+9444 and 9080 (`docs/deployment/MIGRATION.md`). Open them on the
+**private** network profile only. Never open 8000 (backend) or 5432
 (PostgreSQL). See `deploy/services/windows/README.md` for Windows commands.
 On macOS, allow Caddy in the application firewall. On Linux, use
 `ufw`/`firewalld`.
