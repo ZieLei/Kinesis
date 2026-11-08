@@ -29,7 +29,9 @@
 # --------------------------------------------------
 
 (kinesis_tls) {
-	tls {$KINESIS_DATA_DIR}/pki/server.crt {$KINESIS_DATA_DIR}/pki/server.key {
+	# Quoted: data paths contain spaces on macOS (/Library/Application Support)
+	# and Windows (C:/Program Files); placeholders are expanded before parsing.
+	tls "{$KINESIS_DATA_DIR}/pki/server.crt" "{$KINESIS_DATA_DIR}/pki/server.key" {
 		protocols tls1.2 tls1.3
 	}
 }
@@ -88,7 +90,7 @@
 	}
 
 	handle {
-		root * {$KINESIS_POS_WEB_ROOT}
+		root * "{$KINESIS_POS_WEB_ROOT}"
 		try_files {path} {path}.html {path}/index.html /index.html
 		file_server
 	}
@@ -112,7 +114,7 @@
 	}
 
 	handle {
-		root * {$KINESIS_ADMIN_WEB_ROOT}
+		root * "{$KINESIS_ADMIN_WEB_ROOT}"
 		try_files {path} /index.html
 		file_server
 	}
@@ -146,7 +148,7 @@
 	@public path / /index.html /kinesis-root.crt /kinesis-root.cer /kinesis-root.mobileconfig /fingerprint.txt
 
 	handle @public {
-		root * {$KINESIS_DATA_DIR}/onboarding
+		root * "{$KINESIS_DATA_DIR}/onboarding"
 		file_server
 	}
 
