@@ -64,6 +64,14 @@ export interface CredentialStore {
 
   /** Authenticate the settings WebSocket once it opens. */
   authenticateSocket(socket: WebSocket): Promise<void>;
+
+  /**
+   * Web only: forget the in-memory CSRF token after the server rejected it
+   * (for example after the host was moved or its secret changed), so the
+   * next request fetches a fresh one. Returns true when a retry can help.
+   * Native clients authenticate with headers and have no CSRF token.
+   */
+  discardCsrfToken?(): boolean;
 }
 
 export const TERMINAL_PAIR_PATH = "/api/terminals/pair";

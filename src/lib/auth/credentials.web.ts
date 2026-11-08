@@ -183,4 +183,9 @@ export const credentials: CredentialStore = {
   async authenticateSocket() {
     // The cookie authenticates the WebSocket handshake.
   },
+
+  discardCsrfToken() {
+    csrfToken = null;
+    return true;
+  },
 };

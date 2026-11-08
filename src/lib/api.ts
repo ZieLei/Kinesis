@@ -1,4 +1,5 @@
 import { credentials } from "@/lib/auth/credentials";
+import { isUnsafeMethod } from "@/lib/auth/credentialTypes";
 import {
   API_BASE_URL,
   INSECURE_TRANSPORT_ERROR,
@@ -7,6 +8,9 @@ import {
 export { API_BASE_URL };
 
 const REQUEST_TIMEOUT_MS = 15000;
+
+// Matches the backend's "The CSRF token is missing or invalid." responses.
+const CSRF_REJECTION = /CSRF token/i;
 
 export type ApiErrorKind = "http" | "network" | "timeout" | "config";
 
@@ -196,24 +200,46 @@ export async function apiRequest<T>(
 
     assertSecureTransport();
 
-    const authenticatedRequest = await getAuthenticatedRequest(
-      path,
-      options,
-    );
+    let csrfRetried = false;
+    let response: Response;
 
-    if (callerSignal?.aborted) {
-      throw new Error("The request was cancelled.");
-    }
+    while (true) {
+      const authenticatedRequest = await getAuthenticatedRequest(
+        path,
+        options,
+      );
 
-    const response = await sendRequest(
-      path,
-      authenticatedRequest,
-      controller,
-      () => timedOut,
-    );
+      if (callerSignal?.aborted) {
+        throw new Error("The request was cancelled.");
+      }
 
-    if (!response.ok) {
+      response = await sendRequest(
+        path,
+        authenticatedRequest,
+        controller,
+        () => timedOut,
+      );
+
+      if (response.ok) {
+        break;
+      }
+
       const message = await readErrorMessage(response);
+
+      // A browser terminal's in-memory CSRF token goes stale when the
+      // server's signing secret changes (for example after moving to a new
+      // host). The server rejects the request before doing anything, so it
+      // is safe to fetch a fresh token and send it once more.
+      if (
+        response.status === 403 &&
+        !csrfRetried &&
+        CSRF_REJECTION.test(message) &&
+        isUnsafeMethod(options.method ?? "GET") &&
+        credentials.discardCsrfToken?.()
+      ) {
+        csrfRetried = true;
+        continue;
+      }
 
       throw new ApiError(message, response.status);
     }
