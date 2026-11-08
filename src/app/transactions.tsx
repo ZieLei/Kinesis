@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import ShoppingCart from "lucide-react-native/icons/shopping-cart";
@@ -20,6 +20,7 @@ import DoubleRightArrow from "lucide-react-native/icons/chevrons-right";
 import { styledIcon } from "@/components/StyledIcon";
 import { fetchSalesList } from "@/lib/salesApi";
 import type { SaleListItem, SalesListResponse } from "@/types/sale";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledShoppingCart = styledIcon(ShoppingCart);
@@ -82,7 +83,9 @@ function getStatusPresentation(status: string) {
 }
 
 export default function Transactions() {
-  const router = useRouter();
+  // "/dashboard" is only the Up target for a screen opened with no history
+  // (deep link / web refresh); normal back pops the real stack.
+  const { goBack } = useBackNavigation("/dashboard");
 
   const [currentPage, setCurrentPage] = useState(1);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -216,7 +219,7 @@ export default function Transactions() {
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             className="h-8 w-8 items-center justify-center"

@@ -622,7 +622,7 @@ export default function Receipt() {
             </Pressable>
 
             <Pressable
-              onPress={() => router.replace("/new-sale")}
+              onPress={() => router.dismissTo("/new-sale")}
               className="mt-3 rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3"
             >
               <Text className="text-center font-inter-semibold text-sm text-ctp-text">
@@ -890,7 +890,7 @@ export default function Receipt() {
 
             <View className="mt-5 items-center gap-2 pb-2">
               <Pressable
-                onPress={() => router.replace("/new-sale")}
+                onPress={() => router.dismissTo("/new-sale")}
                 disabled={exporting}
                 className="w-full rounded-lg border border-ctp-blue bg-ctp-blue px-4 py-3"
               >
@@ -901,7 +901,7 @@ export default function Receipt() {
 
               <Pressable
                 onPress={() =>
-                  router.replace("/(tabs)/dashboard")
+                  router.dismissTo("/dashboard")
                 }
                 disabled={exporting}
                 className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3"

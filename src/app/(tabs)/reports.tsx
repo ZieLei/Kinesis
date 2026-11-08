@@ -32,6 +32,7 @@ import type {
   ReportPeriod,
   SalesReportResponse,
 } from "@/types/sale";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledDownload = styledIcon(Download);
@@ -169,6 +170,7 @@ function ComparisonCard({
 }
 
 export default function Reports() {
+  const { canGoBack, goBack } = useBackNavigation();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const { formatCurrency } = usePOSFormatting();
@@ -333,17 +335,21 @@ export default function Reports() {
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            className="h-8 w-8 items-center justify-center"
-          >
-            <StyledChevronLeft
-              size={22}
-              className="text-ctp-text"
-            />
-          </Pressable>
+          {canGoBack ? (
+            <Pressable
+              onPress={goBack}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              className="h-8 w-8 items-center justify-center"
+            >
+              <StyledChevronLeft
+                size={22}
+                className="text-ctp-text"
+              />
+            </Pressable>
+          ) : (
+            <View className="h-8 w-8" />
+          )}
 
           <Text className="font-inter-semibold text-lg text-ctp-text">
             Reports

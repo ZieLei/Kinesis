@@ -24,6 +24,7 @@ import {
   normalizeGcashReference,
 } from "../lib/gcashReferenceCandidates";
 import { getGuideRect, type Size } from "../lib/gcashScanRegion";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 /** Browser camera errors, in words a cashier can act on. */
 function describeWebCameraError(error: unknown): string {
@@ -183,6 +184,9 @@ export default function GcashReferenceScanner({
 
   const draftIsValid = isValidGcashReference(referenceDraft);
   const canConfirm = draftIsValid && !scanning;
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(visible, onClose);
 
   return (
     <Modal

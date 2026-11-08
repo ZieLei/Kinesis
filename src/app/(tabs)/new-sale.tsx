@@ -14,6 +14,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { router, useFocusEffect } from "expo-router";
 
+import { useBackNavigation } from "@/hooks/useBackNavigation";
+
 import Camera from "lucide-react-native/icons/focus";
 import RefreshCw from "lucide-react-native/icons/refresh-cw";
 
@@ -34,6 +36,7 @@ const CameraIcon = styledIcon(Camera);
 const RefreshCwIcon = styledIcon(RefreshCw);
 
 export default function NewSale() {
+  const { canGoBack, goBack } = useBackNavigation();
   const scrollY = useSharedValue(0);
 
   const { isDark, selection } = useThemeColors();
@@ -128,7 +131,7 @@ export default function NewSale() {
       <View className="flex-1 px-5 pt-7">
         <ScreenHeader
           title="New Sale"
-          onBack={() => router.back()}
+          onBack={canGoBack ? goBack : undefined}
           right={
             <Pressable
               onPress={() => router.push("/")}

@@ -7,7 +7,7 @@ import {
   TextInput,
   ScrollView,
 } from "react-native";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import FilterModal, {
@@ -27,6 +27,7 @@ import { useColorScheme } from "nativewind";
 import { useInventory } from "@/hooks/useInventory";
 import { fetchProductSalesReport } from "@/lib/salesApi";
 import type { ProductSalesReport, ReportPeriod } from "@/types/sale";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledChevronRight = styledIcon(ChevronRight);
@@ -63,7 +64,9 @@ const SOLD_RANGES: Record<string, { minUnits?: number; maxUnits?: number }> = {
 };
 
 export default function ProductPerformance() {
-  const router = useRouter();
+  // "/reports" is only the Up target for a screen opened with no history
+  // (deep link / web refresh); normal back pops the real stack.
+  const { goBack } = useBackNavigation("/reports");
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
@@ -235,7 +238,7 @@ export default function ProductPerformance() {
         {/* Header */}
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             className="h-8 w-8 items-center justify-center"

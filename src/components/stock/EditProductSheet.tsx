@@ -21,6 +21,7 @@ import { useProductForm } from "@/hooks/useProductForm";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import type { Product, ProductFormValues } from "@/types/product";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 
@@ -107,6 +108,9 @@ export default function EditProductSheet({
     if (saving) return;
     onClose();
   };
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(isPresented, handleClose);
 
   const handleSave = async () => {
     if (!isPresented || saving) return;

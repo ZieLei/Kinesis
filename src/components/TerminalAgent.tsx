@@ -19,6 +19,7 @@ import {
 
 import { PairingScanner } from "@/components/PairingScanner";
 import { useTerminalAgent } from "@/hooks/useTerminalAgent";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 
 type TerminalAgentProps = {
@@ -402,6 +403,9 @@ export function TerminalAgent({
   // Global broadcast modal
   // --------------------------------------------------
 
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(activeBroadcast !== null, dismissBroadcast);
 
   return (
     <>

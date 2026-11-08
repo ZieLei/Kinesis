@@ -15,7 +15,7 @@ import {
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { useNavigation } from "expo-router";
 
 import {
   ArrowLeft,
@@ -35,6 +35,8 @@ import {
   useCashierAuth,
   type CashierAccount,
 } from "@/app/context/CashierAuthContext";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 
 type CashierListResponse = {
@@ -158,6 +160,24 @@ export default function CashierLogin() {
     setLoginError("");
   };
 
+  // iOS swipe must not skip past the PIN step either. setOptions only runs
+  // when the value changes: an inline <Stack.Screen options={{...}} /> passes
+  // a new object every render and loops the navigator.
+  const navigation = useNavigation();
+  const pinStepOpen = selectedCashier !== null;
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !pinStepOpen });
+  }, [navigation, pinStepOpen]);
+
+  // Leaving login goes back through real history; "/" (the landing page)
+  // is only the Up target when login was opened with nothing beneath it.
+  const { goBack } = useBackNavigation("/");
+
+  // The PIN step is a nested step of this screen: system back (Android
+  // gesture/button, browser back) returns to the account list exactly like
+  // the in-app back arrow. changeAccount() ignores it while signing in.
+  useDismissOnBack(selectedCashier !== null, changeAccount);
+
 
   // --------------------------------------------------
   // Cashier login
@@ -189,7 +209,8 @@ export default function CashierLogin() {
       setServerOnline(true);
       setPin("");
 
-      router.replace("/dashboard");
+      // CashierRouteGuard sees the new session and moves to Home with a
+      // cleared history; navigating here as well would race it.
     } catch (error) {
       const networkFailure = isNetworkError(error);
 
@@ -223,7 +244,7 @@ export default function CashierLogin() {
             if (selectedCashier) {
               changeAccount();
             } else {
-              router.replace("/");
+              goBack();
             }
           }}
           accessibilityRole="button"

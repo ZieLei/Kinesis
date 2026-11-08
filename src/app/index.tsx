@@ -91,7 +91,7 @@ export default function Home() {
         <View className="items-center pt-5">
           <Pressable
             className="rounded-full bg-ctp-blue px-8 py-2"
-            onPress={() => router.navigate("/dashboard")}
+            onPress={() => router.replace("/dashboard")}
           >
             <Text
               selectable={false}

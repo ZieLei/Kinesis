@@ -6,10 +6,14 @@ import { useCart } from "@/app/context/CartContext";
 import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import { styledIcon } from "@/components/StyledIcon";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 
 export default function Cart() {
+  // "/new-sale" is only the Up target for a screen opened with no history
+  // (deep link / web refresh); normal back pops the real stack.
+  const { goBack } = useBackNavigation("/new-sale");
   const router = useRouter();
 
   const {
@@ -28,7 +32,7 @@ export default function Cart() {
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             className="h-8 w-8 items-center justify-center"
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -63,7 +67,7 @@ export default function Cart() {
                 Add products or services to start a sale.
               </Text>
               <Pressable
-                onPress={() => router.replace("/new-sale")}
+                onPress={() => router.dismissTo("/new-sale")}
                 className="mt-5 rounded-lg bg-ctp-blue px-5 py-3"
               >
                 <Text className="font-inter-semibold text-sm text-white">

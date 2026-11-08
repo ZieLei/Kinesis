@@ -17,6 +17,7 @@ import { PackagePlus, X } from "lucide-react-native";
 
 import type { Product } from "@/types/product";
 import type { InventoryReceiptCreate } from "@/types/inventory";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 type ReceiveStockSheetProps = {
   visible: boolean;
@@ -119,6 +120,9 @@ export default function ReceiveStockSheet({
     if (saving) return;
     onClose();
   };
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(visible, close);
 
   const handleReceive = async () => {
     if (saving) return;

@@ -9,7 +9,11 @@ const StyledChevronLeft = styledIcon(ChevronLeft);
 
 type ScreenHeaderProps = {
   title: string;
-  onBack: () => void;
+  /**
+   * Back action. Omit on a root screen (nothing to go back to): the button
+   * is then not rendered, matching Android/iOS root-screen conventions.
+   */
+  onBack?: () => void;
   /** Optional right-hand action. An empty spacer keeps the title centered. */
   right?: ReactNode;
 };
@@ -21,15 +25,19 @@ export default function ScreenHeader({
 }: ScreenHeaderProps) {
   return (
     <View className="mb-5 flex-row items-center justify-between">
-      <Pressable
-        onPress={onBack}
-        className="h-8 w-8 items-center justify-center"
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-      >
-        <StyledChevronLeft size={22} className="text-ctp-text" />
-      </Pressable>
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          className="h-8 w-8 items-center justify-center"
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <StyledChevronLeft size={22} className="text-ctp-text" />
+        </Pressable>
+      ) : (
+        <View className="h-8 w-8" />
+      )}
 
       <Text className="font-inter-semibold text-lg text-ctp-text">
         {title}

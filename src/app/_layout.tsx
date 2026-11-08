@@ -4,7 +4,7 @@ import {
   DarkTheme,
   DefaultTheme,
   ThemeProvider,
-  Slot,
+  Stack,
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { Platform, StyleSheet, View } from "react-native";
@@ -101,7 +101,28 @@ export default function RootLayout() {
 
                   <CashierRouteGuard>
                     <TerminalInactivityGuard>
-                      <Slot />
+                      {/*
+                        Native stack: every pushed screen is a real history
+                        entry. Back (in-app, Android system back/predictive
+                        gesture, iOS swipe) pops exactly one entry. Screens
+                        below stay mounted, so returning preserves their state.
+                        The tab group's own history lives in (tabs)/_layout.
+                      */}
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          fullScreenGestureEnabled: true,
+                        }}
+                      >
+                        {/* One instance each: re-opening the cart from the
+                            Services tab never stacks a duplicate cart. */}
+                        <Stack.Screen name="cart" dangerouslySingular />
+                        <Stack.Screen name="checkout" dangerouslySingular />
+                        <Stack.Screen
+                          name="transactions"
+                          dangerouslySingular
+                        />
+                      </Stack>
                     </TerminalInactivityGuard>
                   </CashierRouteGuard>
                 </View>

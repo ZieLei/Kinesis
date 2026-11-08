@@ -8,7 +8,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useMemo, useState } from "react";
-import { router, useFocusEffect } from "expo-router";
+import { useFocusEffect } from "expo-router";
+
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
@@ -36,6 +38,7 @@ import type { InventoryReceiptCreate } from "@/types/inventory";
 const StyledPlus = styledIcon(Plus);
 
 export default function Stock() {
+  const { canGoBack, goBack } = useBackNavigation();
   const openItemId = useSharedValue<number | null>(null);
   const scrollY = useSharedValue(0);
 
@@ -204,7 +207,7 @@ export default function Stock() {
           title="Inventory"
           refreshing={refreshing}
           refreshDisabled={loading || refreshing}
-          onBack={() => router.back()}
+          onBack={canGoBack ? goBack : undefined}
           onRefresh={refreshInventory}
         />
 

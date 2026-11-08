@@ -10,6 +10,7 @@ import {
   Easing,
 } from "react-native";
 import X from "lucide-react-native/icons/x";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 export type FilterOption = {
   label: string;
@@ -162,6 +163,9 @@ export default function FilterModal({
     },
     0,
   );
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(visible, onClose);
 
   return (
     <Modal

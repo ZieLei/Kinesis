@@ -30,7 +30,13 @@ const Layers = styledIcon(LayersIcon);
 const ChartColumn = styledIcon(ChartColumnIcon);
 const Wrench = styledIcon(WrenchIcon);
 
-// TODO: Add back-system handling for the app.
+// Expo Router orders a group's routes by name length, which made `stock` the
+// tab navigator's *first* route. With the default `backBehavior: 'firstRoute'`
+// every back press from any tab jumped to Stock. Pin the real home tab and let
+// back follow the tabs the cashier actually visited instead.
+export const unstable_settings = {
+  initialRouteName: 'dashboard',
+};
 
 const tabs = [
   {
@@ -146,7 +152,13 @@ export default function TabLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <Tabs>
+      {/*
+        backBehavior "history": back pops tab visits in LIFO order, each tab
+        appearing once (re-visiting moves it to the top instead of adding a
+        duplicate). When only the first-visited tab is left, back is handed to
+        the root stack; at the very root Android leaves the app as usual.
+      */}
+      <Tabs options={{ backBehavior: 'history' }}>
         <TabSlot style={{ flex: 1 }} />
 
         <TabList

@@ -11,12 +11,13 @@ import {
 import {
   ActivityIndicator,
   Pressable,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
 
 import {
-  Redirect,
+  router,
   usePathname,
 } from "expo-router";
 
@@ -348,6 +349,13 @@ export function useCashierAuth() {
 /**
  * Globally protects POS routes while leaving the landing page,
  * cashier login screen, and feature exploration accessible.
+ *
+ * The navigator (`children`) is ALWAYS rendered. Swapping it out for a
+ * <Redirect> or a spinner unmounts the root stack, which throws away the
+ * whole back history and, on web, loops: the remounted stack re-derives
+ * the URL, the guard redirects again, and React aborts with "Maximum
+ * update depth exceeded". Instead, redirects happen imperatively from an
+ * effect and the waiting/error UI is drawn as a cover over the stack.
  */
 export function CashierRouteGuard({
   children,
@@ -370,72 +378,87 @@ export function CashierRouteGuard({
 
   const isPublicRoute = publicRoutes.includes(pathname);
 
+  // Signed-in history and signed-out history never mix: crossing the auth
+  // boundary clears the stack so back cannot return to the other side
+  // (no back from Home into login, no back from login into POS screens).
+  const signedInOnLogin =
+    pathname === "/login" && status === "authenticated";
+  const signedOutOnPos =
+    !isPublicRoute && status === "unauthenticated";
 
-  if (pathname === "/login" && status === "authenticated") {
-    return <Redirect href="/dashboard" />;
-  }
+  useEffect(() => {
+    if (!signedInOnLogin && !signedOutOnPos) return;
 
-  if (isPublicRoute) {
-    return <>{children}</>;
-  }
+    if (router.canDismiss()) router.dismissAll();
+    router.replace(signedInOnLogin ? "/dashboard" : "/login");
+  }, [signedInOnLogin, signedOutOnPos]);
 
+  let cover: ReactNode = null;
 
-  if (
-    status === "terminal-unavailable" ||
-    status === "loading"
-  ) {
-    return (
-      <View className="flex-1 items-center justify-center bg-ctp-base px-6">
-        <ActivityIndicator
-          size="large"
-          color="#89b4fa"
-        />
-
-        <Text className="mt-4 font-line-seed text-sm text-ctp-subtext0">
-          Verifying your Kinesis session...
-        </Text>
-      </View>
-    );
-  }
-
-
-  if (status === "unavailable") {
-    return (
-      <View className="flex-1 items-center justify-center bg-ctp-base px-6">
-        <View className="w-full max-w-sm rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-5">
-          <Text className="font-line-seed text-lg font-bold text-ctp-text">
-            Cannot verify your session
-          </Text>
-
-          <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
-            Kinesis could not contact the server to verify your
-            cashier session. Reconnect to the store network and
-            try again.
-          </Text>
-
-          {!!error && (
-            <Text className="mt-3 font-line-seed text-xs leading-5 text-ctp-red">
-              {error}
+  if (!isPublicRoute) {
+    if (status === "unavailable") {
+      cover = (
+        <View className="flex-1 items-center justify-center bg-ctp-base px-6">
+          <View className="w-full max-w-sm rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-5">
+            <Text className="font-line-seed text-lg font-bold text-ctp-text">
+              Cannot verify your session
             </Text>
-          )}
 
-          <Pressable
-            onPress={() => void refreshSession()}
-            className="mt-5 min-h-12 items-center justify-center rounded-lg bg-ctp-blue"
-          >
-            <Text className="font-line-seed text-sm font-bold text-ctp-crust">
-              Retry connection
+            <Text className="mt-2 font-line-seed text-sm leading-6 text-ctp-subtext0">
+              Kinesis could not contact the server to verify your
+              cashier session. Reconnect to the store network and
+              try again.
             </Text>
-          </Pressable>
+
+            {!!error && (
+              <Text className="mt-3 font-line-seed text-xs leading-5 text-ctp-red">
+                {error}
+              </Text>
+            )}
+
+            <Pressable
+              onPress={() => void refreshSession()}
+              className="mt-5 min-h-12 items-center justify-center rounded-lg bg-ctp-blue"
+            >
+              <Text className="font-line-seed text-sm font-bold text-ctp-crust">
+                Retry connection
+              </Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
-    );
+      );
+    } else if (status !== "authenticated") {
+      // Verifying, terminal not ready yet, or about to redirect to login.
+      cover = (
+        <View className="flex-1 items-center justify-center bg-ctp-base px-6">
+          <ActivityIndicator
+            size="large"
+            color="#89b4fa"
+          />
+
+          <Text className="mt-4 font-line-seed text-sm text-ctp-subtext0">
+            Verifying your Kinesis session...
+          </Text>
+        </View>
+      );
+    }
   }
 
+  return (
+    <>
+      {children}
 
-  if (status !== "authenticated") {
-    return <Redirect href="/login" />;
-  }
-
-  return <>{children}</>;
+      {cover ? (
+        <View style={guardStyles.cover}>{cover}</View>
+      ) : null}
+    </>
+  );
 }
+
+const guardStyles = StyleSheet.create({
+  cover: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 900,
+    elevation: 900,
+  },
+});

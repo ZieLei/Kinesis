@@ -12,7 +12,7 @@ type StockHeaderProps = {
   title: string;
   refreshing: boolean;
   refreshDisabled: boolean;
-  onBack: () => void;
+  onBack?: () => void;
   onRefresh: () => void;
 };
 

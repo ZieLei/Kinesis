@@ -29,6 +29,8 @@ import { useColorScheme } from "nativewind";
 import { useServices } from "@/hooks/useServices";
 import { useCart } from "@/app/context/CartContext";
 import { usePOSFormatting } from "@/hooks/usePOSFormatting";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
+import { useDismissOnBack } from "@/hooks/useDismissOnBack";
 
 const MAX_AMOUNT = 99999999.9999;
 
@@ -55,6 +57,7 @@ function parseOptionalCost(value: string): number | null {
 }
 
 export default function Services() {
+  const { canGoBack, goBack } = useBackNavigation();
   const router = useRouter();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -94,6 +97,9 @@ export default function Services() {
     setModalVisible(false);
     resetForm();
   };
+
+  // Android back / browser back closes this first (web; native handles it).
+  useDismissOnBack(modalVisible, closeModal);
 
   const createService = async () => {
     const trimmedPrice = price.trim();
@@ -177,17 +183,21 @@ export default function Services() {
     <SafeAreaView className="flex-1 bg-ctp-base">
       <View className="flex-1 px-5 pt-7">
         <View className="mb-6 flex-row items-center justify-between">
-          <Pressable
-            onPress={() => router.back()}
-            className="h-9 w-9 items-center justify-center rounded-lg"
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <ChevronLeft
-              size={22}
-              color={isDark ? "#CDD6F4" : "#4C4F69"}
-            />
-          </Pressable>
+          {canGoBack ? (
+            <Pressable
+              onPress={goBack}
+              className="h-9 w-9 items-center justify-center rounded-lg"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <ChevronLeft
+                size={22}
+                color={isDark ? "#CDD6F4" : "#4C4F69"}
+              />
+            </Pressable>
+          ) : (
+            <View className="h-9 w-9" />
+          )}
 
           <Text className="text-lg font-inter-semibold text-ctp-text">
             Services

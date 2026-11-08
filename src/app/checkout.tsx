@@ -1,7 +1,8 @@
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Pressable,
   ScrollView,
@@ -10,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useColorScheme } from "nativewind";
 
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
@@ -27,6 +28,7 @@ import type {
   PaymentMethod,
   SaleRecord,
 } from "@/types/sale";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
 const StyledBanknote = styledIcon(Banknote);
@@ -121,6 +123,9 @@ function roundCashCents(
 }
 
 export default function Checkout() {
+  // "/cart" is only the Up target for a screen opened with no history
+  // (deep link / web refresh); normal back pops the real stack.
+  const { goBack } = useBackNavigation("/cart");
   const { items, total, clearCart } = useCart();
   const { colorScheme } = useColorScheme();
 
@@ -169,6 +174,26 @@ export default function Checkout() {
   const [supervisorPin, setSupervisorPin] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
+
+  // While a sale is being recorded, every back path is held — not just the
+  // in-app button (disabled below) but Android system back and, via the
+  // screen option further down, the iOS swipe — so leaving mid-payment is
+  // impossible. finishSale() still navigates away normally.
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !submitting });
+  }, [navigation, submitting]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!submitting) return;
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => true,
+      );
+      return () => subscription.remove();
+    }, [submitting]),
+  );
   const [requestFailed, setRequestFailed] = useState(false);
   const [error, setError] = useState("");
   const [transactionCode] = useState(createTransactionCode);
@@ -322,7 +347,12 @@ export default function Checkout() {
   const finishSale = (sale: SaleRecord) => {
     clearCart();
 
-    router.replace({
+    // The sale is final: drop cart/checkout from history so back from the
+    // receipt returns to the POS section the sale started from (New Sale or
+    // Services), never into a consumed checkout. Both calls run in order on
+    // the router's queue.
+    router.dismissAll();
+    router.push({
       pathname: "/receipt",
       params: {
         transactionCode: sale.transaction_code,
@@ -473,7 +503,7 @@ export default function Checkout() {
       <View className="flex-1 px-5 pt-7">
         <View className="mb-5 flex-row items-center justify-between">
           <Pressable
-            onPress={() => router.back()}
+            onPress={goBack}
             disabled={submitting}
             accessibilityRole="button"
             accessibilityLabel="Go back"

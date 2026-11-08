@@ -177,8 +177,9 @@ export default function Dashboard() {
     clearCart();
 
     try {
+      // CashierRouteGuard sends a signed-out terminal to login with a
+      // cleared history, the same path as inactivity sign-out.
       await logout();
-      router.replace("/login");
     } finally {
       setEndingSession(false);
     }
