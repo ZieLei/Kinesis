@@ -141,11 +141,13 @@ export default function StockItem({
       </View>
 
       <GestureDetector gesture={gesture}>
-        <Animated.View
-          style={[
-            swipeStyle,
-            getStockBorderStyle(item.stock, lowStockThreshold),
-          ]}
+        {/* The animated layer only moves. On web, NativeWind classes on a
+            Reanimated view are dropped (no radius, transparent background,
+            so the edit/delete buttons showed through), so the card's look
+            lives on the plain View inside. */}
+        <Animated.View style={swipeStyle}>
+        <View
+          style={getStockBorderStyle(item.stock, lowStockThreshold)}
           className="flex-row rounded-xl bg-ctp-mantle"
         >
           <View className="flex-1 flex-row px-3 py-[10px]">
@@ -192,6 +194,7 @@ export default function StockItem({
               </Text>
             </View>
           </View>
+        </View>
         </Animated.View>
       </GestureDetector>
     </View>

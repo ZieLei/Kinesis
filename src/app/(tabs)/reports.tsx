@@ -391,8 +391,11 @@ export default function Reports() {
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
-              <View className="rounded-lg bg-ctp-mantle p-3">
-                <View className="flex-row items-center justify-between pb-4">
+              {/* z-10 on the card and its header: on web every View is its own
+                  stacking layer, so the period menu (z-50) was drawn under
+                  the chart and the next card. */}
+              <View className="z-10 rounded-lg bg-ctp-mantle p-3">
+                <View className="z-10 flex-row items-center justify-between pb-4">
                   <Text className="font-inter-semibold text-lg text-ctp-text">
                     Sales Trend
                   </Text>
@@ -490,8 +493,11 @@ export default function Reports() {
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
-              <View className="rounded-lg bg-ctp-mantle p-3">
-                <View className="flex-row items-center justify-between pb-4">
+              {/* z-10 on the card and its header: on web every View is its own
+                  stacking layer, so the period menu (z-50) was drawn under
+                  the chart and the next card. */}
+              <View className="z-10 rounded-lg bg-ctp-mantle p-3">
+                <View className="z-10 flex-row items-center justify-between pb-4">
                   <Text className="font-inter-semibold text-lg text-ctp-text">
                     Top Categories
                   </Text>

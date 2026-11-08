@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Flashlight, FlashlightOff } from "lucide-react-native";
 
+import "../lib/webCameraCompat";
 import { scanGcashReference } from "../lib/gcashOcr";
 import {
   GCASH_REFERENCE_LENGTH,
@@ -23,6 +24,39 @@ import {
   normalizeGcashReference,
 } from "../lib/gcashReferenceCandidates";
 import { getGuideRect, type Size } from "../lib/gcashScanRegion";
+
+/** Browser camera errors, in words a cashier can act on. */
+function describeWebCameraError(error: unknown): string {
+  // Firefox raises plain Errors, Chrome DOMExceptions: both carry a name.
+  const name =
+    typeof error === "object" && error !== null && typeof (error as { name?: unknown }).name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const manual = " You can still type the reference number on the checkout screen.";
+
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return (
+        "The browser is blocking the camera for this site. Tap the icon left of the address bar, open Permissions (or Site settings), set Camera to Allow, then reopen the scanner." +
+        manual
+      );
+    case "NotReadableError":
+    case "AbortError":
+    case "TrackStartError":
+      return (
+        "The camera is busy. Close other apps or browser tabs that use the camera, then try again." +
+        manual
+      );
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "No usable camera was found on this device." + manual;
+    default:
+      return (
+        `The camera could not be started${name ? ` (${name})` : ""}.` + manual
+      );
+  }
+}
 
 type GcashReferenceScannerProps = {
   visible: boolean;
@@ -41,6 +75,9 @@ export default function GcashReferenceScanner({
   const [scanning, setScanning] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  // Some Android browsers report the camera as busy for a moment after the
+  // permission check released it; remount the camera view and try again.
+  const [cameraAttempt, setCameraAttempt] = useState(0);
   const [scanError, setScanError] = useState("");
   const [candidates, setCandidates] = useState<string[]>([]);
   const [referenceDraft, setReferenceDraft] = useState("");
@@ -52,6 +89,22 @@ export default function GcashReferenceScanner({
 
   const handleRequestPermission = async () => {
     setCameraError("");
+
+    if (Platform.OS === "web") {
+      // expo-camera's web permission request reports every getUserMedia
+      // failure as "denied". Ask for the camera the same way the pairing
+      // scanner does and say what actually went wrong.
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
+        stream.getTracks().forEach((track) => track.stop());
+        await requestPermission();
+      } catch (error) {
+        setCameraError(describeWebCameraError(error));
+      }
+      return;
+    }
 
     try {
       const result = await requestPermission();
@@ -125,6 +178,7 @@ export default function GcashReferenceScanner({
     setReferenceDraft("");
     setScanError("");
     setCameraError("");
+    setCameraAttempt(0);
   };
 
   const draftIsValid = isValidGcashReference(referenceDraft);
@@ -313,14 +367,33 @@ export default function GcashReferenceScanner({
               }}
             >
               <CameraView
+                key={cameraAttempt}
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
                 facing="back"
                 enableTorch={torchOn}
                 onCameraReady={() => setCameraReady(true)}
                 onMountError={(event) => {
+                  const detail =
+                    (event as { nativeEvent?: unknown }).nativeEvent ?? event;
+                  const name =
+                    typeof detail === "object" && detail !== null
+                      ? String((detail as { name?: unknown }).name ?? "")
+                      : "";
+
+                  if (
+                    Platform.OS === "web" &&
+                    cameraAttempt < 2 &&
+                    ["NotReadableError", "AbortError", "TrackStartError"].includes(name)
+                  ) {
+                    setTimeout(() => setCameraAttempt((n) => n + 1), 700);
+                    return;
+                  }
+
                   setCameraError(
-                    event.message || "The camera could not be started.",
+                    Platform.OS === "web"
+                      ? describeWebCameraError(detail)
+                      : event.message || "The camera could not be started.",
                   );
                 }}
               />
@@ -419,7 +492,9 @@ export default function GcashReferenceScanner({
             {cameraError ? (
               <Text className="mt-3 text-center font-inter-medium text-xs leading-5 text-ctp-red">
                 {cameraError}
-                {Platform.OS === "web"
+                {Platform.OS === "web" &&
+                typeof window !== "undefined" &&
+                !window.isSecureContext
                   ? " Browser camera access requires HTTPS or localhost."
                   : ""}
               </Text>

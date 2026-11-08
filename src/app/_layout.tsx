@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DarkTheme,
   DefaultTheme,
@@ -7,7 +7,7 @@ import {
   Slot,
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useColorScheme } from "nativewind";
 import { useFonts } from "expo-font";
 
@@ -46,6 +46,20 @@ const styles = StyleSheet.create({
 
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
+
+  // Web: React Native's <Modal> renders into a portal on document.body,
+  // outside the root View below that carries the theme variables. Mirror the
+  // active palette onto <html> so modals (GCash scanner, bottom sheets) get
+  // the same colours instead of unstyled white.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const palette = (colorScheme === "dark" ? mocha : latte) as Record<string, string>;
+    const root = document.documentElement;
+    for (const [name, value] of Object.entries(palette)) {
+      if (name.startsWith("--")) root.style.setProperty(name, value);
+    }
+    root.style.colorScheme = colorScheme === "dark" ? "dark" : "light";
+  }, [colorScheme]);
 
   // Whether this device holds a terminal credential. The credential itself
   // stays in the keystore (native) or an HttpOnly cookie (web).
