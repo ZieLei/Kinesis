@@ -14,6 +14,10 @@ export type Product = {
   howMuchSold: number;
   image_path: string | null;
   image_url: string | null;
+  /** Present on responses from the product endpoints. */
+  average_cost?: number | null;
+  archived?: boolean;
+  archived_at?: string | null;
 };
 
 export type ProductListResponse = {
@@ -205,4 +209,122 @@ export type OperationsOverviewResponse = {
   inventory_summary: InventorySummary;
   service_catalog_count: number;
   activity: ActivityEventRecord[];
+};
+
+
+// --------------------------------------------------
+// Stock management (/api/admin/inventory)
+// --------------------------------------------------
+
+export type StockStatus = "in_stock" | "low" | "out";
+
+export type InventorySortField = "name" | "sku" | "category" | "price" | "stock";
+
+export type InventoryItem = {
+  id: number;
+  sku: string | null;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  /** Weighted-average acquisition cost; null when stock was never costed. */
+  average_cost: number | null;
+  image_url: string | null;
+  stock_status: StockStatus;
+  archived_at: string | null;
+};
+
+export type InventoryListQuery = {
+  search?: string;
+  category?: string;
+  status?: StockStatus;
+  sort: InventorySortField;
+  direction: "asc" | "desc";
+  limit: number;
+  offset: number;
+  /** List archived products instead of active inventory. */
+  archived?: boolean;
+};
+
+export type InventoryListResponse = {
+  items: InventoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  low_stock_threshold: number;
+  categories: string[];
+};
+
+export type StockAdjustmentReason =
+  | "damaged"
+  | "lost"
+  | "expired"
+  | "count_correction"
+  | "other";
+
+export type AddStockRequest = {
+  product_id: number;
+  quantity: number;
+  unit_cost: string;
+  opening_stock_unit_cost?: string;
+  expected_stock: number;
+  note?: string;
+};
+
+export type AdjustStockRequest = {
+  product_id: number;
+  quantity_change: number;
+  reason: StockAdjustmentReason;
+  note?: string;
+  expected_stock: number;
+};
+
+export type StockChangeResponse = {
+  product: InventoryItem;
+};
+
+export type StockHistoryEntry = {
+  type: "receipt" | "adjustment";
+  id: number;
+  at: string;
+  quantity_change: number;
+  stock_before: number | null;
+  stock_after: number | null;
+  reason: StockAdjustmentReason | null;
+  note: string | null;
+  actor_name: string | null;
+  unit_cost: number | null;
+};
+
+export type StockHistoryResponse = {
+  product_id: number;
+  items: StockHistoryEntry[];
+};
+
+export type AdminProductCreateRequest = {
+  name: string;
+  category: string;
+  /** Selling price, decimal string with up to 2 places. */
+  price: string;
+  /** Omit to generate one from the SKU settings. */
+  sku?: string;
+  /** Recorded as an inventory receipt when greater than zero. */
+  initial_stock?: number;
+  initial_unit_cost?: string;
+  note?: string;
+};
+
+/** Only the fields being changed are sent; omitted fields stay as they are. */
+export type AdminProductUpdateRequest = {
+  name?: string;
+  category?: string;
+  price?: string;
+  sku?: string;
+};
+
+export type ArchiveProductResponse = {
+  message: string;
+  id: number;
+  archived: boolean;
+  deleted: boolean;
 };

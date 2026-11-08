@@ -22,6 +22,7 @@ import {
   iconButton,
 } from "./components/ui/styles";
 import Overview from "./views/Overview";
+import Stock from "./views/Stock";
 import Cashiers from "./views/Cashiers";
 import Terminals from "./views/Terminals";
 import Console from "./views/Console";
@@ -33,6 +34,7 @@ import { API_BASE_URL, apiRequest } from "./lib/api";
 
 const tabs = [
   "Overview",
+  "Stock",
   "Cashiers",
   "Terminals",
   "Console",
@@ -594,6 +596,7 @@ export default function Dashboard() {
         {/* Active page */}
         <main>
           {activeTab === "Overview" && <Overview />}
+          {activeTab === "Stock" && <Stock />}
           {activeTab === "Cashiers" && <Cashiers />}
           {activeTab === "Terminals" && <Terminals />}
           {activeTab === "Console" && <Console />}

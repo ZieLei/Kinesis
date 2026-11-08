@@ -1,7 +1,16 @@
 import { apiRequest } from "./api";
 
 import type {
+  AddStockRequest,
+  AdminProductCreateRequest,
+  AdminProductUpdateRequest,
+  ArchiveProductResponse,
+  AdjustStockRequest,
   ApiHealth,
+  InventoryListQuery,
+  InventoryListResponse,
+  StockChangeResponse,
+  StockHistoryResponse,
   OperationsOverviewResponse,
   Product,
   ProductListResponse,
@@ -283,4 +292,103 @@ export function deleteAdminGcashQr(
       }),
     },
   );
+}
+
+
+// --------------------------------------------------
+// Stock management
+// --------------------------------------------------
+
+export function fetchInventoryProducts(
+  query: InventoryListQuery,
+  signal?: AbortSignal,
+): Promise<InventoryListResponse> {
+  const params = new URLSearchParams({
+    sort: query.sort,
+    direction: query.direction,
+    limit: String(query.limit),
+    offset: String(query.offset),
+  });
+
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.category) params.set("category", query.category);
+  if (query.status) params.set("status", query.status);
+  if (query.archived) params.set("archived", "true");
+
+  return apiRequest<InventoryListResponse>(
+    `/api/admin/inventory/products?${params.toString()}`,
+    { signal },
+  );
+}
+
+export function addStock(request: AddStockRequest): Promise<StockChangeResponse> {
+  return apiRequest<StockChangeResponse>("/api/admin/inventory/receipts", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function adjustStock(
+  request: AdjustStockRequest,
+): Promise<StockChangeResponse> {
+  return apiRequest<StockChangeResponse>("/api/admin/inventory/adjustments", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function fetchStockHistory(
+  productId: number,
+  signal?: AbortSignal,
+): Promise<StockHistoryResponse> {
+  return apiRequest<StockHistoryResponse>(
+    `/api/admin/inventory/products/${productId}/history`,
+    { signal },
+  );
+}
+
+export function createProduct(request: AdminProductCreateRequest): Promise<Product> {
+  return apiRequest<Product>("/api/admin/products", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function updateProduct(
+  productId: number,
+  request: AdminProductUpdateRequest,
+): Promise<Product> {
+  return apiRequest<Product>(`/api/admin/products/${productId}`, {
+    method: "PUT",
+    body: JSON.stringify(request),
+  });
+}
+
+export function uploadProductImage(productId: number, file: File): Promise<Product> {
+  const body = new FormData();
+  body.append("file", file, file.name);
+
+  return apiRequest<Product>(`/api/admin/products/${productId}/image`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function deleteProductImage(productId: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/admin/products/${productId}/image`, {
+    method: "DELETE",
+  });
+}
+
+/** Archives a product with history; permanently deletes one without. */
+export function archiveProduct(productId: number): Promise<ArchiveProductResponse> {
+  return apiRequest<ArchiveProductResponse>(`/api/admin/products/${productId}`, {
+    method: "DELETE",
+  });
+}
+
+export function restoreProduct(productId: number): Promise<Product> {
+  return apiRequest<Product>(`/api/admin/products/${productId}/restore`, {
+    method: "POST",
+  });
 }

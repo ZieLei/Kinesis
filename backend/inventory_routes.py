@@ -109,6 +109,22 @@ def create_inventory_receipt(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    return save_inventory_receipt(db, receipt_data)
+
+
+def save_inventory_receipt(
+    db: Session,
+    receipt_data: InventoryReceiptCreate,
+    expected_stock: dict[int, int] | None = None,
+) -> dict:
+    """
+    Lock the products, update stock and weighted-average cost, and save the
+    receipt in one transaction. Shared by the POS and admin routes.
+
+    expected_stock maps product IDs to the stock the caller last saw; a
+    mismatch means someone else changed it meanwhile and raises 409.
+    """
+
     product_ids = sorted(item.product_id for item in receipt_data.items)
 
     try:
@@ -141,6 +157,17 @@ def create_inventory_receipt(
                     "receiving stock."
                 ),
             )
+
+        for product_id, seen in (expected_stock or {}).items():
+            if products_by_id[product_id].stock != seen:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Stock for '{products_by_id[product_id].name}' changed "
+                        f"from {seen} to {products_by_id[product_id].stock} while "
+                        "you were editing. Review it and try again."
+                    ),
+                )
 
         receipt = InventoryReceipt(
             supplier_name=receipt_data.supplier_name,

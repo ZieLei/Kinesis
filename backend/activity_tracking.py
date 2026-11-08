@@ -218,7 +218,7 @@ def _record_product_change(session: Session, product, *, created=False, deleted=
 
     changes = _changed_fields(
         product,
-        ("name", "category", "price", "stock", "sku"),
+        ("name", "category", "price", "stock", "sku", "image_path"),
     )
 
     if not changes:

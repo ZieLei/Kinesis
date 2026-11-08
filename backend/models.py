@@ -541,6 +541,73 @@ class StockoutPeriod(Base):
     )
 
 
+STOCK_ADJUSTMENT_REASONS = (
+    "damaged",
+    "lost",
+    "expired",
+    "count_correction",
+    "other",
+)
+
+
+class StockAdjustment(Base):
+    """
+    A manual stock change that is not a purchase or a sale: write-offs,
+    disposal and stock-count corrections. Rows are append-only.
+    """
+
+    __tablename__ = "stock_adjustments"
+
+    __table_args__ = (
+        CheckConstraint(
+            "quantity_change <> 0",
+            name="ck_stock_adjustments_quantity_nonzero",
+        ),
+        CheckConstraint(
+            "stock_after = stock_before + quantity_change",
+            name="ck_stock_adjustments_arithmetic",
+        ),
+        CheckConstraint(
+            "reason IN ('damaged', 'lost', 'expired', 'count_correction', 'other')",
+            name="ck_stock_adjustments_reason",
+        ),
+        CheckConstraint(
+            "reason <> 'other' OR note IS NOT NULL",
+            name="ck_stock_adjustments_other_needs_note",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    # Saved so the record stays readable if the product is renamed.
+    product_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    quantity_change: Mapped[int] = mapped_column(Integer, nullable=False)
+    stock_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    stock_after: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    actor_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+
 class Terminal(Base):
     __tablename__ = "terminals"
 

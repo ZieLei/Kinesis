@@ -16,16 +16,27 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import exists, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import InventoryReceiptItem, Product, SaleItem, StockoutPeriod
+from models import (
+    InventoryReceiptItem,
+    Product,
+    SaleItem,
+    StockAdjustment,
+    StockoutPeriod,
+)
 from sales_routes import router as sales_router
 from services_routes import router as services_router
-from inventory_routes import router as inventory_router
+from inventory_routes import (
+    InventoryReceiptCreate,
+    ReceiptItemInput,
+    router as inventory_router,
+    save_inventory_receipt,
+)
 from analytics_routes import router as analytics_router
 from terminal_routes import (
     require_admin_or_terminal,
@@ -45,6 +56,10 @@ from cashier_routes import require_writable_cashier, router as cashier_router
 from activity_tracking import install_activity_tracking
 from inventory_tracking import install_inventory_tracking
 from overview_routes import router as overview_router
+from admin_inventory_routes import (
+    require_admin_actor,
+    router as admin_inventory_router,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +167,7 @@ app.include_router(database_router)
 app.include_router(settings_router)
 app.include_router(cashier_router)
 app.include_router(overview_router)
+app.include_router(admin_inventory_router)
 
 
 # --------------------------------------------------
@@ -159,22 +175,13 @@ app.include_router(overview_router)
 # --------------------------------------------------
 
 
-class ProductCreate(BaseModel):
+class ProductCatalogFields(BaseModel):
+    """Catalog fields and rules shared by POS and admin product creation."""
+
     name: str = Field(min_length=1, max_length=150)
     category: str = Field(min_length=1, max_length=100)
     price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
-    stock: int = Field(ge=0)
     sku: str | None = Field(default=None, max_length=64)
-    howMuchSold: int = Field(default=0, ge=0)
-
-    # Optional acquisition cost for the initial stock quantity.
-    # Products can still be created with an unknown cost.
-    initial_unit_cost: Decimal | None = Field(
-        default=None,
-        ge=0,
-        max_digits=12,
-        decimal_places=4,
-    )
 
     @field_validator("name", "category")
     @classmethod
@@ -192,6 +199,48 @@ class ProductCreate(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+
+class ProductCreate(ProductCatalogFields):
+    stock: int = Field(ge=0)
+    howMuchSold: int = Field(default=0, ge=0)
+
+    # Optional acquisition cost for the initial stock quantity.
+    # Products can still be created with an unknown cost.
+    initial_unit_cost: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=4,
+    )
+
+
+class AdminProductCreate(ProductCatalogFields):
+    # Opening stock is recorded as an inventory receipt, never set silently.
+    initial_stock: int = Field(default=0, ge=0, le=100000)
+    initial_unit_cost: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=4,
+    )
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def require_cost_for_opening_stock(self):
+        # Same rule as receiving stock: every received unit has a cost, so
+        # inventory valuation and average cost stay consistent.
+        if self.initial_stock > 0 and self.initial_unit_cost is None:
+            raise ValueError("Enter the unit cost of the opening stock.")
+
+        return self
 
 
 class ProductUpdate(BaseModel):
@@ -227,6 +276,28 @@ class ProductUpdate(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+
+class AdminProductUpdate(ProductUpdate):
+    """
+    ProductUpdate's rules, but a field that is sent must have a value:
+    administrators can change a SKU but never clear one, and an explicit
+    null never reaches the database as a missing name or price.
+    """
+
+    @model_validator(mode="after")
+    def reject_clearing(self):
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one field to change.")
+
+        for field in ("name", "category", "price"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"The product {field} cannot be empty.")
+
+        if "sku" in self.model_fields_set and self.sku is None:
+            raise ValueError("A product's SKU can be changed but not removed.")
+
+        return self
 
 
 # --------------------------------------------------
@@ -490,6 +561,25 @@ def update_product(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    return apply_product_update(
+        db, product_id, product_data.model_dump(exclude_unset=True)
+    )
+
+
+def apply_product_update(
+    db: Session,
+    product_id: int,
+    updates: dict,
+    *,
+    reject_archived: bool = False,
+) -> dict:
+    """
+    Update catalog fields (name, category, price, SKU) of one product.
+
+    Shared by the POS and admin routes. The schemas only allow catalog
+    fields, so stock, average cost and sale-line snapshots never change.
+    """
+
     product = db.scalar(
         select(Product).where(Product.id == product_id).with_for_update()
     )
@@ -500,7 +590,12 @@ def update_product(
             detail="Product not found.",
         )
 
-    updates = product_data.model_dump(exclude_unset=True)
+    if reject_archived and product.archived_at is not None:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{product.name}' is archived. Restore it before editing.",
+        )
 
     if not updates:
         raise HTTPException(
@@ -542,12 +637,34 @@ async def upload_product_image(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    return await store_product_image(db, product_id, file)
+
+
+async def store_product_image(
+    db: Session,
+    product_id: int,
+    file: UploadFile,
+    *,
+    reject_archived: bool = False,
+) -> dict:
+    """
+    Validate, store and attach an image, then remove the replaced file.
+    Shared by the POS and admin routes.
+    """
+
     product = db.get(Product, product_id)
 
     if product is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
+        )
+
+    if reject_archived and product.archived_at is not None:
+        await file.close()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{product.name}' is archived. Restore it before editing.",
         )
 
     data, extension, _media_type = await read_validated_image(file)
@@ -676,12 +793,29 @@ def delete_product_image(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    return remove_product_image(db, product_id)
+
+
+def remove_product_image(
+    db: Session,
+    product_id: int,
+    *,
+    reject_archived: bool = False,
+) -> dict:
+    """Detach a product's image and delete its file. Shared by POS and admin."""
+
     product = db.get(Product, product_id)
 
     if product is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
+        )
+
+    if reject_archived and product.archived_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{product.name}' is archived. Restore it before editing.",
         )
 
     old_relative_path = product.image_path
@@ -722,13 +856,17 @@ def delete_product_image(
 
 
 def product_has_history(db: Session, product_id: int) -> bool:
-    """True when sales, receipts or stockout records reference the product."""
+    """
+    True when sales, receipts, stock adjustments or stockout records
+    reference the product.
+    """
 
     return bool(
         db.scalar(
             select(
                 exists().where(SaleItem.product_id == product_id)
                 | exists().where(InventoryReceiptItem.product_id == product_id)
+                | exists().where(StockAdjustment.product_id == product_id)
                 | exists().where(StockoutPeriod.product_id == product_id)
             )
         )
@@ -780,8 +918,13 @@ def delete_product(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    return archive_or_delete_product(db, product_id)
+
+
+def archive_or_delete_product(db: Session, product_id: int) -> dict:
     """
     Archive a product with history; permanently delete one without.
+    Shared by the POS and admin routes.
 
     Products referenced by sales, inventory receipts or stockout records
     are archived so historical reports keep them. The database enforces
@@ -842,6 +985,147 @@ def delete_product(
         "archived": False,
         "deleted": True,
     }
+
+
+# --------------------------------------------------
+# Create a product (administrators only)
+# --------------------------------------------------
+
+
+@app.post(
+    "/api/admin/products",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Products"],
+)
+def admin_create_product(
+    product_data: AdminProductCreate,
+    _admin: object = Depends(require_admin_actor),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a catalog entry with zero stock and, if opening stock is given,
+    receive it through the normal inventory receipt in the same transaction.
+    The product and its opening receipt are saved together or not at all.
+    """
+
+    try:
+        if product_data.sku is not None and db.scalar(
+            select(Product.id).where(Product.sku == product_data.sku)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"SKU {product_data.sku} is already assigned to another product.",
+            )
+
+        product = Product(
+            name=product_data.name,
+            category=product_data.category,
+            price=product_data.price,
+            stock=0,
+            sku=(
+                product_data.sku
+                if product_data.sku is not None
+                else generate_product_sku(db)
+            ),
+            how_much_sold=0,
+            average_cost=None,
+        )
+
+        db.add(product)
+
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            # Unique SKU constraint: a concurrent request took it first.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That SKU is already assigned to another product.",
+            ) from exc
+
+        product_id = product.id
+
+        if product_data.initial_stock > 0:
+            # Commits the product together with its opening receipt.
+            save_inventory_receipt(
+                db,
+                InventoryReceiptCreate(
+                    notes=product_data.note or "Opening stock",
+                    items=[
+                        ReceiptItemInput(
+                            product_id=product_id,
+                            quantity=product_data.initial_stock,
+                            unit_cost=product_data.initial_unit_cost,
+                        )
+                    ],
+                ),
+                expected_stock={product_id: 0},
+            )
+        else:
+            commit_or_raise_sku_conflict(db)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Could not create product.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The product could not be created.",
+        ) from exc
+
+    return product_response(db.get(Product, product_id))
+
+
+# --------------------------------------------------
+# Edit, image and archive (administrators only)
+# --------------------------------------------------
+# Thin wrappers over the same helpers the POS routes use. Archived
+# products are read-only here until restored.
+
+
+@app.put("/api/admin/products/{product_id}", tags=["Products"])
+def admin_update_product(
+    product_id: int,
+    product_data: AdminProductUpdate,
+    _admin: object = Depends(require_admin_actor),
+    db: Session = Depends(get_db),
+):
+    return apply_product_update(
+        db,
+        product_id,
+        product_data.model_dump(exclude_unset=True),
+        reject_archived=True,
+    )
+
+
+@app.post("/api/admin/products/{product_id}/image", tags=["Product images"])
+async def admin_upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    _admin: object = Depends(require_admin_actor),
+    db: Session = Depends(get_db),
+):
+    return await store_product_image(db, product_id, file, reject_archived=True)
+
+
+@app.delete("/api/admin/products/{product_id}/image", tags=["Product images"])
+def admin_delete_product_image(
+    product_id: int,
+    _admin: object = Depends(require_admin_actor),
+    db: Session = Depends(get_db),
+):
+    return remove_product_image(db, product_id, reject_archived=True)
+
+
+@app.delete("/api/admin/products/{product_id}", tags=["Products"])
+def admin_archive_or_delete_product(
+    product_id: int,
+    _admin: object = Depends(require_admin_actor),
+    db: Session = Depends(get_db),
+):
+    return archive_or_delete_product(db, product_id)
 
 
 # --------------------------------------------------
