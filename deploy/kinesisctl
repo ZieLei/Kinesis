@@ -1,0 +1,572 @@
+#!/bin/bash
+# kinesisctl: operate a Kinesis host. One interface for every installer:
+# Linux system scope (systemd, sudo), Linux user scope (systemd --user) and
+# macOS (launchd, sudo).
+#
+#   kinesisctl start | stop | restart     all Kinesis services together
+#   kinesisctl status                     services + live HTTPS/backend checks
+#   kinesisctl logs [-f] [-n N] [NAME..]  logs (backend caddy postgresql
+#                                         pki-renew awake mdns; default: all)
+#   kinesisctl enable | disable           start at boot (without a login)
+#   kinesisctl reload                     re-read certificates (no downtime)
+#   kinesisctl doctor                     deeper checks (config, certificates,
+#                                         PostgreSQL version, ports, power)
+#   kinesisctl urls                       addresses for devices
+#   kinesisctl create-admin USER [--reset-password]
+#   kinesisctl migrate [--yes]            back up, then alembic upgrade head
+#   kinesisctl psql                       SQL shell on the Kinesis database
+#   kinesisctl smoke [--lan-ip IP]        read-only network checks
+#   kinesisctl version
+#
+# Linux: --user / --system pick the installation when both exist.
+# macOS: start/stop also switch start-at-boot on/off (launchd semantics).
+# Compatible with bash 3.2 (macOS).
+set -euo pipefail
+
+die() { printf 'kinesisctl: %s\n' "$*" >&2; exit 2; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+WANT_SCOPE=""
+ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --user) WANT_SCOPE=user ;;
+        --system) WANT_SCOPE=system ;;
+        *) ARGS+=("$arg") ;;
+    esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+[[ $# -gt 0 ]] || usage 2
+COMMAND="$1"; shift
+[[ "$COMMAND" == -h || "$COMMAND" == --help || "$COMMAND" == help ]] && usage 0
+
+OS="$(uname -s)"
+MAC_CONF="/Library/Application Support/Kinesis/config/install.conf"
+USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/kinesis/install.conf"
+SYSTEM_CONF=/etc/kinesis/install.conf
+if [[ "$OS" == Darwin ]]; then
+    CONF="$MAC_CONF"
+else
+    case "$WANT_SCOPE" in
+        user) CONF="$USER_CONF" ;;
+        system) CONF="$SYSTEM_CONF" ;;
+        *)
+            if [[ $EUID -ne 0 && -r "$USER_CONF" ]]; then CONF="$USER_CONF"
+            elif [[ -r "$SYSTEM_CONF" ]]; then CONF="$SYSTEM_CONF"
+            else CONF="$USER_CONF"
+            fi ;;
+    esac
+fi
+[[ -r "$CONF" ]] || die "no Kinesis installation found ($CONF). Run deploy/install/<linux|macos>/install-kinesis.sh first."
+
+# install.conf holds only plain KEY=value lines (no secrets).
+while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[A-Z_]+$ ]] || continue
+    printf -v "$key" '%s' "$value"
+done < "$CONF"
+: "${SCOPE:?}" "${CODE:?}" "${CONFIG:?}" "${DATA:?}"
+LAN_IP="${LAN_IP:-192.168.254.199}"
+
+# priv COMMAND...: as root when the installation needs it. A function, not
+# an array: bash 3.2 treats an empty array as unset under `set -u`.
+priv() { if [[ $EUID -eq 0 || "$SCOPE" == user ]]; then "$@"; else sudo "$@"; fi; }
+
+case "$SCOPE" in
+    user)
+        MANAGER=systemd; SYSTEMCTL=(systemctl --user); JOURNAL=(journalctl --user)
+        UNITS=(kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.timer)
+        [[ "${PG_MODE:-}" == own ]] && UNITS=(kinesis-postgresql.service "${UNITS[@]}")
+        PG_CTL_HINT="kinesisctl logs postgresql"
+        ;;
+    system)
+        MANAGER=systemd; SYSTEMCTL=(systemctl); JOURNAL=(journalctl)
+        UNITS=(postgresql.service kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.timer)
+        ;;
+    macos)
+        MANAGER=launchd
+        UNITS=(local.kinesis.backend local.kinesis.caddy local.kinesis.pki-renew)
+        ;;
+    *) die "unknown SCOPE $SCOPE in $CONF" ;;
+esac
+if [[ "$MANAGER" == systemd ]]; then
+    [[ "${AWAKE:-0}" == 1 ]] && UNITS+=(kinesis-awake.service)
+    [[ "${MDNS:-0}" == 1 ]] && UNITS+=(kinesis-mdns.service)
+fi
+# Layout: Linux keeps backend/, deploy/, venv/ and pki-venv/ under CODE;
+# macOS keeps the code in CODE (<ROOT>/app) and the venvs and Caddy in DATA.
+APP="$CODE"
+if [[ "$SCOPE" == macos ]]; then
+    PY="$DATA/pki-venv/bin/python"; BACKEND_VENV="$DATA/venv"; CADDY_BIN="$DATA/bin/caddy"
+else
+    PY="$CODE/pki-venv/bin/python"; BACKEND_VENV="$CODE/venv"; CADDY_BIN=/usr/bin/caddy
+fi
+
+caddy_env() { sed -n "s/^$1=//p" "$CONFIG/caddy.env" 2>/dev/null | head -1; }
+split_sites() { tr ',' '\n' <<<"$1" | sed 's/^ *//; s/ *$//' | sed '/^$/d'; }
+
+if [[ -t 1 ]]; then OK=$'\033[32mOK\033[0m'; BAD=$'\033[31mFAIL\033[0m'; WARN=$'\033[33mWARN\033[0m'
+else OK=OK; BAD=FAIL; WARN=WARN; fi
+FAILURES=0
+pass() { printf '  %-4s %s\n' "$OK" "$*"; }
+fail() { printf '  %-4s %s\n' "$BAD" "$*"; FAILURES=$((FAILURES + 1)); }
+caution() { printf '  %-4s %s\n' "$WARN" "$*"; }
+
+as_account() {
+    # as_account ACCOUNT COMMAND...: run as a service account (system/macOS).
+    local account="$1"; shift
+    if [[ "$SCOPE" == user ]]; then "$@"
+    elif [[ "$OS" == Darwin ]]; then priv sudo -u "$account" "$@"
+    elif [[ $EUID -eq 0 ]]; then runuser -u "$account" -- "$@"
+    else sudo -u "$account" "$@"
+    fi
+}
+as_backend() { as_account "${SVC_USER:-kinesis}" "$@"; }
+as_proxy() { as_account "${PROXY_USER:-kinesis-proxy}" "$@"; }
+
+# --------------------------------------------------------------------------
+# Service manager
+# --------------------------------------------------------------------------
+unit_name() {
+    case "$1" in
+        backend|caddy|pki-renew|awake|mdns)
+            if [[ "$MANAGER" == launchd ]]; then echo "local.kinesis.$1"; else echo "kinesis-$1.service"; fi ;;
+        timer) echo kinesis-pki-renew.timer ;;
+        postgresql|postgres|pg|db)
+            case "$SCOPE" in user) echo kinesis-postgresql.service ;; system) echo postgresql.service ;; *) echo postgresql ;; esac ;;
+        *) echo "$1" ;;
+    esac
+}
+
+launchd_state() {
+    # Prints "running", "loaded" (not running), or "not loaded".
+    local out
+    if ! out="$(priv launchctl print "system/$1" 2>/dev/null)"; then echo "not loaded"; return; fi
+    if grep -q 'state = running' <<<"$out"; then echo running; else echo loaded; fi
+}
+
+svc_start() {
+    if [[ "$MANAGER" == systemd ]]; then
+        priv "${SYSTEMCTL[@]}" start kinesis.target
+    else
+        local label
+        for label in "${UNITS[@]}"; do
+            priv launchctl enable "system/$label"
+            if [[ "$(launchd_state "$label")" == "not loaded" ]]; then
+                priv launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"
+            else
+                priv launchctl kickstart "system/$label" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+}
+
+svc_stop() {
+    if [[ "$MANAGER" == systemd ]]; then
+        # Name every unit: stopping only the target returns before its
+        # members have finished stopping. The distribution's
+        # postgresql.service is never stopped (other software may use it).
+        local own=(kinesis.target kinesis-pki-renew.service) unit
+        for unit in "${UNITS[@]}"; do [[ "$unit" == postgresql.service ]] || own+=("$unit"); done
+        priv "${SYSTEMCTL[@]}" stop "${own[@]}"
+    else
+        local label
+        for label in local.kinesis.caddy local.kinesis.backend local.kinesis.pki-renew; do
+            priv launchctl bootout "system/$label" 2>/dev/null || true
+            priv launchctl disable "system/$label"
+        done
+    fi
+}
+
+svc_restart() {
+    if [[ "$MANAGER" == systemd ]]; then
+        priv "${SYSTEMCTL[@]}" restart kinesis.target
+    else
+        local label
+        for label in local.kinesis.backend local.kinesis.caddy; do
+            priv launchctl kickstart -k "system/$label"
+        done
+    fi
+}
+
+unit_table() {
+    local unit state sub since
+    for unit in "${UNITS[@]}"; do
+        if [[ "$MANAGER" == systemd ]]; then
+            state="$("${SYSTEMCTL[@]}" show -p ActiveState --value "$unit" 2>/dev/null || echo unknown)"
+            sub="$("${SYSTEMCTL[@]}" show -p SubState --value "$unit" 2>/dev/null || true)"
+            since="$("${SYSTEMCTL[@]}" show -p ActiveEnterTimestamp --value "$unit" 2>/dev/null || true)"
+            case "$state" in
+                active) pass "$(printf '%-28s %s (%s) since %s' "$unit" "$state" "$sub" "${since:-?}")" ;;
+                activating|reloading) caution "$(printf '%-28s %s (%s)' "$unit" "$state" "$sub")" ;;
+                *) fail "$(printf '%-28s %s (%s)' "$unit" "$state" "$sub")" ;;
+            esac
+        else
+            state="$(launchd_state "$unit")"
+            case "$unit:$state" in
+                *:running|local.kinesis.pki-renew:loaded) pass "$(printf '%-28s %s' "$unit" "$state")" ;;
+                *) fail "$(printf '%-28s %s' "$unit" "$state")" ;;
+            esac
+        fi
+    done
+    if [[ "$MANAGER" == systemd ]]; then
+        if [[ "$("${SYSTEMCTL[@]}" is-enabled kinesis.target 2>/dev/null || true)" == enabled ]]; then
+            pass "starts at boot (kinesis.target enabled)"
+        else
+            caution "does not start at boot (kinesisctl enable)"
+        fi
+    elif priv launchctl print-disabled system 2>/dev/null | grep -Eq '"local\.kinesis\.backend" => (true|disabled)'; then
+        caution "does not start at boot (kinesisctl start or enable)"
+    else
+        pass "starts at boot (launchd daemons enabled)"
+    fi
+}
+
+# --------------------------------------------------------------------------
+# Live checks
+# --------------------------------------------------------------------------
+CA="$DATA/onboarding/kinesis-root.crt"
+
+https_check() {
+    # https_check LABEL SITE EXPECT_CODE PATH
+    local label="$1" site="$2" expect="$3" path="${4:-/}" host port code
+    host="$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"$site")"
+    port="$(sed -nE 's#^https?://[^/:]+:([0-9]+).*#\1#p' <<<"$site")"
+    port="${port:-443}"
+    # Name-based sites are checked against this computer (--resolve), so the
+    # check does not depend on mDNS.
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --cacert "$CA" \
+        --resolve "$host:$port:127.0.0.1" "https://$host:$port$path" 2>/dev/null || true)"
+    if [[ "$code" == "$expect" ]]; then pass "$label https://$host:$port$path -> $code"
+    else fail "$label https://$host:$port$path -> ${code:-no answer} (expected $expect)"; fi
+}
+
+live_checks() {
+    local body site code
+    body="$(curl -sS --max-time 5 http://127.0.0.1:8000/api/health 2>/dev/null || true)"
+    if grep -q '"database":"online"' <<<"$body"; then pass "backend 127.0.0.1:8000 and database: online"
+    else fail "backend health: ${body:-no answer from 127.0.0.1:8000}"; fi
+
+    if [[ ! -r "$CA" ]]; then
+        caution "no CA certificate at $CA; HTTPS checks skipped"
+        return 0
+    fi
+    while read -r site; do
+        [[ -n "$site" ]] || continue
+        https_check "POS  " "$site" 200 /
+        # 401 from the backend proves the POS API is proxied; /api/health is
+        # admin-origin only and must be refused (404) here.
+        https_check "POS  " "$site" 401 /api/terminals/session
+        https_check "POS  " "$site" 404 /api/health
+    done < <(split_sites "$(caddy_env KINESIS_POS_SITES)")
+    while read -r site; do
+        [[ -n "$site" ]] || continue
+        https_check "admin" "$site" 200 /
+        https_check "admin" "$site" 200 /api/health
+    done < <(split_sites "$(caddy_env KINESIS_ADMIN_SITES)")
+    site="$(caddy_env KINESIS_ONBOARDING_SITE)"
+    if [[ -n "$site" ]]; then
+        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$site/kinesis-root.crt" 2>/dev/null || true)"
+        if [[ "$code" == 200 ]]; then pass "onboarding $site/kinesis-root.crt -> 200"
+        else fail "onboarding $site/kinesis-root.crt -> ${code:-no answer}"; fi
+    fi
+}
+
+cert_check() {
+    # openssl -checkend works the same with OpenSSL (Linux) and LibreSSL (macOS).
+    local crt="$DATA/pki/server.crt" end
+    if ! end="$(priv openssl x509 -noout -enddate -in "$crt" 2>/dev/null)"; then
+        caution "cannot read $crt (use sudo)"
+        return 0
+    fi
+    end="${end#notAfter=}"
+    if priv openssl x509 -noout -checkend $((60 * 86400)) -in "$crt" >/dev/null 2>&1; then
+        pass "server certificate valid until $end (renewal is automatic)"
+    elif priv openssl x509 -noout -checkend 0 -in "$crt" >/dev/null 2>&1; then
+        caution "server certificate expires $end; the daily renewal should replace it (kinesisctl logs pki-renew)"
+    else
+        fail "server certificate EXPIRED on $end"
+    fi
+}
+
+wait_healthy() {
+    local i=0
+    while [[ $i -lt 30 ]]; do
+        curl -sS --max-time 2 http://127.0.0.1:8000/api/health 2>/dev/null | grep -q '"database":"online"' && return 0
+        sleep 1; i=$((i + 1))
+    done
+    return 1
+}
+
+holds_lan_ip() {
+    if [[ "$OS" == Darwin ]]; then ifconfig 2>/dev/null | grep -q "inet ${LAN_IP//./\\.} "
+    else ip -4 -o addr show 2>/dev/null | grep -q " $LAN_IP/"; fi
+}
+
+listens_beyond_loopback() {
+    # listens_beyond_loopback PORT: true if something accepts on a non-loopback address.
+    if [[ "$OS" == Darwin ]]; then
+        priv lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 { print $9 }' | grep -vqE '^(127\.0\.0\.1|\[::1\]|localhost):'
+    else
+        ss -Hltn "sport = :$1" 2>/dev/null | awk '{ print $4 }' | grep -vqE '^(127\.0\.0\.1|\[::1\]):'
+    fi
+}
+
+print_urls() {
+    echo "POS (phones, tablets, cashier PCs):"
+    split_sites "$(caddy_env KINESIS_POS_SITES)" | sed 's/^/  /'
+    echo "Admin console:"
+    split_sites "$(caddy_env KINESIS_ADMIN_SITES)" | sed 's/^/  /'
+    echo "Device onboarding (trust the Kinesis CA once per device):"
+    echo "  $(caddy_env KINESIS_ONBOARDING_SITE)"
+    if [[ -r "$DATA/onboarding/fingerprint.txt" ]]; then
+        echo "Root CA fingerprint (compare on each device):"
+        sed 's/^/  /' "$DATA/onboarding/fingerprint.txt"
+    fi
+}
+
+# Command prefix that runs a program with caddy.env in its environment
+# (values may hold spaces and '|', so the file is parsed, never sourced).
+WITH_CADDY_ENV=("$PY" -I -c '
+import os, sys
+env = dict(os.environ)
+for line in open(sys.argv[1], encoding="utf-8").read().splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip()
+os.execve(sys.argv[2], sys.argv[2:], env)
+' "$CONFIG/caddy.env")
+
+# --------------------------------------------------------------------------
+case "$COMMAND" in
+    start)
+        [[ "$SCOPE" != user || -e "$DATA/pki/server.crt" ]] || die "no certificates in $DATA/pki (install-kinesis.sh --pki-dir)"
+        svc_start
+        if wait_healthy; then echo "Kinesis is running."; else echo "Kinesis started, but the backend is not healthy yet:" >&2; fi
+        live_checks
+        [[ $FAILURES -eq 0 ]] || { echo "See: kinesisctl logs" >&2; exit 1; }
+        ;;
+    stop)
+        svc_stop
+        echo "Kinesis stopped."
+        [[ "$SCOPE" == system ]] && echo "(postgresql.service keeps running; other software may use it.)"
+        [[ "$SCOPE" == macos ]] && echo "(It stays stopped after a restart until: sudo kinesisctl start)"
+        ;;
+    restart)
+        svc_restart
+        if wait_healthy; then echo "Kinesis restarted."; else echo "Restarted, but the backend is not healthy yet." >&2; fi
+        live_checks
+        [[ $FAILURES -eq 0 ]] || exit 1
+        ;;
+    reload)
+        if [[ "$MANAGER" == systemd ]]; then
+            priv "${SYSTEMCTL[@]}" reload kinesis-caddy.service
+        else
+            # As _kinesisproxy: only it can reach the admin socket.
+            ( cd / && as_proxy "${WITH_CADDY_ENV[@]}" "$CADDY_BIN" reload \
+                --config "$APP/deploy/caddy/Caddyfile" --adapter caddyfile --force )
+        fi
+        echo "Caddy reloaded (certificates and Caddyfile re-read, no downtime)."
+        ;;
+    status)
+        echo "Kinesis ${VERSION:-} ($SCOPE, ${COMMIT:-${HW_ARCH:-}}) - $CONF"
+        echo "Services:"
+        unit_table
+        echo "Checks:"
+        live_checks
+        cert_check
+        [[ $FAILURES -eq 0 ]] || exit 1
+        ;;
+    logs)
+        follow=(); count=100; selected=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -f|--follow) follow=(-f) ;;
+                -n) count="$2"; shift ;;
+                *) selected+=("$(unit_name "$1")") ;;
+            esac
+            shift
+        done
+        if [[ "$MANAGER" == systemd ]]; then
+            [[ ${#selected[@]} -gt 0 ]] || selected=("${UNITS[@]}" kinesis-pki-renew.service)
+            unit_args=()
+            for unit in "${selected[@]}"; do unit_args+=(-u "$unit"); done
+            priv "${JOURNAL[@]}" --no-pager -n "$count" ${follow[@]+"${follow[@]}"} "${unit_args[@]}"
+        else
+            files=()
+            if [[ ${#selected[@]} -eq 0 ]]; then selected=(local.kinesis.backend local.kinesis.caddy local.kinesis.pki-renew); fi
+            for unit in "${selected[@]}"; do
+                case "$unit" in
+                    postgresql) files+=("/Library/PostgreSQL/18/data/log") ;;
+                    *) files+=("$DATA/logs/${unit#local.kinesis.}.log") ;;
+                esac
+            done
+            priv tail -n "$count" ${follow[@]+"${follow[@]}"} "${files[@]}"
+        fi
+        ;;
+    enable)
+        if [[ "$MANAGER" == systemd ]]; then
+            priv "${SYSTEMCTL[@]}" enable kinesis.target
+            if [[ "$SCOPE" == user && "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" != yes ]]; then
+                loginctl enable-linger "$(id -un)"
+            fi
+        else
+            for label in "${UNITS[@]}"; do priv launchctl enable "system/$label"; done
+        fi
+        echo "Kinesis starts at boot, without anyone logging in."
+        [[ "$SCOPE" == macos ]] && echo "(With FileVault on, only after someone unlocks the Mac.)"
+        ;;
+    disable)
+        if [[ "$MANAGER" == systemd ]]; then
+            priv "${SYSTEMCTL[@]}" disable kinesis.target
+        else
+            for label in "${UNITS[@]}"; do priv launchctl disable "system/$label"; done
+        fi
+        echo "Kinesis no longer starts at boot (still running if started; kinesisctl stop)."
+        ;;
+    urls)
+        print_urls
+        ;;
+    doctor)
+        echo "Configuration:"
+        tmp="$(mktemp "${TMPDIR:-/tmp}/kinesis-doctor.XXXXXX")"
+        if priv "$PY" -I "$APP/deploy/migration/preflight.py" \
+            --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP" >"$tmp" 2>&1; then
+            pass "preflight: $(tail -1 "$tmp")"
+        else
+            fail "preflight:"; grep -E 'FAIL|failure' "$tmp" | sed 's/^/        /' || true
+        fi
+        if as_proxy "$PY" -I "$APP/deploy/pki/kinesis_pki.py" --pki-dir "$DATA/pki" \
+                verify --expect-ip "$LAN_IP" --expect-hostname kinesis.local >"$tmp" 2>&1; then
+            pass "certificate chain, keys and names ($(grep -o 'Root fingerprint.*' "$tmp" | cut -c1-48)...)"
+        else
+            fail "certificates:"; sed 's/^/        /' "$tmp"
+        fi
+        rm -f "$tmp"
+        cert_check
+        echo "Runtime:"
+        if "$BACKEND_VENV/bin/python" -I -c 'import fastapi, uvicorn, sqlalchemy, psycopg, argon2' 2>/dev/null; then
+            pass "backend venv: Python $("$BACKEND_VENV/bin/python" -I -c 'import platform; print(platform.python_version(), platform.machine())')"
+        else
+            fail "backend venv is broken (Python upgraded or removed?): re-run the installer"
+        fi
+        if "$BACKEND_VENV/bin/python" -I -c 'import cryptography' 2>/dev/null; then
+            fail "cryptography is importable in the backend venv (it belongs in pki-venv only)"
+        else
+            pass "backend venv has no cryptography (PKI tooling isolated in pki-venv)"
+        fi
+        if [[ "$OS" == Darwin && "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" != 1 ]]; then
+            hw="$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)"
+            [[ "$hw" == 1 ]] && hw=arm64 || hw=x86_64
+            vm="$("$BACKEND_VENV/bin/python" -I -c 'import platform; print(platform.machine())' 2>/dev/null || echo '?')"
+            if [[ "$vm" == "$hw" ]]; then pass "backend runs natively ($hw, no Rosetta)"; else fail "backend Python runs as $vm on a $hw Mac"; fi
+        fi
+        pg_found="$("${PG_BIN:-/usr/bin}/postgres" --version 2>/dev/null | awk '{ print $NF }')"
+        case "$SCOPE" in
+            user) data_major="$(cat "$DATA/postgres/PG_VERSION" 2>/dev/null || echo '?')" ;;
+            system) data_major="$(priv cat /var/lib/postgres/data/PG_VERSION 2>/dev/null || priv cat /var/lib/postgresql/18/main/PG_VERSION 2>/dev/null || echo '?')" ;;
+            macos) data_major="$(priv cat /Library/PostgreSQL/18/data/PG_VERSION 2>/dev/null || echo '?')" ;;
+        esac
+        if [[ "${pg_found%%.*}" == "$data_major" ]]; then pass "PostgreSQL $pg_found matches the data directory ($data_major)"
+        elif [[ "$data_major" == "?" ]]; then caution "PostgreSQL ${pg_found:-?}; data directory version unknown (use sudo)"
+        else fail "PostgreSQL binaries are $pg_found but the data directory is $data_major: upgrade it first (docs/deployment/ARCH-LINUX.md, PostgreSQL major upgrades)"; fi
+        if [[ "${DISTRO:-}" == arch ]]; then
+            if grep -Eq '^[[:space:]]*IgnorePkg[[:space:]]*=.*\bpostgresql\b' /etc/pacman.conf 2>/dev/null; then
+                pass "pacman holds postgresql (IgnorePkg)"
+            else
+                caution "pacman -Syu may upgrade PostgreSQL to a new major version; consider IgnorePkg = postgresql postgresql-libs"
+            fi
+        fi
+        if [[ "$SCOPE" == user ]]; then
+            if [[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" == yes ]]; then pass "lingering on (runs without a login)"
+            else fail "lingering off: services stop at logout (kinesisctl enable)"; fi
+        fi
+        echo "Network:"
+        if holds_lan_ip; then pass "this computer holds $LAN_IP"
+        else fail "$LAN_IP is not assigned to this computer: phones cannot reach it"; fi
+        for port in 8000 "${PG_PORT:-5432}" 2019; do
+            if listens_beyond_loopback "$port"; then fail "port $port listens beyond loopback"; fi
+        done
+        if [[ "$OS" == Darwin ]]; then
+            if priv lsof -nP -iTCP:2019 -sTCP:LISTEN >/dev/null 2>&1; then caution "something listens on TCP 2019"
+            else pass "Caddy admin API not on TCP (Unix socket)"; fi
+        elif ss -Hltn "sport = :2019" 2>/dev/null | grep -q .; then
+            caution "something listens on TCP 2019 (the Caddy admin API should be a Unix socket)"
+        else
+            pass "Caddy admin API not on TCP (Unix socket)"
+        fi
+        if [[ "$OS" != Darwin ]]; then
+            for fw in nftables firewalld ufw iptables; do
+                if systemctl is-active --quiet "$fw" 2>/dev/null; then
+                    caution "$fw is active: allow the Kinesis TCP ports (kinesisctl urls) from the shop LAN only"
+                fi
+            done
+        fi
+        echo "Power:"
+        if [[ "$OS" == Darwin ]]; then
+            ac_sleep="$(pmset -g custom 2>/dev/null | awk '/AC Power/ { ac = 1 } ac && $1 == "sleep" { print $2; exit }')"
+            if [[ "${ac_sleep:-1}" == 0 ]]; then pass "no sleep on mains power"
+            else fail "the Mac sleeps on mains power after ${ac_sleep:-?} min (sudo pmset -c sleep 0 disksleep 0)"; fi
+            if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
+                caution "FileVault on: after a restart Kinesis waits until someone unlocks the Mac"
+            fi
+        elif [[ "$MANAGER" == systemd ]] && "${SYSTEMCTL[@]}" is-active --quiet kinesis-awake.service 2>/dev/null; then
+            pass "sleep and lid-close suspend are blocked while Kinesis runs"
+        else
+            caution "sleep is not blocked: a sleeping computer stops the POS for every terminal"
+        fi
+        for ac in /sys/class/power_supply/AC*/online /sys/class/power_supply/ADP*/online; do
+            [[ -r "$ac" && "$(cat "$ac")" != 1 ]] && caution "running on battery"
+        done
+        avail=$(( $(df -Pk "$DATA" | awk 'NR == 2 { print $4 }') / 1024 / 1024 ))
+        if (( avail >= 10 )); then pass "free disk for data: ${avail} GB"; else fail "only ${avail} GB free for data"; fi
+        echo "Services:"
+        unit_table
+        echo "Live:"
+        live_checks
+        if [[ $FAILURES -eq 0 ]]; then echo "No problems found."; else echo "$FAILURES problem(s)."; exit 1; fi
+        ;;
+    create-admin)
+        [[ $# -ge 1 ]] || die "usage: kinesisctl create-admin USERNAME [--reset-password]"
+        username="$1"; shift
+        cd "$APP/backend"
+        as_backend env KINESIS_ENV_FILE="$CONFIG/kinesis.env" PYTHONNOUSERSITE=1 \
+            "$BACKEND_VENV/bin/python" -s -E create_admin.py --username "$username" "$@"
+        ;;
+    migrate)
+        cd "$APP/backend"
+        current="$(as_backend env KINESIS_ENV_FILE="$CONFIG/kinesis.env" "$BACKEND_VENV/bin/alembic" current 2>/dev/null | awk 'NF { print $1 }' | tail -1)"
+        head="$("$BACKEND_VENV/bin/alembic" heads 2>/dev/null | awk 'NF { print $1 }' | tail -1)"
+        echo "Database ${DB_NAME:-?}: schema ${current:-unknown}; this release: $head"
+        if [[ "$current" == "$head" ]]; then echo "Nothing to do."; exit 0; fi
+        [[ "${1:-}" == --yes ]] || die "re-run with --yes to back up the database, stop the backend, upgrade, and start it again"
+        allow=()
+        [[ "${DB_NAME:-}" == *_test ]] || allow=(--allow-production)
+        stamp="$(date +%Y%m%d-%H%M%S)"
+        as_backend env PYTHONNOUSERSITE=1 "$BACKEND_VENV/bin/python" -I "$APP/deploy/migration/kinesis_migrate.py" \
+            dump --env-file "$CONFIG/kinesis.env" ${allow[@]+"${allow[@]}"} --out-dir "$DATA/backups/pre-migrate-$stamp"
+        if [[ "$MANAGER" == systemd ]]; then priv "${SYSTEMCTL[@]}" stop kinesis-backend.service
+        else priv launchctl bootout system/local.kinesis.backend 2>/dev/null || true; fi
+        as_backend env KINESIS_ENV_FILE="$CONFIG/kinesis.env" PYTHONNOUSERSITE=1 "$BACKEND_VENV/bin/alembic" upgrade head
+        if [[ "$MANAGER" == systemd ]]; then priv "${SYSTEMCTL[@]}" start kinesis-backend.service
+        else priv launchctl bootstrap system /Library/LaunchDaemons/local.kinesis.backend.plist; fi
+        wait_healthy && echo "Migrated to $head; backend running. Backup: $DATA/backups/pre-migrate-$stamp"
+        ;;
+    psql)
+        case "$SCOPE" in
+            user) exec "${PG_BIN:-/usr/bin}/psql" -h "$PG_SOCKET" -p "$PG_PORT" -U "$(id -un)" -d "${DB_NAME:-kinesis}" "$@" ;;
+            system) priv runuser -u postgres -- "${PG_BIN:-/usr/bin}/psql" -p "${PG_PORT:-5432}" -d "${DB_NAME:-kinesis}" "$@" ;;
+            macos) exec "${PG_BIN}/psql" -h 127.0.0.1 -U postgres -d "${DB_NAME:-kinesis}" "$@" ;;
+        esac
+        ;;
+    smoke)
+        exec "$PY" -I "$APP/deploy/migration/smoke_test.py" --caddy-env "$CONFIG/caddy.env" --ca "$CA" \
+            --connect-ip 127.0.0.1 "$@"
+        ;;
+    version)
+        echo "Kinesis ${VERSION:-unknown} (${COMMIT:-${HW_ARCH:-}}), $SCOPE"
+        ;;
+    *)
+        usage 2
+        ;;
+esac

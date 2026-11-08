@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Daily certificate renewal check (no-op unless due). -->
+<!-- Daily certificate renewal check (no-op unless due). Runs the PKI tool
+     from its own venv (pki-venv); the backend venv has no cryptography.
+     After reissuing, it runs the reload command stored in pki.json, which
+     reaches Caddy over the _kinesisproxy-only admin socket. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>local.kinesis.pki-renew</string>
   <key>UserName</key><string>_kinesisproxy</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Library/Application Support/Kinesis/venv/bin/python</string>
+    <string>/Library/Application Support/Kinesis/pki-venv/bin/python</string>
     <string>/Library/Application Support/Kinesis/app/deploy/pki/kinesis_pki.py</string>
     <string>--pki-dir</string><string>/Library/Application Support/Kinesis/pki</string>
     <string>renew</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONNOUSERSITE</key><string>1</string>
+    <key>PYTHONDONTWRITEBYTECODE</key><string>1</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
   <key>RunAtLoad</key><true/>

@@ -1,0 +1,16 @@
+# Blocks sleep, idle suspend and lid-close suspend while Kinesis runs, so a
+# laptop host keeps serving terminals. The screen may still turn off.
+# Stopping Kinesis (kinesisctl stop) releases the lock.
+[Unit]
+Description=Keep this computer awake while Kinesis serves terminals
+PartOf=kinesis.target
+After=kinesis-backend.service
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle:handle-lid-switch --mode=block --who=Kinesis "--why=Serving POS terminals" sleep infinity
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=kinesis.target

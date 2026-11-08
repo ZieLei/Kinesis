@@ -20,9 +20,10 @@ buy or reinstall a machine.
 
 | Candidate | Status | Templates |
 |---|---|---|
-| **Shop owner's MacBook** | **Primary candidate** | `deploy/services/launchd`, `deploy/config/shop/*.macos.*` |
+| **Owner's Arch Linux laptop** (Shimamura, x86_64, 16 GB) | **Primary host.** Installed in user scope with a test database; serving real data is the cutover in [ARCH-LINUX.md](ARCH-LINUX.md) section 8 | `deploy/install/linux`, `deploy/services/systemd-user` (or `systemd` for a dedicated machine) |
+| Shop owner's MacBook | Supported alternative: Apple silicon; Intel only with the exception in section 1.4 | `deploy/install/macos`, `deploy/services/launchd`, `deploy/config/shop/*.macos.*` |
 | Existing Windows PC (currently broken) | Fallback, only if repaired and healthy | `deploy/services/windows`, `deploy/config/shop/*.windows.*` |
-| Linux PC | Not available today; kept as a reference | `deploy/services/systemd`, `deploy/install/linux`, `deploy/config/shop/caddy.env` |
+| Debian/Ubuntu PC | Supported by the Linux installer (system scope) | `deploy/install/linux`, `deploy/services/systemd` |
 
 ### 1.1 Information needed before the final decision
 
@@ -62,7 +63,7 @@ number or account names; they are not needed.
 
 | Component | macOS | Windows |
 |---|---|---|
-| Python packages (hash-checked lock) | Apple silicon: `requirements.lock`. Intel: `requirements-macos-intel.lock`. Both install from prebuilt wheels needing at most macOS 11 (checked against PyPI). Section 1.4 covers the selection. | x64: all wheels present; `tzdata` included. ARM: not supported. |
+| Python packages (hash-checked lock) | Apple silicon: `requirements.lock`. Intel: `requirements-macos-intel.lock`. Both install from prebuilt wheels needing at most macOS 11 (resolved per architecture with pip, 2026-11-08). Backend and PKI tooling use separate venvs. Section 1.4 covers the selection. | x64: all wheels present; `tzdata` included. ARM: not supported. |
 | Python | 3.12–3.14 (python.org installer) | 3.12–3.14 x64 (python.org installer) |
 | PostgreSQL 18 | **EDB installer**: runs at boot as a system service; tested on macOS 13+. Postgres.app also runs on older macOS, but it starts only when a user logs in, so it does not suit an unattended server. | EDB installer, service `postgresql-x64-18` |
 | Caddy | Official 2.11.4 `mac_arm64` / `mac_amd64` build, chosen and SHA-512-verified by the installer; both binaries declare macOS 12.0 as minimum | Official `windows_amd64` binary, run as a Windows service |
@@ -80,10 +81,12 @@ number or account names; they are not needed.
 | TLS keys separated from the backend | Yes (separate `_kinesis` / `_kinesisproxy` accounts) | No: both services run as LocalSystem; the folder ACL protects the keys from other users |
 | Shared use | If it is also the owner's personal laptop, it must not leave the shop or sleep | Usually a dedicated machine |
 
-**Current recommendation:** the MacBook, Apple silicon or Intel, if it
-runs **macOS 13 or later** and can stay plugged in at the shop with its
-lid open. If it must leave the shop daily, the repaired Windows PC is the
-better host, provided its disk is healthy and it is 64-bit x64.
+**Current recommendation:** the owner's Arch Linux laptop, which already
+holds `192.168.254.199` and the certificates, provided it stays at the
+shop on mains power ([ARCH-LINUX.md](ARCH-LINUX.md)). As an alternative: a
+MacBook that meets section 1.4 and can stay plugged in at the shop with its
+lid open. If neither can stay at the shop, the repaired Windows PC, provided
+its disk is healthy and it is 64-bit x64.
 
 ### 1.3 macOS long-running operation
 
@@ -117,14 +120,19 @@ better host, provided its disk is healthy and it is 64-bit x64.
 
 **Platform requirements**
 
-| | Requirement |
-|---|---|
-| macOS | **13 Ventura or later.** The installer refuses older versions. PostgreSQL 18's installer is tested on macOS 13+; Caddy and the Python wheels need 12 and 11. |
-| Processor | **Apple silicon (arm64) or Intel (x86_64)**, detected automatically |
-| Python | **3.13** from python.org (universal2: one installer for both processors); 3.12 and 3.14 also work |
-| PostgreSQL | **18** (EDB installer); no older version |
-| Caddy | 2.11.4, the build for the detected processor |
-| Hardware | Any MacBook that runs macOS 13: Apple-silicon models, MacBook Pro 2017 and later, MacBook Air 2018 and later, 12-inch MacBook 2017. 8 GB RAM and 20 GB free disk space recommended. |
+| | Minimum (the installer refuses less) | Recommended |
+|---|---|---|
+| macOS | **13 Ventura**. PostgreSQL 18's installer is tested on 13+; Caddy and the Python wheels need 12 and 11 | current release |
+| Processor | **Apple silicon (arm64)**, or **Intel (x86_64) with `--accept-intel-pki-exception`** (below). Detected from the hardware | Apple silicon |
+| Memory | **8 GB** | 16 GB |
+| Free disk (startup disk) | **20 GB** (SSD) | 40 GB |
+| Python | **3.13** from python.org (universal2); 3.12 and 3.14 also work. Must run natively | 3.13 |
+| PostgreSQL | **18** (EDB installer), native for the processor | |
+| Caddy | 2.11.4, the build for the processor (SHA-512-verified download) | |
+| Operation | Stays at the shop, plugged in, never sleeps (section 1.3) | wired Ethernet |
+
+Macs that can run macOS 13: Apple-silicon models, MacBook Pro 2017 and
+later, MacBook Air 2018 and later, 12-inch MacBook 2017.
 
 **How the processor is handled**
 
@@ -133,7 +141,8 @@ better host, provided its disk is healthy and it is 64-bit x64.
 | Backend lock | `backend/requirements.lock` | `backend/requirements-macos-intel.lock` |
 | PKI-tool lock | `deploy/pki/requirements.lock` | `deploy/pki/requirements-macos-intel.lock` |
 | Caddy build | `caddy_2.11.4_mac_arm64` | `caddy_2.11.4_mac_amd64` |
-| Differences in the lock | — | `argon2-cffi-bindings` 25.1.0 and `cryptography` 48.0.1: the newer releases ship no Intel-Mac wheels. Everything else is identical. |
+| Differences in the lock | — | `argon2-cffi-bindings` 25.1.0 (no known advisories) and, in `pki-venv` only, `cryptography` 48.0.1: newer releases ship no Intel-Mac wheels. Everything else is identical. |
+| Status | Supported | Supported only with the acknowledged exception below |
 
 * **Detection.** The installer reads the hardware (`hw.optional.arm64`),
   not the current process. A Terminal running under Rosetta still counts
@@ -147,25 +156,33 @@ better host, provided its disk is healthy and it is 64-bit x64.
 * **Password and PIN hashes** are compatible between the two
   `argon2-cffi-bindings` versions (verified both ways). Moving the database
   between an Apple-silicon and an Intel host keeps every login working.
-* **Security exception: `cryptography` 48.0.1 (Intel only).** It is the
-  newest release with Intel-Mac wheels. It carries two kinds of gap:
-  - three `cryptography` advisories (CVE-2026-69247, -69248, -69249), in
-    PKCS#7 decryption and the `x509.verification` verifier;
-  - the OpenSSL 4.0.1 it bundles (seen in the Linux wheel), which lacks
-    the 4.0.2 fixes (Moderate or lower) in CMS, DTLS, OCSP, CMP, QUIC,
-    RPK and AEAD code.
-
-  Only `kinesis_pki.py` and `preflight.py` import it, and they use none of
-  those features. They only parse and sign X.509 certificates, handle EC
-  keys and use PEM/PKCS#8. The backend never imports it.
-
-  Limits:
-  - The assessment covers the code as of v1.4.2.
-  - The CA's name constraints are enforced by each device's TLS stack, not
-    by this library; test devices with `issue-constraint-test`.
-  - Apple-silicon hosts use `cryptography` 50.0.1 with OpenSSL 4.0.2.
-
-  Re-check whenever the lock is regenerated.
+* **Security exception: `cryptography` 48.0.1 (Intel only).** Re-assessed
+  2026-11-08 from PyPI, OSV, the OpenSSL advisories and the wheel binaries:
+  - pyca stopped publishing Intel-Mac wheels after 48.0.1; 49.0.0–50.0.2 are
+    arm64 only. A source build would need Rust, the Xcode tools and a
+    separately maintained OpenSSL on every Intel Mac, and could not be tested
+    here, so it is not offered.
+  - 48.0.1 has three advisories (CVE-2026-69247 PKCS#7 decryption,
+    CVE-2026-69248/-69249 `x509.verification`). Its universal2 wheel bundles
+    OpenSSL 4.0.1 (read from the binary), which lacks the 4.0.2 and 4.0.3
+    fixes: CMS, DTLS, OCSP, CMP, QUIC, RPK, AEAD, SM2, relative CRLDP,
+    non-NIST curve timing, and the X.509 extension cache under concurrent
+    threads.
+  - None of those code paths is used. `kinesis_pki.py` and `preflight.py`
+    build and parse X.509 certificates, use SHA-256, EC P-256 keys and
+    signatures, PEM, PKCS#8 and `verify_directly_issued_by`, single-threaded,
+    on files in the `_kinesisproxy`-only `pki/` folder that they wrote
+    themselves. `deploy/tests/test_dependency_boundary.py` enforces that list.
+  - The library is isolated: it is installed only in `pki-venv`, used by the
+    daily renewal job and preflight. The network-facing backend venv contains
+    no `cryptography` at all, and its Intel lock has no known advisories.
+  - **Decision:** Intel Macs are supported, but not silently. The installer
+    stops on Intel until the operator passes `--accept-intel-pki-exception`.
+    If an advisory ever affects an API in that list, Intel support ends until
+    a fixed x86_64 build exists.
+  - Apple-silicon (and Linux) hosts use `cryptography` 50.0.2 with OpenSSL
+    4.0.3. (The previous 50.0.1 bundled 4.0.2, which also lacked the 4.0.3
+    fixes.)
 * Everything else is the same on both processors: the launchd daemons,
   folders, accounts, ports, origins, certificates and terminal pairing.
 
@@ -235,27 +252,28 @@ The phase 0 baseline (2026-11-08) confirmed:
 
 ## 3. Per-OS reference
 
-| | macOS (primary) | Windows (fallback) | Linux (reference) |
+| | macOS (alternative) | Windows (fallback) | Linux (Arch primary; system scope shown, user scope in ARCH-LINUX.md) |
 |---|---|---|---|
 | `<CONFIG>` | `/Library/Application Support/Kinesis/config` | `C:\ProgramData\Kinesis\config` | `/etc/kinesis` |
 | `<DATA>` | `/Library/Application Support/Kinesis` | `C:\ProgramData\Kinesis` | `/var/lib/kinesis` |
 | `<CODE>` (backend + deploy) | `/Library/Application Support/Kinesis/app` | `C:\Program Files\Kinesis\app` | `/opt/kinesis` |
-| Venv Python `<PY>` | `/Library/Application Support/Kinesis/venv/bin/python` | `C:\Program Files\Kinesis\venv\Scripts\python.exe` | `/opt/kinesis/venv/bin/python` |
+| Venv Python `<PY>` (backend tools) | `/Library/Application Support/Kinesis/venv/bin/python` | `C:\Program Files\Kinesis\venv\Scripts\python.exe` | `/opt/kinesis/venv/bin/python` |
+| PKI Python `<PKI_PY>` (`kinesis_pki.py`, `preflight.py`) | `/Library/Application Support/Kinesis/pki-venv/bin/python` | same venv as `<PY>` | `/opt/kinesis/pki-venv/bin/python` |
 | Web roots | `<DATA>/web/{pos,admin}` | `C:\Program Files\Kinesis\web\{pos,admin}` | `/opt/kinesis/web/{pos,admin}` |
 | Config files | `caddy.macos.env`, `kinesis.macos.env.template` | `caddy.windows.env`, `kinesis.windows.env.template` | `caddy.env`, `kinesis.env.template` |
 | Run as backend account | `sudo -u _kinesis` | elevated PowerShell (services run as LocalSystem) | `sudo -u kinesis` |
 | Run as proxy account | `sudo -u _kinesisproxy` | elevated PowerShell | `sudo -u kinesis-proxy` |
 | PostgreSQL tools | `/Library/PostgreSQL/18/bin` (set as `KINESIS_PG_BIN_DIR`) | `C:\Program Files\PostgreSQL\18\bin` | on `PATH` |
-| `pg_hba.conf` / `postgresql.conf` | `/Library/PostgreSQL/18/data/` | `C:\Program Files\PostgreSQL\18\data\` | `/etc/postgresql/18/main/` |
-| Start Kinesis | `sudo launchctl bootstrap system /Library/LaunchDaemons/local.kinesis.backend.plist`, then `…caddy.plist`, `…pki-renew.plist` | `Start-Service kinesis-backend, kinesis-caddy` | `sudo systemctl enable --now kinesis-backend kinesis-caddy kinesis-pki-renew.timer` |
-| Stop Kinesis | `sudo launchctl bootout system/local.kinesis.caddy`, then `…backend` | `Stop-Service kinesis-caddy, kinesis-backend` | `sudo systemctl stop kinesis-caddy kinesis-backend` |
-| Service status / logs | `sudo launchctl print system/local.kinesis.backend`; `<DATA>/logs/` | `Get-Service kinesis-*`; `<DATA>\logs\` | `systemctl status …`; `journalctl -u …` |
-| Provisioning guide | section 5.1 | `deploy/services/windows/README.md` + section 5.2 | `deploy/install/linux/install-kinesis.sh` + section 5.3 |
+| `pg_hba.conf` / `postgresql.conf` | `/Library/PostgreSQL/18/data/` | `C:\Program Files\PostgreSQL\18\data\` | Arch: `/var/lib/postgres/data/`; Debian: `/etc/postgresql/18/main/` |
+| Start Kinesis | `sudo kinesisctl start` (enables and bootstraps the daemons; they then also start at boot) | `Start-Service kinesis-backend, kinesis-caddy` | `sudo kinesisctl start`; at boot: `sudo kinesisctl enable` |
+| Stop Kinesis | `sudo kinesisctl stop` (also off at boot until started again) | `Stop-Service kinesis-caddy, kinesis-backend` | `sudo kinesisctl stop` |
+| Service status / logs | `kinesisctl status`, `sudo kinesisctl doctor`, `kinesisctl logs -f`; `<DATA>/logs/` | `Get-Service kinesis-*`; `<DATA>\logs\` | `kinesisctl status`, `kinesisctl doctor`, `kinesisctl logs -f` (journal) |
+| Provisioning guide | section 5.1 | `deploy/services/windows/README.md` + section 5.2 | [ARCH-LINUX.md](ARCH-LINUX.md) + section 5.3 |
 
 In the commands below:
 
 * `M` = `<run as backend account> <PY> <CODE>/deploy/migration/kinesis_migrate.py`
-* `K` = `<run as proxy account> <PY> <CODE>/deploy/pki/kinesis_pki.py --pki-dir "<DATA>/pki"`
+* `K` = `<run as proxy account> <PKI_PY> <CODE>/deploy/pki/kinesis_pki.py --pki-dir "<DATA>/pki"`
 
 Quote every path that contains a space.
 
@@ -270,7 +288,7 @@ Quote every path that contains a space.
 | 0.3 | `python3 deploy/pki/kinesis_pki.py --pki-dir ~/kinesis-local/pki verify-root-key --root-key /path/to/USB/root-ca.key.enc` (prompts; writes nothing). If the passphrase is lost, see section 9 | owner | open |
 | 0.4 | Read-only baseline of the live database | | **Done:** 2026-11-08, `~/kinesis-migration/baseline-phase0-20261108.json` |
 | 0.5 | **Host facts collected (section 1.1) and host chosen** | owner | open |
-| 0.6 | Intel Mac support | developer | **Done** in v1.4.2: Intel lock files plus automatic selection (section 1.4) |
+| 0.6 | Intel Mac support | developer | **Done**: Intel lock files, automatic selection, isolated `pki-venv`, explicit acknowledgment of the PKI exception (section 1.4) |
 | 0.7 | Router admin access. Shimamura's Wi-Fi (`24:b2:b9:fd:74:e7`) holds `.199` today on a 24-hour DHCP lease | owner | open |
 | 0.8 | Two USB drives (cutover transfer; offline root key) | owner | open |
 
@@ -289,13 +307,12 @@ address until the cutover.
    python3 deploy/tools/check_web_build.py /tmp/kinesis-web/pos --caddyfile deploy/caddy/Caddyfile
    python3 deploy/tools/check_web_build.py /tmp/kinesis-web/admin --caddyfile deploy/caddy/Caddyfile
    ```
-2. Create the venv from the lock files:
+2. Create the venvs from the lock files (the Linux and macOS installers do
+   this themselves, with the lock for the processor):
    ```sh
    <PY> -m pip install --require-hashes --only-binary :all: -r <CODE>/backend/requirements.lock
-   <PY> -m pip install --require-hashes --only-binary :all: -r <CODE>/deploy/pki/requirements.lock
+   <PKI_PY> -m pip install --require-hashes --only-binary :all: -r <CODE>/deploy/pki/requirements.lock
    ```
-   On a Mac, the installer (section 5.1) runs this step itself with the
-   lock for the Mac's processor.
 3. PostgreSQL 18:
    - Set `listen_addresses = 'localhost'` in `postgresql.conf`. Installers may default to all interfaces.
    - Keep only `scram-sha-256` lines for `127.0.0.1/32` and `::1/128` in `pg_hba.conf`.
@@ -319,7 +336,7 @@ address until the cutover.
    (`61:63:63:FB:…:6B:6A`). `renew` only records the reload command; the
    certificate is not due.
 6. Preflight, which must report 0 failures:
-   `<PY> <CODE>/deploy/migration/preflight.py --kinesis-env "<CONFIG>/kinesis.env" --caddy-env "<CONFIG>/caddy.env" --expect-ip 192.168.254.199`
+   `<PKI_PY> <CODE>/deploy/migration/preflight.py --kinesis-env "<CONFIG>/kinesis.env" --caddy-env "<CONFIG>/caddy.env" --expect-ip 192.168.254.199`
 7. Install the services, but **do not start them** before phase 2.
 
 ### 5.1 macOS specifics (primary)
@@ -330,19 +347,36 @@ address until the cutover.
    - **PostgreSQL 18** from postgresql.org (EDB installer).
 2. Run the installer, first as a dry run, then with `--apply`:
    ```sh
-   deploy/install/macos/install-kinesis.sh --release ./kinesis-v1.4.2 --web-pos ./pos --web-admin ./admin
-   sudo deploy/install/macos/install-kinesis.sh --release ./kinesis-v1.4.2 --web-pos ./pos --web-admin ./admin --apply
+   deploy/install/macos/install-kinesis.sh --release ./kinesis --web-pos ./pos --web-admin ./admin \
+       --pki-dir /Volumes/USB/pki --create-database
+   sudo deploy/install/macos/install-kinesis.sh --release ./kinesis --web-pos ./pos --web-admin ./admin \
+       --pki-dir /Volumes/USB/pki --create-database --apply
    ```
+   On an Intel Mac, add `--accept-intel-pki-exception` after reading section 1.4.
    It detects the processor (section 1.4) and then:
+   - refuses macOS < 13, < 8 GB RAM or < 20 GB free disk, and warns below
+     16 GB / 40 GB, about sleep on mains power, FileVault and a missing
+     Ethernet port;
    - checks that Python 3.13 and PostgreSQL 18 run natively;
    - creates the hidden `_kinesis` and `_kinesisproxy` accounts and the
      folders below with their permissions;
    - copies the code and web apps;
-   - builds the venv from the lock for the processor and checks that every
-     compiled extension is native;
+   - builds `venv` (backend, no `cryptography`) and `pki-venv` from the locks
+     for the processor, and checks that every compiled extension is native;
    - downloads and SHA-512-verifies Caddy 2.11.4 for the processor (or uses
      `--caddy-binary` offline), and allows it in the macOS firewall;
-   - installs the launchd daemons **without starting them**.
+   - writes `config/kinesis.env` and `config/caddy.env` with generated
+     secrets (existing files are kept);
+   - with `--pki-dir`, copies the issuing CA and server certificate (it
+     refuses a folder containing the root key), records the reload command,
+     regenerates the onboarding files and verifies the chain;
+   - with `--create-database`, creates the role and database in PostgreSQL
+     18, prompting once for the EDB `postgres` password, and the schema for a
+     new, empty database;
+   - installs the launchd daemons **disabled** (nothing starts, not even at
+     boot, until `sudo kinesisctl start`) and links `kinesisctl`;
+   - runs `caddy adapt` and preflight, and exits with
+     **INSTALLATION INCOMPLETE** if anything critical is missing.
 
    Folders it creates under `/Library/Application Support/Kinesis`:
 
@@ -362,7 +396,11 @@ address until the cutover.
    answers to `kinesis.local`.
 4. Power, updates, network and FileVault as in section 1.3.
 5. The `<caddy binary>` for step 5 of the common steps is
-   `/Library/Application Support/Kinesis/bin/caddy`.
+   `/Library/Application Support/Kinesis/bin/caddy` (the installer runs that
+   step itself with `--pki-dir`).
+6. Start, then check: `sudo kinesisctl start`, `sudo kinesisctl doctor`.
+   Reboot once and confirm `kinesisctl status` without logging in (with
+   FileVault on: after unlocking).
 
 ### 5.2 Windows specifics (fallback)
 
@@ -384,11 +422,21 @@ Additionally:
   Fast Startup.
 * After the repair, verify disk health and run a memory test.
 
-### 5.3 Linux (reference)
+### 5.3 Linux (Arch primary; Debian/Ubuntu)
 
-`deploy/install/linux/install-kinesis.sh` provisions Debian 13 / Ubuntu
-24.04 (dry run unless `--apply`). It then follows the common steps, with
-ufw allowing 9443, 9444 and 9080/tcp and 5353/udp from `192.168.254.0/24`.
+`deploy/install/linux/install-kinesis.sh` (dry run unless `--apply`) does
+the common steps on Arch Linux and Debian 13 / Ubuntu 24.04:
+
+* packages (`pacman -S --needed postgresql caddy python uv`, or apt);
+* venvs and web apps;
+* config with generated secrets and the PKI (`--pki-dir`);
+* role, database and schema;
+* systemd units and `kinesisctl`.
+
+See [ARCH-LINUX.md](ARCH-LINUX.md). `--scope system` (sudo) is the dedicated-host layout above;
+`--scope user` runs everything as one account (the owner's laptop). If a
+firewall is enabled, allow 9443, 9444 and 9080/tcp and 5353/udp from
+`192.168.254.0/24` only.
 
 ## 6. Phase 2: rehearsal on the host [needs authorization]
 
@@ -500,4 +548,7 @@ after the cutover.
 | `deploy/migration/smoke_test.py` | Read-only network check (standard library only; any OS). |
 | `deploy/pki/kinesis_pki.py verify` / `verify-root-key` | Read-only certificate chain and key checks. |
 | `deploy/install/macos/install-kinesis.sh` | macOS provisioning, Apple silicon or Intel detected automatically (dry run unless `--apply`). |
-| `deploy/install/linux/install-kinesis.sh` | Linux provisioning (dry run unless `--apply`). |
+| `deploy/install/linux/install-kinesis.sh` | Linux provisioning, Arch or Debian/Ubuntu, system or user scope (dry run unless `--apply`). |
+| `kinesisctl` | `start`, `stop`, `restart`, `status`, `logs`, `doctor`, `enable`, `migrate`, `create-admin`, `urls`, `smoke` on Linux and macOS hosts. |
+| `deploy/tools/e2e_sale_check.py` | Full HTTPS run (admin, pairing, cashier, WebSocket, sale, stock) against a `*_test` database only. |
+| `deploy/tests/test_dependency_boundary.py` | Enforces the backend/PKI dependency boundary behind the Intel exception. |

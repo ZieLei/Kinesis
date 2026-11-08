@@ -2,7 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Kinesis HTTPS reverse proxy (macOS). Runs as _kinesisproxy, the only
      account that can read Kinesis TLS keys. Binding ports 80/443 as a
-     non-root daemon is permitted on macOS 10.14 and later. -->
+     non-root daemon is permitted on macOS 10.14 and later. The admin API
+     is a Unix socket in the _kinesisproxy-only caddy folder
+     (KINESIS_CADDY_ADMIN in caddy.env), not a TCP port. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>local.kinesis.caddy</string>
@@ -22,6 +24,8 @@
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>ExitTimeOut</key><integer>15</integer>
   <key>StandardErrorPath</key><string>/Library/Application Support/Kinesis/logs/caddy.log</string>
 </dict>
 </plist>

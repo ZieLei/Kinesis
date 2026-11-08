@@ -21,7 +21,14 @@
 	http_port {$KINESIS_HTTP_PORT:80}
 	https_port {$KINESIS_HTTPS_PORT:443}
 
-	admin localhost:2019
+	# Admin API (used by `caddy reload`). Linux and macOS hosts set
+	# KINESIS_CADDY_ADMIN to a Unix socket in a directory only the proxy
+	# account can enter, e.g. "unix//run/kinesis-caddy/admin.sock|0600".
+	# A TCP admin port would let ANY local account, including the backend's,
+	# load a config that serves the TLS key directory. The localhost:2019
+	# default remains for Windows, where both services run as LocalSystem.
+	# Quoted: the macOS socket path contains a space.
+	admin "{$KINESIS_CADDY_ADMIN:localhost:2019}"
 }
 
 # --------------------------------------------------
@@ -71,7 +78,11 @@
 		# The single inline script is Expo Router's constant hydration flag,
 		# allowed by hash (re-check with deploy/tools/check_web_build.py
 		# after upgrading Expo).
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'none'; manifest-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		# GCash reference OCR (tesseract.js, served from /tesseract on this
+		# origin) runs in a Web Worker and compiles WebAssembly:
+		# worker-src 'self' (no blob: workers) and 'wasm-unsafe-eval', which
+		# permits WebAssembly compilation only, never JavaScript eval().
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
 	}
 

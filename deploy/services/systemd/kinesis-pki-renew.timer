@@ -1,5 +1,6 @@
 [Unit]
 Description=Daily Kinesis certificate renewal check
+PartOf=kinesis.target
 
 [Timer]
 OnCalendar=*-*-* 03:30:00
@@ -7,4 +8,4 @@ Persistent=true
 RandomizedDelaySec=15m
 
 [Install]
-WantedBy=timers.target
+WantedBy=kinesis.target

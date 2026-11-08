@@ -5,10 +5,16 @@ Description=Renew the Kinesis server certificate when due
 Type=oneshot
 User=kinesis-proxy
 Group=kinesis-proxy
-# reload_command / reload_env_file are stored in pki.json by `init`/`renew`.
-ExecStart=/opt/kinesis/venv/bin/python /opt/kinesis/deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki renew
+# reload_command / reload_env_file are stored in pki.json by `init`/`renew`
+# (the installer records `caddy reload ...` with /etc/kinesis/caddy.env, which
+# reaches Caddy over the kinesis-proxy-only admin socket).
+ExecStart=/opt/kinesis/pki-venv/bin/python /opt/kinesis/deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki renew
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+UMask=0077
 NoNewPrivileges=yes
+PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/kinesis/pki
+InaccessiblePaths=-/var/lib/kinesis/backups -/var/lib/kinesis/uploads -/etc/kinesis/kinesis.env
 Environment=XDG_DATA_HOME=/var/lib/kinesis/caddy XDG_CONFIG_HOME=/var/lib/kinesis/caddy

@@ -3,8 +3,10 @@
 <!--
   Kinesis backend (macOS). Install as a system daemon so it starts at boot
   without anyone logged in:
-    sudo cp local.kinesis.*.plist /Library/LaunchDaemons/
-    sudo launchctl bootstrap system /Library/LaunchDaemons/local.kinesis.backend.plist
+    deploy/install/macos/install-kinesis.sh installs it; then
+    sudo kinesisctl start      (launchctl enable + bootstrap, also at boot)
+  PostgreSQL (EDB's own daemon) may start later than this one at boot: the
+  backend starts anyway and connects on the first request (pool_pre_ping).
   launchd stops the process with SIGTERM; uvicorn shuts down gracefully.
 -->
 <plist version="1.0">
@@ -32,6 +34,8 @@
   <dict>
     <key>KINESIS_ENV_FILE</key>
     <string>/Library/Application Support/Kinesis/config/kinesis.env</string>
+    <key>PYTHONNOUSERSITE</key><string>1</string>
+    <key>PYTHONDONTWRITEBYTECODE</key><string>1</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>

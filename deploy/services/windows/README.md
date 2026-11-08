@@ -93,3 +93,11 @@ A laptop used as the server must not sleep on mains power:
 powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
 ```
+
+## Differences from Linux and macOS (unchanged on purpose)
+
+* The PKI lock is installed into the same venv as the backend: both
+  services run as LocalSystem, so a separate venv would not add a boundary.
+* Caddy's admin API stays on `localhost:2019` (`KINESIS_CADDY_ADMIN` is not
+  set in `caddy.windows.env`). Linux and macOS use a Unix socket that only the
+  proxy account can reach.

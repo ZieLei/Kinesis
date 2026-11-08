@@ -1,0 +1,28 @@
+# Optional: answer mDNS queries for kinesis.local (deploy/mdns). Values come
+# from /etc/kinesis/mdns.env (KINESIS_MDNS_HOSTNAME, KINESIS_MDNS_IP,
+# KINESIS_MDNS_PORT), written by the installer with --mdns.
+# Not needed when the host is itself named "kinesis" and runs Avahi.
+[Unit]
+Description=Kinesis mDNS responder (kinesis.local)
+After=network-online.target
+Wants=network-online.target
+PartOf=kinesis.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/kinesis/mdns.env
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/kinesis/mdns-venv/bin/python /opt/kinesis/deploy/mdns/kinesis_mdns.py --hostname ${KINESIS_MDNS_HOSTNAME} --ip ${KINESIS_MDNS_IP} --port ${KINESIS_MDNS_PORT}
+Restart=on-failure
+RestartSec=10
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+InaccessiblePaths=-/var/lib/kinesis -/etc/kinesis/kinesis.env
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=kinesis.target

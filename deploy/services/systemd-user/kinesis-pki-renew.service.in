@@ -1,0 +1,22 @@
+# Daily certificate check (user scope). Reissues the server certificate
+# 60 days before it expires, then reloads Caddy gracefully over its admin
+# socket so the new certificate is used without a restart.
+[Unit]
+Description=Renew the Kinesis server certificate when due
+
+[Service]
+Type=oneshot
+ExecStart=@CODE@/pki-venv/bin/python @CODE@/deploy/pki/kinesis_pki.py --pki-dir @DATA@/pki renew --no-reload
+ExecStartPost=-@CADDY@ reload --config @CODE@/deploy/caddy/Caddyfile --adapter caddyfile --force
+EnvironmentFile=@CONFIG@/caddy.env
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+Environment=XDG_DATA_HOME=@DATA@/caddy XDG_CONFIG_HOME=@DATA@/caddy
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=@CODE@/deploy @CODE@/pki-venv @PYTHON_HOME_BIND@ @CONFIG@/caddy.env
+BindPaths=@PKI_REAL@:@DATA@/pki
+TemporaryFileSystem=%t:ro
+BindPaths=-%t/kinesis-caddy

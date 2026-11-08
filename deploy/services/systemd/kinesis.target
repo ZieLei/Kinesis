@@ -1,0 +1,13 @@
+# All Kinesis services as one unit:
+#   systemctl start kinesis.target     (or: kinesisctl start)
+#   systemctl enable kinesis.target    (start at boot, without a login)
+# Stopping the target stops the backend, Caddy, the renewal timer and the
+# optional helpers (PartOf=). The distribution's postgresql.service is left
+# running: other software may use it.
+[Unit]
+Description=Kinesis POS host
+Wants=kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.timer
+After=kinesis-backend.service kinesis-caddy.service
+
+[Install]
+WantedBy=multi-user.target

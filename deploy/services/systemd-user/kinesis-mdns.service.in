@@ -1,0 +1,22 @@
+# Optional kinesis.local responder (user scope), installed with --mdns.
+[Unit]
+Description=Kinesis mDNS responder (@MDNS_HOSTNAME@)
+PartOf=kinesis.target
+
+[Service]
+Type=exec
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=@CODE@/mdns-venv/bin/python @CODE@/deploy/mdns/kinesis_mdns.py --hostname @MDNS_HOSTNAME@ --ip @LAN_IP@ --port @MDNS_PORT@
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=@CODE@/deploy/mdns @CODE@/mdns-venv @PYTHON_HOME_BIND@
+TemporaryFileSystem=%t:ro
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+
+[Install]
+WantedBy=kinesis.target

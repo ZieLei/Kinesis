@@ -101,6 +101,15 @@ The mobile application handles user interaction and presents data. The backend p
 
 The project prioritizes a practical deployment approach suitable for a small motorcycle parts business. Database and deployment decisions should support the client's operational requirements, including data persistence, reliability, and manageable hosting costs.
 
+## Running a Shop Host
+
+Production runs on one computer in the shop: HTTPS on the LAN, no internet
+needed. Supported hosts are Arch Linux (primary;
+[docs/deployment/ARCH-LINUX.md](docs/deployment/ARCH-LINUX.md)), macOS 13+
+([docs/deployment/MIGRATION.md](docs/deployment/MIGRATION.md) section 1.4),
+Debian/Ubuntu and Windows. Once installed, everything is operated with
+`kinesisctl start | stop | status | logs | doctor`.
+
 ## Getting Started
 
 ### Prerequisites

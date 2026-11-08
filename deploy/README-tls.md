@@ -22,8 +22,12 @@ as examples. For the shop's host, use the paths in
 admin 9444, onboarding `http://<LAN-IP>:9080`.
 
 Requirements: Python 3.11+ with
-`pip install --require-hashes --only-binary :all: -r deploy/pki/requirements.lock`
-(installed into the Kinesis venv by `deploy/install/linux/install-kinesis.sh`).
+`pip install --require-hashes --only-binary :all: -r deploy/pki/requirements.lock`.
+The Linux and macOS installers put it in a separate `pki-venv`
+(`<CODE>/pki-venv/bin/python`), never in the backend's venv; use that
+interpreter for the commands below. An existing PKI folder can be handed to
+the installers with `--pki-dir`. The Arch user-scope install uses it in
+place, as `~/.local/share/kinesis-host/pki`.
 
 1. **Give the server a fixed LAN address.** Reserve it in the router's DHCP
    settings (for example `192.168.1.10`).
@@ -121,8 +125,10 @@ Trust**.
 
 ### Linux
 
-Copy the file to `/usr/local/share/ca-certificates/kinesis-root.crt` and run
-`sudo update-ca-certificates`. On Fedora, use `/etc/pki/ca-trust/source/anchors/`
+Arch Linux: `sudo trust anchor --store kinesis-root.crt` (p11-kit; updates
+`/etc/ca-certificates/trust-source/`). Debian/Ubuntu: copy the file to
+`/usr/local/share/ca-certificates/kinesis-root.crt` and run
+`sudo update-ca-certificates`. Fedora: `/etc/pki/ca-trust/source/anchors/`
 and `update-ca-trust`. Firefox and Chrome may need the certificate imported
 into their own stores.
 

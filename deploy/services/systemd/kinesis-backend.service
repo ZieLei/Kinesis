@@ -1,21 +1,25 @@
-# Kinesis backend (FastAPI/uvicorn). Template: adjust paths, then
-#   sudo cp kinesis-*.service kinesis-*.timer /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now kinesis-backend kinesis-caddy kinesis-pki-renew.timer
+# Kinesis backend (FastAPI/uvicorn), system-wide install (dedicated host).
+# Installed by deploy/install/linux/install-kinesis.sh --scope system; operate
+# it with `kinesisctl` (start/stop/status/logs) or systemctl.
+#
+# PostgreSQL: Arch Linux and Debian/Ubuntu (PGDG) both provide
+# postgresql.service. On Debian it starts every cluster, e.g.
+# postgresql@18-main. If the database is not ready yet, the backend still
+# starts and reconnects on the first request (pool_pre_ping).
 [Unit]
 Description=Kinesis POS backend
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
-# Debian/Ubuntu (PGDG): postgresql.service starts every cluster, e.g.
-# postgresql@18-main. If the database is not ready yet, the backend still
-# starts and reconnects on the first request (pool_pre_ping).
+PartOf=kinesis.target
 
 [Service]
 Type=exec
 User=kinesis
 Group=kinesis
 Environment=KINESIS_ENV_FILE=/etc/kinesis/kinesis.env
+# Never pick up a stray interpreter configuration from the environment.
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/opt/kinesis/backend
 # One worker: settings WebSockets, backup locking and console sessions are
 # per-process. Loopback only: devices must come through the TLS proxy.
@@ -30,13 +34,24 @@ UMask=0027
 # Hardening
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/kinesis
+ReadWritePaths=/var/lib/kinesis/uploads /var/lib/kinesis/backups
+# The backend never needs the TLS keys or the Caddy admin socket (file
+# permissions already deny both; this is defence in depth).
+InaccessiblePaths=-/var/lib/kinesis/pki -/run/kinesis-caddy
 ProtectKernelTunables=yes
+ProtectKernelModules=yes
 ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
 RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
 LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=kinesis.target
