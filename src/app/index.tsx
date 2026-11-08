@@ -1,5 +1,5 @@
 
-import { View, Text, Dimensions, Pressable, Image } from "react-native";
+import { View, Text, Pressable, Image } from "react-native";
 import { useRouter } from "expo-router";
 import {
   Search,
@@ -11,9 +11,8 @@ import {
 export default function Home() {
   const router = useRouter();
 
-  const { width: screenWidth } = Dimensions.get("window");
-
-  const CARD_WIDTH = screenWidth * 0.9;
+  // Fixed type sizes: sizes derived from Dimensions are 0 when the web build
+  // is pre-rendered, and the hydrated page kept that invisible 0px text.
   const POS_PREVIEW = require("../assets/images/pos-preview.jpg");
 
   // Fixed preview dimensions to avoid unsupported asset resolution on web.
@@ -48,7 +47,7 @@ export default function Home() {
       <View
         className="bg-ctp-mantle px-10"
         style={{
-          width: CARD_WIDTH,
+          width: "90%",
           height: 750,
           borderRadius: 10,
           paddingHorizontal: 15,
@@ -70,7 +69,7 @@ export default function Home() {
           <Text
             className="text-ctp-text font-inter-semibold"
             style={{
-              fontSize: screenWidth * 0.055,
+              fontSize: 22,
             }}
           >
             Powering Your Business.
@@ -79,7 +78,7 @@ export default function Home() {
           <Text
             className="text-center text-ctp-subtext1 pt-7 w-[300px] font-inter-regular"
             style={{
-              fontSize: screenWidth * 0.035,
+              fontSize: 14,
             }}
           >
             A mobile POS built to make sales faster, simpler, and easier to
@@ -97,7 +96,7 @@ export default function Home() {
               selectable={false}
               className="text-ctp-base font-inter-bold"
               style={{
-                fontSize: screenWidth * 0.035,
+                fontSize: 14,
               }}
             >
               Login
@@ -110,7 +109,7 @@ export default function Home() {
           <Text
             className="text-ctp-text font-inter-semibold"
             style={{
-              fontSize: screenWidth * 0.045,
+              fontSize: 18,
             }}
           >
             From part to purchase
@@ -123,7 +122,7 @@ export default function Home() {
                   <Text
                     className="text-ctp-subtext1 font-inter-semibold"
                     style={{
-                      fontSize: screenWidth * 0.04,
+                      fontSize: 16,
                     }}
                   >
                     0{index + 1}
@@ -136,7 +135,7 @@ export default function Home() {
                   <Text
                     className="text-ctp-text font-inter-semibold"
                     style={{
-                      fontSize: screenWidth * 0.03,
+                      fontSize: 12,
                     }}
                   >
                     {label}
@@ -147,7 +146,7 @@ export default function Home() {
                   <Text
                     className="text-ctp-overlay0"
                     style={{
-                      fontSize: screenWidth * 0.04,
+                      fontSize: 16,
                       marginHorizontal: 9,
                     }}
                   >

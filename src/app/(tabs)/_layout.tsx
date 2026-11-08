@@ -5,7 +5,7 @@ import {
   TabSlot,
   type TabTriggerSlotProps,
 } from 'expo-router/ui';
-import { Dimensions, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   interpolateColor,
@@ -75,14 +75,12 @@ type Tab = (typeof tabs)[number];
 
 type TabButtonProps = TabTriggerSlotProps & {
   tab: Tab;
-  screenWidth: number;
   isDark: boolean;
 };
 
 function AnimatedTabContent({
   tab,
   isFocused,
-  screenWidth,
   isDark,
   ...props
 }: TabButtonProps) {
@@ -133,7 +131,10 @@ function AnimatedTabContent({
         className="mt-2"
         style={[
           {
-            fontSize: screenWidth * 0.03,
+            // Fixed size (Material nav-bar label). A size derived from the
+            // window width is 0 when the web build is pre-rendered, and the
+            // hydrated page kept those invisible 0px labels.
+            fontSize: 12,
             fontWeight: isFocused ? '700' : '500',
           },
           textStyle,
@@ -146,7 +147,6 @@ function AnimatedTabContent({
 }
 
 export default function TabLayout() {
-  const { width: screenWidth } = Dimensions.get('window');
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -184,7 +184,6 @@ export default function TabLayout() {
             >
               <AnimatedTabContent
                 tab={tab}
-                screenWidth={screenWidth}
                 isDark={isDark}
               />
             </TabTrigger>
