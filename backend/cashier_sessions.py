@@ -21,6 +21,51 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def get_inactivity_lock_minutes(db: Session) -> int | None:
+    """
+    Minutes of inactivity after which a terminal locks, or None when the
+    administrator disabled the automatic lock.
+    """
+
+    row = db.scalar(select(AppSettings).where(AppSettings.id == 1))
+
+    value = DEFAULT_INACTIVITY_LOCK
+
+    if row is not None and isinstance(row.settings, dict):
+        value = row.settings.get("inactivityLock", DEFAULT_INACTIVITY_LOCK)
+
+    if value == "disabled":
+        return None
+
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        minutes = int(DEFAULT_INACTIVITY_LOCK)
+
+    return minutes if minutes in {5, 10, 15, 30, 60} else int(DEFAULT_INACTIVITY_LOCK)
+
+
+def is_session_locked(
+    db: Session,
+    session_record: CashierSession,
+    now: datetime | None = None,
+) -> bool:
+    """
+    The server decides whether a terminal is locked, not the app: a locked
+    flag set on purpose, or no activity for the configured period.
+    """
+
+    if session_record.locked_at is not None:
+        return True
+
+    minutes = get_inactivity_lock_minutes(db)
+
+    if minutes is None:
+        return False
+
+    return (now or utc_now()) - session_record.last_activity_at >= timedelta(minutes=minutes)
+
+
 def get_cashier_idle_timeout_minutes(db: Session) -> int:
     """
     Return the server-side session idle timeout.
@@ -268,6 +313,7 @@ def create_cashier_session(
         session_token_hash=hash_secret(raw_token),
         created_at=now,
         last_seen_at=now,
+        last_activity_at=now,
         idle_expires_at=idle_expiration,
         absolute_expires_at=absolute_expiration,
     )

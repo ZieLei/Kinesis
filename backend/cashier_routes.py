@@ -42,11 +42,14 @@ from cashier_sessions import (
     CreatedCashierSession,
     cashier_login_attempt_keys,
     create_cashier_session,
+    get_inactivity_lock_minutes,
+    is_session_locked,
     lock_cashier_login_attempts,
     record_failed_cashier_login,
     reset_cashier_login_attempts,
     resolve_cashier_session,
 )
+from activity_tracking import _record
 from database import get_db
 from server_state import effective_maintenance
 from models import Terminal
@@ -270,19 +273,27 @@ def cashier_credential_body(
     return {"session_token": raw_session_token}
 
 
-def require_cashier_principal(
+# The app recognises this exact message (src/lib/api.ts) and shows its lock
+# screen, so keep the two in step.
+TERMINAL_LOCKED_DETAIL = "This terminal is locked. Enter your PIN to continue."
+
+# A cashier request refreshes "last activity" at most this often.
+ACTIVITY_WRITE_INTERVAL_SECONDS = 5
+
+
+def touch_activity(db: Session, session_record) -> None:
+    now = utc_now()
+
+    if (now - session_record.last_activity_at).total_seconds() >= ACTIVITY_WRITE_INTERVAL_SECONDS:
+        session_record.last_activity_at = now
+        db.commit()
+
+
+def resolve_cashier_principal(
     request: Request,
-    terminal: Terminal = Depends(require_terminal),
-    db: Session = Depends(get_db),
+    terminal: Terminal,
+    db: Session,
 ) -> CashierPrincipal:
-    """
-    Authenticate a cashier session that belongs to the requesting terminal.
-
-    Terminal authentication and cashier authentication are independent.
-    Both credentials are required. Native apps send X-Cashier-Session;
-    browser terminals send the HttpOnly cashier cookie.
-    """
-
     raw_cashier_token = read_cashier_credential(request)
 
     if not raw_cashier_token:
@@ -303,12 +314,14 @@ def require_cashier_principal(
             detail="Your cashier session has expired or been revoked.",
         )
 
-    principal = CashierPrincipal(
+    return CashierPrincipal(
         cashier=session_record.cashier,
         session=session_record,
         terminal=terminal,
     )
 
+
+def attribute_to_cashier(db: Session, principal: CashierPrincipal) -> None:
     # Attribute activity events recorded during this request to the cashier
     # (see activity_tracking._record).
     db.info["kinesis_actor"] = {
@@ -316,8 +329,55 @@ def require_cashier_principal(
         "actor_id": str(principal.cashier.id),
         "actor_name": principal.cashier.display_name,
         "cashier_id": str(principal.cashier.id),
-        "terminal_id": terminal.id,
+        "terminal_id": principal.terminal.id,
     }
+
+
+def require_cashier_principal_allow_locked(
+    request: Request,
+    terminal: Terminal = Depends(require_terminal),
+    db: Session = Depends(get_db),
+) -> CashierPrincipal:
+    """
+    Authenticate the cashier session even when the terminal is locked. Only
+    for the few routes a locked terminal needs: asking whether it is locked,
+    unlocking with the PIN, and signing out.
+    """
+
+    principal = resolve_cashier_principal(request, terminal, db)
+    attribute_to_cashier(db, principal)
+
+    return principal
+
+
+def require_cashier_principal(
+    request: Request,
+    terminal: Terminal = Depends(require_terminal),
+    db: Session = Depends(get_db),
+) -> CashierPrincipal:
+    """
+    Authenticate a cashier session that belongs to the requesting terminal
+    and is not locked.
+
+    Terminal authentication and cashier authentication are independent.
+    Both credentials are required. Native apps send X-Cashier-Session;
+    browser terminals send the HttpOnly cashier cookie.
+
+    A locked terminal answers 423 here, so reloading the page, or calling
+    the API directly, cannot get around the lock: it ends only when the
+    cashier's PIN is verified again.
+    """
+
+    principal = resolve_cashier_principal(request, terminal, db)
+
+    if is_session_locked(db, principal.session):
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=TERMINAL_LOCKED_DETAIL,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    attribute_to_cashier(db, principal)
 
     return principal
 
@@ -583,11 +643,25 @@ def login_cashier(
 @router.get("/api/cashier-auth/session")
 def get_cashier_session(
     response: Response,
-    principal: CashierPrincipal = Depends(require_cashier_principal),
+    principal: CashierPrincipal = Depends(require_cashier_principal_allow_locked),
+    db: Session = Depends(get_db),
 ):
     no_store(response)
 
+    locked = is_session_locked(db, principal.session)
+
+    if not locked:
+        # Apps from before the server-side lock keep the session alive with
+        # this request while the cashier uses the terminal, so it counts as
+        # activity. It can never unlock: a locked session is reported as
+        # locked and left alone.
+        touch_activity(db, principal.session)
+
     return {
+        # The app shows its lock screen from this, including right after a
+        # page reload or an app restart.
+        "locked": locked,
+        "lock_after_minutes": get_inactivity_lock_minutes(db),
         "authenticated": True,
         "cashier": {
             "id": str(principal.cashier.id),
@@ -602,6 +676,57 @@ def get_cashier_session(
 
 
 # --------------------------------------------------
+# Terminal lock: lock now, and keep the activity clock
+# --------------------------------------------------
+
+
+@router.post("/api/cashier-auth/lock")
+def lock_cashier_terminal(
+    response: Response,
+    principal: CashierPrincipal = Depends(require_cashier_principal_allow_locked),
+    db: Session = Depends(get_db),
+):
+    """Lock this terminal until the cashier's PIN is verified again."""
+
+    no_store(response)
+
+    if principal.session.locked_at is None:
+        principal.session.locked_at = utc_now()
+
+        _record(
+            db,
+            "cashier.terminal_locked",
+            f"Terminal locked: {principal.cashier.display_name}",
+            terminal_id=principal.terminal.id,
+        )
+
+        db.commit()
+
+    return {"locked": True}
+
+
+@router.post("/api/cashier-auth/activity")
+def record_cashier_activity(
+    response: Response,
+    principal: CashierPrincipal = Depends(require_cashier_principal_allow_locked),
+    db: Session = Depends(get_db),
+):
+    """
+    The app calls this while the cashier is using the terminal. It moves the
+    inactivity clock; a terminal that is already locked stays locked.
+    """
+
+    no_store(response)
+
+    if is_session_locked(db, principal.session):
+        return {"locked": True}
+
+    touch_activity(db, principal.session)
+
+    return {"locked": False}
+
+
+# --------------------------------------------------
 # Mobile: verify current cashier PIN when unlocking
 # --------------------------------------------------
 
@@ -611,7 +736,7 @@ def verify_current_cashier_pin(
     payload: CashierPinVerificationRequest,
     request: Request,
     response: Response,
-    principal: CashierPrincipal = Depends(require_cashier_principal),
+    principal: CashierPrincipal = Depends(require_cashier_principal_allow_locked),
     db: Session = Depends(get_db),
 ):
     """
@@ -702,6 +827,14 @@ def verify_current_cashier_pin(
             db,
             attempt_keys,
         )
+
+        if principal.session.locked_at is not None or is_session_locked(db, principal.session):
+            _record(
+                db,
+                "cashier.terminal_unlocked",
+                f"Terminal unlocked: {cashier.display_name}",
+                terminal_id=locked_terminal.id,
+            )
 
         db.commit()
 

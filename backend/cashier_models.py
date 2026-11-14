@@ -183,6 +183,24 @@ class CashierSession(Base):
         nullable=False,
     )
 
+    # When the cashier last actually used the terminal. Only login, a PIN
+    # unlock and the app's explicit activity pings move it; background
+    # requests do not, so an idle terminal cannot keep itself unlocked.
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+    # Set when the terminal is locked on purpose. A locked session refuses
+    # cashier requests until the PIN is verified again (which issues a new
+    # session, so this never has to be cleared).
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     absolute_expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
