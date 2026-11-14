@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
@@ -60,6 +61,66 @@ GCASH_QR_FORMATS = {
 # --------------------------------------------------
 # Settings schema
 # --------------------------------------------------
+
+
+GCASH_BACKUP_LIMIT = 5
+
+GCASH_QR_FILENAME = re.compile(r"[a-f0-9]{32}\.(?:jpg|png)")
+
+
+def normalize_gcash_number(value: str) -> str:
+    """
+    Canonical Philippine mobile number: 09XXXXXXXXX.
+
+    Accepts spaces, dashes and the +63 / 63 prefixes; an empty string means
+    "no number set".
+    """
+
+    digits = re.sub(r"[\s\-().]", "", value)
+
+    if not digits:
+        return ""
+
+    if digits.startswith("+63"):
+        digits = "0" + digits[3:]
+    elif digits.startswith("63") and len(digits) == 12:
+        digits = "0" + digits[2:]
+
+    if not re.fullmatch(r"09[0-9]{9}", digits):
+        raise ValueError(
+            "Enter an 11-digit mobile number that starts with 09 "
+            "(for example 0917 123 4567)."
+        )
+
+    return digits
+
+
+class GCashAccount(BaseModel):
+    """A saved GCash account an administrator can switch to (rotation)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    label: str = Field(default="", max_length=40)
+    number: str = Field(default="", max_length=20)
+    accountName: str = Field(default="", max_length=60)
+    qrImagePath: str | None = None
+
+    @field_validator("number")
+    @classmethod
+    def validate_number(cls, value: str) -> str:
+        return normalize_gcash_number(value)
+
+    @field_validator("qrImagePath")
+    @classmethod
+    def validate_qr(cls, value: str | None) -> str | None:
+        if value is not None and not GCASH_QR_FILENAME.fullmatch(value):
+            raise ValueError("The GCash QR image reference is invalid.")
+
+        return value
 
 
 class SettingsDocument(BaseModel):
@@ -142,6 +203,18 @@ class SettingsDocument(BaseModel):
     # Never stores the image bytes or an arbitrary filesystem path.
     gcashQrImagePath: str | None = None
 
+    # The GCash account terminals show at checkout is the number, name and QR
+    # above/below. The administrator can keep other accounts ready and switch
+    # to one when the active account reaches its limit (see gcash_routes.py).
+    gcashNumber: str = Field(default="", max_length=20)
+    gcashAccountName: str = Field(default="", max_length=60)
+    # When the active account was switched to; null until the first switch.
+    gcashActiveSince: str | None = Field(default=None, max_length=40)
+    gcashBackupAccounts: list[GCashAccount] = Field(
+        default_factory=list,
+        max_length=GCASH_BACKUP_LIMIT,
+    )
+
     listenAddress: Literal[
         "0.0.0.0",  # nosec B104 - a setting value, not a bind call
         "127.0.0.1",
@@ -207,6 +280,24 @@ class SettingsDocument(BaseModel):
             value,
         ):
             raise ValueError("The GCash QR image reference is invalid.")
+
+        return value
+
+    @field_validator("gcashNumber")
+    @classmethod
+    def validate_gcash_number(cls, value: str) -> str:
+        return normalize_gcash_number(value)
+
+    @field_validator("gcashActiveSince")
+    @classmethod
+    def validate_gcash_active_since(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        try:
+            datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("gcashActiveSince must be an ISO timestamp.") from exc
 
         return value
 
@@ -343,6 +434,10 @@ TERMINAL_SETTING_KEYS = {
     "inactivityLock",
     "offlineQueueStrategy",
     "gcashQrImagePath",
+    # What the cashier shows the customer. The backup accounts stay on the
+    # server; terminals never see them.
+    "gcashNumber",
+    "gcashAccountName",
 }
 
 

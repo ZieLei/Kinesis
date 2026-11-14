@@ -47,6 +47,7 @@ from terminal_routes import (
 from terminal_pairing_routes import router as terminal_pairing_router
 from console_routes import router as console_router
 from database_routes import router as database_router
+from gcash_routes import router as gcash_router
 from settings_routes import router as settings_router
 from sku_generator import generate_product_sku
 from logging_config import initialize_application_logging
@@ -178,6 +179,7 @@ app.include_router(terminal_pairing_router)
 app.include_router(console_router)
 app.include_router(database_router)
 app.include_router(settings_router)
+app.include_router(gcash_router)
 app.include_router(cashier_router)
 app.include_router(overview_router)
 app.include_router(server_control_router)
