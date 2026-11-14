@@ -128,6 +128,17 @@ def get_admin_principal(
             detail="Unsupported authentication connection.",
         )
 
+    # Every activity event recorded during this request is attributed to the
+    # administrator (see activity_tracking._record), so the Live activity feed
+    # can say who did what.
+    db.info["kinesis_actor"] = {
+        "actor_type": "admin",
+        "actor_id": str(session_record.admin_user.id),
+        "actor_name": session_record.admin_user.username,
+        "cashier_id": None,
+        "terminal_id": None,
+    }
+
     return AdminPrincipal(
         user=session_record.admin_user,
         session=session_record,

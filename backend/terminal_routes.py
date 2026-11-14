@@ -27,6 +27,7 @@ from auth.pos_auth import (
 )
 from config_paths import ENV_FILE
 from database import get_db
+from server_state import effective_maintenance
 from models import Terminal, TerminalCommand
 
 
@@ -203,7 +204,7 @@ def require_writable_terminal(
     maintenance restrictions.
     """
 
-    if terminal.maintenance_mode:
+    if effective_maintenance(terminal):
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail=(
@@ -413,7 +414,7 @@ def terminal_heartbeat(
             ),
         ),
         "is_enabled": terminal.is_enabled,
-        "maintenance_mode": terminal.maintenance_mode,
+        "maintenance_mode": effective_maintenance(terminal),
         "commands": [
             terminal_command_response(command) for command in pending_commands
         ],
@@ -446,7 +447,7 @@ def get_terminal_session(
         "terminal_id": terminal.id,
         "device_id": terminal.device_id,
         "is_enabled": terminal.is_enabled,
-        "maintenance_mode": terminal.maintenance_mode,
+        "maintenance_mode": effective_maintenance(terminal),
         "heartbeat_interval_seconds": max(
             5,
             min(

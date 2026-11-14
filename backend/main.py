@@ -57,6 +57,7 @@ from cashier_routes import require_writable_cashier, router as cashier_router
 from activity_tracking import install_activity_tracking
 from inventory_tracking import install_inventory_tracking
 from overview_routes import router as overview_router
+from server_control_routes import router as server_control_router
 from system_health import router as health_router
 from admin_inventory_routes import (
     require_admin_actor,
@@ -179,6 +180,7 @@ app.include_router(database_router)
 app.include_router(settings_router)
 app.include_router(cashier_router)
 app.include_router(overview_router)
+app.include_router(server_control_router)
 app.include_router(health_router)
 app.include_router(admin_inventory_router)
 

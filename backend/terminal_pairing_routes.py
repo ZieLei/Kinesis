@@ -17,6 +17,7 @@ from auth.pos_auth import (
     wants_browser_credentials,
 )
 from database import get_db
+from server_state import effective_maintenance
 from models import Terminal, TerminalPairingChallenge
 from terminal_routes import (
     get_request_ip,
@@ -103,7 +104,7 @@ def terminal_pairing_response(
         "terminal_id": terminal.id,
         "device_id": terminal.device_id,
         "is_enabled": terminal.is_enabled,
-        "maintenance_mode": terminal.maintenance_mode,
+        "maintenance_mode": effective_maintenance(terminal),
         "heartbeat_interval_seconds": max(
             5,
             min(

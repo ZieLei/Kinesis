@@ -11,6 +11,7 @@ from cashier_models import Cashier, CashierSession
 from cashier_routes import require_admin_session
 from database import get_db
 from models import AppSettings, Product, Sale, Service, Terminal
+from server_state import effective_maintenance
 
 
 router = APIRouter(
@@ -62,7 +63,7 @@ def _terminal_response(terminal, now_utc: datetime) -> dict:
     )
 
     enabled = bool(getattr(terminal, "is_enabled", True))
-    maintenance = bool(getattr(terminal, "maintenance_mode", False))
+    maintenance = effective_maintenance(terminal)
     connected = _terminal_connected(terminal, now_utc)
 
     if not enabled:

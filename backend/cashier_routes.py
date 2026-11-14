@@ -48,6 +48,7 @@ from cashier_sessions import (
     resolve_cashier_session,
 )
 from database import get_db
+from server_state import effective_maintenance
 from models import Terminal
 from terminal_routes import require_terminal
 
@@ -331,7 +332,7 @@ def require_writable_cashier(
     by any holder of a terminal credential.
     """
 
-    if principal.terminal.maintenance_mode:
+    if effective_maintenance(principal.terminal):
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail=(
