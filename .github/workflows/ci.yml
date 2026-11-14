@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kinesis_ci
+          POSTGRES_PASSWORD: kinesis_ci_password
+          POSTGRES_DB: kinesis_ci_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kinesis_ci -d kinesis_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The test suite refuses any database whose name does not end in _test.
+      KINESIS_TEST_ENV_FILE: ${{ github.workspace }}/backend/.env.ci-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install PostgreSQL client tools (pg_dump / pg_restore for backup tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes --only-binary :all: -r requirements.lock
+          pip install -r requirements-dev.txt
+      - name: Write the test environment file
+        working-directory: backend
+        run: |
+          cat > .env.ci-test <<ENV
+          DATABASE_USER=kinesis_ci
+          DATABASE_PASSWORD=kinesis_ci_password
+          DATABASE_HOST=127.0.0.1
+          DATABASE_PORT=5432
+          DATABASE_NAME=kinesis_ci_test
+          ENV
+      - name: Migrate the test database
+        working-directory: backend
+        env:
+          KINESIS_ENV_FILE: ${{ github.workspace }}/backend/.env.ci-test
+        run: alembic upgrade head
+      - name: Run tests
+        run: python -m pytest backend/tests deploy/tests -q
+
+  frontend:
+    name: POS app (types, unit tests, web build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run test:web
+      - name: Lint (informational until the existing react-hooks findings are fixed)
+        run: npx eslint src
+        continue-on-error: true
+      - name: Export the web build
+        run: CI=1 npx expo export -p web --output-dir dist-ci
+      - name: Check the build against the proxy CSP and for leaked secrets
+        run: python3 deploy/tools/check_web_build.py dist-ci --caddyfile deploy/caddy/Caddyfile
+
+  admin:
+    name: Admin console (types, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npm run build
+
+  security:
+    name: Dependency, static and secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Python dependencies (the production lock file)
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.lock --no-deps --disable-pip
+      - name: Python static analysis
+        run: |
+          pip install bandit
+          bandit -r backend -x backend/tests,backend/venv,backend/node_modules,backend/migrations -ll -q
+      - name: npm audit (production dependencies of the admin console)
+        working-directory: admin
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (POS app; advisories that need a framework major upgrade are tracked in docs)
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
