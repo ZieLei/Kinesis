@@ -1,5 +1,6 @@
 import type {
   SectionDefinition,
+  SettingsApiResponse,
   SettingsState,
   UpdateSetting,
 } from "../../types/settings";
@@ -24,6 +25,7 @@ export default function SectionContent({
   gcashQrNotice,
   onUploadGcashQr,
   onRemoveGcashQr,
+  onGcashAccountsChanged,
 }: {
   section: SectionDefinition;
   settings: SettingsState;
@@ -36,6 +38,7 @@ export default function SectionContent({
   gcashQrNotice: string;
   onUploadGcashQr: (file: File) => Promise<void>;
   onRemoveGcashQr: () => Promise<void>;
+  onGcashAccountsChanged: (response: SettingsApiResponse) => void;
 }) {
   switch (section.id) {
     case "pos":
@@ -71,6 +74,7 @@ export default function SectionContent({
           gcashQrNotice={gcashQrNotice}
           onUploadGcashQr={onUploadGcashQr}
           onRemoveGcashQr={onRemoveGcashQr}
+          onGcashAccountsChanged={onGcashAccountsChanged}
         />
       );
 

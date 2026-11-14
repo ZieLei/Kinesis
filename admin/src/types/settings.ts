@@ -23,6 +23,12 @@ export type SettingsState = {
   discountLimit: string;
   inactivityLock: string;
   gcashQrImagePath: string | null;
+  /** The GCash account customers pay to (what terminals show). */
+  gcashNumber: string;
+  gcashAccountName: string;
+  /** Set by the server when the active account was last switched. */
+  gcashActiveSince: string | null;
+  gcashBackupAccounts: GcashBackupAccount[];
   listenAddress: string;
   httpPort: string;
   corsOrigins: string;
@@ -42,6 +48,20 @@ export type SettingsApiResponse = {
 export type SettingsUpdateRequest = {
   expected_version: number;
   settings: SettingsState;
+};
+
+export type GcashBackupAccount = {
+  id: string;
+  label: string;
+  number: string;
+  accountName: string;
+  qrImagePath: string | null;
+};
+
+export type GcashUsage = {
+  active_since: string | null;
+  since_active: { count: number; total: number } | null;
+  last_7_days: { count: number; total: number };
 };
 
 export type UpdateSetting = <K extends keyof SettingsState>(

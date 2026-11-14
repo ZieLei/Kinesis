@@ -26,6 +26,7 @@ import type {
 } from "../types/admin";
 
 import type {
+  GcashUsage,
   SettingsApiResponse,
   SettingsState,
   SettingsUpdateRequest,
@@ -297,6 +298,100 @@ export function deleteAdminGcashQr(
       }),
     },
   );
+}
+
+
+// --------------------------------------------------
+// GCash accounts (rotation)
+// --------------------------------------------------
+
+
+export type GcashAccountInput = {
+  number: string;
+  accountName: string;
+  label: string;
+  file?: File | null;
+  removeQr?: boolean;
+};
+
+
+function gcashAccountForm(
+  expectedVersion: number,
+  input: GcashAccountInput,
+): FormData {
+  const formData = new FormData();
+
+  formData.append("expected_version", String(expectedVersion));
+  formData.append("number", input.number);
+  formData.append("account_name", input.accountName);
+  formData.append("label", input.label);
+
+  if (input.removeQr) formData.append("remove_qr", "true");
+  if (input.file) formData.append("file", input.file);
+
+  return formData;
+}
+
+
+export function addGcashAccount(
+  expectedVersion: number,
+  input: GcashAccountInput,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>(
+    "/api/admin/settings/gcash/accounts",
+    { method: "POST", body: gcashAccountForm(expectedVersion, input) },
+  );
+}
+
+
+export function updateGcashAccount(
+  id: string,
+  expectedVersion: number,
+  input: GcashAccountInput,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>(
+    `/api/admin/settings/gcash/accounts/${encodeURIComponent(id)}`,
+    { method: "PUT", body: gcashAccountForm(expectedVersion, input) },
+  );
+}
+
+
+export function deleteGcashAccount(
+  id: string,
+  expectedVersion: number,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>(
+    `/api/admin/settings/gcash/accounts/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    },
+  );
+}
+
+
+export function activateGcashAccount(
+  id: string,
+  expectedVersion: number,
+): Promise<SettingsApiResponse> {
+  return apiRequest<SettingsApiResponse>(
+    `/api/admin/settings/gcash/accounts/${encodeURIComponent(id)}/activate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    },
+  );
+}
+
+
+export function fetchGcashUsage(
+  signal?: AbortSignal,
+): Promise<GcashUsage> {
+  return apiRequest<GcashUsage>("/api/admin/settings/gcash/usage", {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  });
 }
 
 

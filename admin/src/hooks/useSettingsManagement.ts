@@ -238,6 +238,31 @@ export function useSettingsManagement() {
 
 
   // --------------------------------------------------
+  // Apply a GCash account response (add, edit, remove, switch)
+  // --------------------------------------------------
+
+
+  const applyGcashAccountsResponse = (
+    response: SettingsApiResponse,
+  ) => {
+    const gcash = {
+      gcashQrImagePath: response.settings.gcashQrImagePath,
+      gcashNumber: response.settings.gcashNumber,
+      gcashAccountName: response.settings.gcashAccountName,
+      gcashActiveSince: response.settings.gcashActiveSince,
+      gcashBackupAccounts: response.settings.gcashBackupAccounts,
+    };
+
+    // Like the QR image: only the GCash fields change, other unsaved edits
+    // stay. The server version moved, so later saves must use it.
+    setSettings((current) => ({ ...current, ...gcash }));
+    setSavedSettings((current) => ({ ...current, ...gcash }));
+    setVersion(response.version);
+    setHasServerConflict(false);
+  };
+
+
+  // --------------------------------------------------
   // Upload GCash QR image
   // --------------------------------------------------
 
@@ -443,6 +468,7 @@ export function useSettingsManagement() {
     gcashQrNotice,
     uploadGcashQr,
     removeGcashQr,
+    applyGcashAccountsResponse,
 
     showSaveNotice,
     noticeMessage,

@@ -93,6 +93,7 @@ export default function Settings() {
                       gcashQrNotice={s.gcashQrNotice}
                       onUploadGcashQr={s.uploadGcashQr}
                       onRemoveGcashQr={s.removeGcashQr}
+                      onGcashAccountsChanged={s.applyGcashAccountsResponse}
                     />
                   </Section>
                 ))

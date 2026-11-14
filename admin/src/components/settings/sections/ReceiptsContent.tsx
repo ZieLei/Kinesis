@@ -3,11 +3,13 @@ import type { ChangeEvent } from "react";
 
 import type {
   SectionDefinition,
+  SettingsApiResponse,
   SettingsState,
   UpdateSetting,
 } from "../../../types/settings";
 
 import FieldList from "../FieldList";
+import GcashAccounts from "../GcashAccounts";
 import Notice from "../Notice";
 import { buttonDanger, buttonPrimary } from "../styles";
 
@@ -24,6 +26,7 @@ export default function ReceiptsContent({
   gcashQrNotice,
   onUploadGcashQr,
   onRemoveGcashQr,
+  onGcashAccountsChanged,
 }: {
   section: SectionDefinition;
   settings: SettingsState;
@@ -35,6 +38,7 @@ export default function ReceiptsContent({
   gcashQrNotice: string;
   onUploadGcashQr: (file: File) => Promise<void>;
   onRemoveGcashQr: () => Promise<void>;
+  onGcashAccountsChanged: (response: SettingsApiResponse) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileValidationError, setFileValidationError] = useState("");
@@ -123,94 +127,102 @@ export default function ReceiptsContent({
         onUpdate={onUpdate}
       />
 
+      <GcashAccounts
+        settings={settings}
+        version={version}
+        onUpdate={onUpdate}
+        onChanged={onGcashAccountsChanged}
+        qrBlock={
       <div>
-        <h3 className="text-sm font-semibold text-ctp-text">
-          GCash payment QR
-        </h3>
-        <p className="mt-0.5 text-xs leading-relaxed text-ctp-subtext0">
-          POS terminals show this image when a cashier selects GCash. It is
-          stored on the host computer, not on individual terminals.
-        </p>
-
-        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
-          <div className="flex h-44 w-full items-center justify-center rounded-md border border-dashed border-ctp-surface1 bg-ctp-mantle p-3 sm:w-44 sm:shrink-0">
-            {qrImageUrl ? (
-              <img
-                key={qrImageUrl}
-                src={qrImageUrl}
-                alt="Saved GCash payment QR code"
-                className="max-h-full max-w-full object-contain"
-              />
-            ) : (
-              <p className="text-center text-xs text-ctp-subtext0">
-                No QR code uploaded
-              </p>
+            <h3 className="text-sm font-semibold text-ctp-text">
+              GCash payment QR
+            </h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-ctp-subtext0">
+              POS terminals show this image when a cashier selects GCash. It is
+              stored on the host computer, not on individual terminals.
+            </p>
+    
+            <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
+              <div className="flex h-44 w-full items-center justify-center rounded-md border border-dashed border-ctp-surface1 bg-ctp-mantle p-3 sm:w-44 sm:shrink-0">
+                {qrImageUrl ? (
+                  <img
+                    key={qrImageUrl}
+                    src={qrImageUrl}
+                    alt="Saved GCash payment QR code"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <p className="text-center text-xs text-ctp-subtext0">
+                    No QR code uploaded
+                  </p>
+                )}
+              </div>
+    
+              <div className="min-w-0">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                  className="hidden"
+                  onChange={handleFileChange}
+                  disabled={uploadDisabled}
+                  aria-label="Choose GCash QR image"
+                />
+    
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFileValidationError("");
+                      fileInputRef.current?.click();
+                    }}
+                    disabled={uploadDisabled}
+                    className={buttonPrimary}
+                  >
+                    {isUploadingGcashQr
+                      ? "Uploading…"
+                      : hasGcashQr
+                        ? "Replace image"
+                        : "Upload image"}
+                  </button>
+    
+                  {hasGcashQr && (
+                    <button
+                      type="button"
+                      onClick={handleRemove}
+                      disabled={isUploadingGcashQr}
+                      className={buttonDanger}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+    
+                <p className="mt-2 text-xs text-ctp-subtext0">
+                  JPEG or PNG, up to 5 MiB. Use a clear image of your official
+                  shop QR code.
+                </p>
+              </div>
+            </div>
+    
+            {displayedError && (
+              <div className="mt-3">
+                <Notice tone="danger" role="alert">
+                  {displayedError}
+                </Notice>
+              </div>
+            )}
+    
+            {gcashQrNotice && (
+              <div className="mt-3">
+                <Notice tone="success" role="status">
+                  {gcashQrNotice}
+                </Notice>
+              </div>
             )}
           </div>
-
-          <div className="min-w-0">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={handleFileChange}
-              disabled={uploadDisabled}
-              aria-label="Choose GCash QR image"
-            />
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setFileValidationError("");
-                  fileInputRef.current?.click();
-                }}
-                disabled={uploadDisabled}
-                className={buttonPrimary}
-              >
-                {isUploadingGcashQr
-                  ? "Uploading…"
-                  : hasGcashQr
-                    ? "Replace image"
-                    : "Upload image"}
-              </button>
-
-              {hasGcashQr && (
-                <button
-                  type="button"
-                  onClick={handleRemove}
-                  disabled={isUploadingGcashQr}
-                  className={buttonDanger}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-
-            <p className="mt-2 text-xs text-ctp-subtext0">
-              JPEG or PNG, up to 5 MiB. Use a clear image of your official
-              shop QR code.
-            </p>
-          </div>
-        </div>
-
-        {displayedError && (
-          <div className="mt-3">
-            <Notice tone="danger" role="alert">
-              {displayedError}
-            </Notice>
-          </div>
-        )}
-
-        {gcashQrNotice && (
-          <div className="mt-3">
-            <Notice tone="success" role="status">
-              {gcashQrNotice}
-            </Notice>
-          </div>
-        )}
-      </div>
+        }
+      />
 
       <div>
         <h3 className="text-sm font-semibold text-ctp-text">
