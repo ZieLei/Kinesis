@@ -37,7 +37,9 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/kinesis/uploads /var/lib/kinesis/backups
+# control/ is where the console leaves restart/shutdown requests for
+# kinesis-control.service (the backend cannot run them itself).
+ReadWritePaths=/var/lib/kinesis/uploads /var/lib/kinesis/backups /var/lib/kinesis/control
 # The backend never needs the TLS keys or the Caddy admin socket (file
 # permissions already deny both; this is defence in depth).
 InaccessiblePaths=-/var/lib/kinesis/pki -/run/kinesis-caddy

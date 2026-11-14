@@ -29,7 +29,9 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
 BindReadOnlyPaths=@CODE@/backend @CODE@/venv @PYTHON_HOME_BIND@ @CONFIG@/kinesis.env
-BindPaths=@DATA@/uploads @DATA@/backups
+# control/ is where the console leaves restart/shutdown requests for
+# kinesis-control.service (the backend cannot run them itself).
+BindPaths=@DATA@/uploads @DATA@/backups @DATA@/control
 TemporaryFileSystem=%t:ro
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

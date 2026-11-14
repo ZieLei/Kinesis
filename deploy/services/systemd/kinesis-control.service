@@ -1,0 +1,17 @@
+# Runs "kinesisctl restart" or "kinesisctl stop" for the administrator
+# console. Runs as root (kinesisctl needs it) and is deliberately outside the
+# backend's sandbox; deploy/control/kinesis_control.py accepts only those two
+# commands, from a request file owned by the kinesis account.
+[Unit]
+Description=Carry out a Kinesis server control request
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+Environment=KINESIS_CONTROL_DIR=/var/lib/kinesis/control
+Environment=KINESIS_CONTROL_OWNER=kinesis
+Environment=KINESISCTL=/opt/kinesis/deploy/kinesisctl
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/kinesis/venv/bin/python -I /opt/kinesis/deploy/control/kinesis_control.py
+TimeoutStartSec=420

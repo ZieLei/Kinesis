@@ -1,0 +1,16 @@
+# Runs "kinesisctl restart" or "kinesisctl stop" for the administrator
+# console. Outside the backend's sandbox on purpose; see
+# deploy/control/kinesis_control.py for what it accepts.
+[Unit]
+Description=Carry out a Kinesis server control request
+# The unit is triggered at most a few times a minute; a runaway loop stops.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+Environment=KINESIS_CONTROL_DIR=@DATA@/control
+Environment=KINESISCTL=@CODE@/deploy/kinesisctl
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=@CODE@/venv/bin/python -I @CODE@/deploy/control/kinesis_control.py
+TimeoutStartSec=420

@@ -1,0 +1,12 @@
+# Starts kinesis-control.service when the administrator console asks for a
+# restart or shutdown (it writes request.json). Not part of kinesis.target,
+# so "kinesisctl stop" leaves it running.
+[Unit]
+Description=Watch for Kinesis server control requests
+
+[Path]
+PathExists=/var/lib/kinesis/control/request.json
+Unit=kinesis-control.service
+
+[Install]
+WantedBy=multi-user.target

@@ -418,7 +418,7 @@ if [[ $SCOPE == system ]]; then
     done
     run install -d -o root -g root -m 0755 "$CONFIG" "$DATA" "$CODE" "$CODE/web"
     run install -d -o "$SVC_USER" -g "$SVC_USER" -m 0750 "$DATA/uploads" "$DATA/uploads/products" "$DATA/uploads/gcash"
-    run install -d -o "$SVC_USER" -g "$SVC_USER" -m 0700 "$DATA/backups"
+    run install -d -o "$SVC_USER" -g "$SVC_USER" -m 0700 "$DATA/backups" "$DATA/control"
     run install -d -o "$PROXY_USER" -g "$PROXY_USER" -m 0700 "$DATA/caddy"
     run install -d -o "$PROXY_USER" -g "$PROXY_USER" -m 0755 "$DATA/onboarding"
     [[ -L "$DATA/pki" ]] || run install -d -o "$PROXY_USER" -g "$PROXY_USER" -m 0700 "$DATA/pki"
@@ -426,7 +426,7 @@ else
     SVC_USER="$ME"
     PROXY_USER="$ME"
     run install -d -m 0700 "$CONFIG" "$DATA" "$DATA/uploads" "$DATA/uploads/products" "$DATA/uploads/gcash" \
-        "$DATA/backups" "$DATA/caddy"
+        "$DATA/backups" "$DATA/control" "$DATA/caddy"
     run install -d -m 0755 "$CODE" "$CODE/web" "$DATA/onboarding" "$UNIT_DIR" "$BIN_DIR"
 fi
 [[ -e "$MARKER" ]] || run_sh "mark $DATA as a Kinesis host data folder" "printf 'Kinesis host data folder (install-kinesis.sh). Back up uploads/, backups/ and pki/.\n' > '$MARKER'"
@@ -668,7 +668,7 @@ fi
 section "systemd units ($UNIT_DIR)"
 # --------------------------------------------------------------------------
 if [[ $SCOPE == system ]]; then
-    UNITS=(kinesis.target kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.service kinesis-pki-renew.timer)
+    UNITS=(kinesis.target kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.service kinesis-pki-renew.timer kinesis-control.path kinesis-control.service)
     [[ $AWAKE -eq 1 ]] && UNITS+=(kinesis-awake.service)
     [[ $MDNS -eq 1 ]] && UNITS+=(kinesis-mdns.service)
     for unit in "${UNITS[@]}"; do
@@ -686,7 +686,7 @@ if [[ $SCOPE == system ]]; then
     fi
 else
     WANTS="kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.timer"
-    UNITS=(kinesis.target kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.service kinesis-pki-renew.timer)
+    UNITS=(kinesis.target kinesis-backend.service kinesis-caddy.service kinesis-pki-renew.service kinesis-pki-renew.timer kinesis-control.path kinesis-control.service)
     [[ $PG_MODE == own ]] && UNITS+=(kinesis-postgresql.service) && WANTS="kinesis-postgresql.service $WANTS"
     [[ $AWAKE -eq 1 ]] && UNITS+=(kinesis-awake.service) && WANTS="$WANTS kinesis-awake.service"
     [[ $MDNS -eq 1 ]] && UNITS+=(kinesis-mdns.service) && WANTS="$WANTS kinesis-mdns.service"
@@ -723,6 +723,9 @@ ENABLE_IN_TARGET=(kinesis-backend.service kinesis-caddy.service kinesis-pki-rene
 [[ $AWAKE -eq 1 ]] && ENABLE_IN_TARGET+=(kinesis-awake.service)
 [[ $MDNS -eq 1 ]] && ENABLE_IN_TARGET+=(kinesis-mdns.service)
 run "${SYSTEMCTL[@]}" enable "${ENABLE_IN_TARGET[@]}"
+# The console's restart/shutdown requests. Not in kinesis.target: it must keep
+# watching after "kinesisctl stop".
+run "${SYSTEMCTL[@]}" enable --now kinesis-control.path
 [[ $AWAKE -eq 0 ]] && "${SYSTEMCTL[@]}" is-enabled --quiet kinesis-awake.service 2>/dev/null && run "${SYSTEMCTL[@]}" disable --now kinesis-awake.service
 
 run ln -sfn "$CODE/deploy/kinesisctl" "$BIN_DIR/kinesisctl"
