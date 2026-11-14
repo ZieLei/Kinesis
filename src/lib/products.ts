@@ -17,7 +17,13 @@ export const formatPrice = (price: number) =>
     maximumFractionDigits: 2,
   });
 
-export function getImageUri(product: Product | null | undefined) {
+type ImageSource = {
+  id?: number | null;
+  image_url?: string | null;
+  image_path?: string | null;
+};
+
+export function getImageUri(product: Product | ImageSource | null | undefined) {
   if (!product?.image_url) return null;
 
   // Product images are served by the Kinesis API only. Refuse absolute or
@@ -32,7 +38,7 @@ export function getImageUri(product: Product | null | undefined) {
   const separator = url.includes("?") ? "&" : "?";
 
   return `${url}${separator}v=${encodeURIComponent(
-    product.image_path ?? String(product.id),
+    product.image_path ?? String(product.id ?? ""),
   )}`;
 }
 

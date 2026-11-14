@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { View, Text, Pressable, FlatList } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,6 +13,7 @@ import { useBackNavigation } from "@/hooks/useBackNavigation";
 const StyledChevronLeft = styledIcon(ChevronLeft);
 
 export default function Cart() {
+  const top = useScrollToTop();
   // "/new-sale" is only the Up target for a screen opened with no history
   // (deep link / web refresh); normal back pops the real stack.
   const { goBack } = useBackNavigation("/new-sale");
@@ -50,6 +53,9 @@ export default function Cart() {
         </View>
 
         <FlatList
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
           className="flex-1"
           data={items}
           keyExtractor={(item) => `${item.type}-${item.id}`}
@@ -189,6 +195,7 @@ export default function Cart() {
           </Pressable>
         </View>
       </View>
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

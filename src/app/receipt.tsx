@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -547,6 +549,7 @@ function createReceiptHtml(sale: SaleRecord): string {
 }
 
 export default function Receipt() {
+  const top = useScrollToTop();
   const params = useLocalSearchParams<{
     transactionCode?: string | string[];
   }>();
@@ -646,6 +649,9 @@ export default function Receipt() {
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
         className="flex-1"
         contentContainerStyle={{
           paddingHorizontal: 20,
@@ -1084,6 +1090,7 @@ export default function Receipt() {
           }}
         />
       ) : null}
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

@@ -237,6 +237,9 @@ export type TopProductSales = {
   archived: boolean;
   /** The product no longer exists; only its sales history remains. */
   deleted: boolean;
+  /** null for products without a photo and for deleted products. */
+  image_url: string | null;
+  image_path: string | null;
 };
 
 export type ProductSalesReport = {

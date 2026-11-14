@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -23,6 +25,7 @@ import Search from "lucide-react-native/icons/search";
 import Funnel from "lucide-react-native/icons/funnel";
 
 import { styledIcon } from "@/components/StyledIcon";
+import ProductThumbnail from "@/components/reports/ProductThumbnail";
 import { useColorScheme } from "nativewind";
 import { useInventory } from "@/hooks/useInventory";
 import { fetchProductSalesReport } from "@/lib/salesApi";
@@ -66,6 +69,7 @@ const SOLD_RANGES: Record<string, { minUnits?: number; maxUnits?: number }> = {
 };
 
 export default function ProductPerformance() {
+  const top = useScrollToTop();
   // "/reports" is only the Up target for a screen opened with no history
   // (deep link / web refresh); normal back pops the real stack.
   const { goBack } = useBackNavigation("/reports");
@@ -332,6 +336,9 @@ export default function ProductPerformance() {
 
         {/* Product list */}
         <ScrollView
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
           className="flex-1"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 12 }}
@@ -388,11 +395,7 @@ export default function ProductPerformance() {
                       "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                   }}
                 >
-                  <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-ctp-surface0">
-                    <Text className="font-inter-medium text-xs text-ctp-subtext0">
-                      No image
-                    </Text>
-                  </View>
+                  <ProductThumbnail product={product} fallback="No image" />
 
                   <View className="mx-1 my-3 flex-1 justify-between">
                     <Text
@@ -565,6 +568,7 @@ export default function ProductPerformance() {
         onApply={handleApplyFilters}
         onReset={handleResetFilters}
       />
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} bottom={112} />
     </SafeAreaView>
   );
 }

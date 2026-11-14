@@ -236,3 +236,20 @@ def test_sales_summary_is_zero_without_sales(pos):
     assert {k: current[k] for k in ("gross_sales", "discounts", "net_sales", "tax", "discounted_transactions")} == {
         "gross_sales": 0, "discounts": 0, "net_sales": 0, "tax": 0, "discounted_transactions": 0,
     }
+
+
+def test_report_rows_carry_the_product_photo(pos, db_session):
+    client, headers = pos
+    with_photo = add_product(db_session, name="Photo pad", stock=10, sku="PHO-001")
+    without = add_product(db_session, name="Plain pad", stock=10, sku="PLN-001")
+    with_photo.image_path = "photo-pad.png"
+    db_session.commit()
+
+    assert sell(client, headers, with_photo.id, code="TXN-RPT-0030", quantity=2).status_code == 200
+    assert sell(client, headers, without.id, code="TXN-RPT-0031", quantity=1).status_code == 200
+
+    rows = rows_by_name(report(client, headers, limit=10))
+
+    assert rows["Photo pad"]["image_url"] == f"/api/products/{with_photo.id}/image"
+    assert rows["Photo pad"]["image_path"] == "photo-pad.png"
+    assert rows["Plain pad"]["image_url"] is None

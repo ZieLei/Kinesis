@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { getStatusPresentation } from "@/lib/saleStatus";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/StateViews";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -19,6 +21,7 @@ import DoubleLeftArrow from "lucide-react-native/icons/chevrons-left";
 import DoubleRightArrow from "lucide-react-native/icons/chevrons-right";
 
 import { styledIcon } from "@/components/StyledIcon";
+import StatGrid from "@/components/ui/StatGrid";
 import { fetchSalesList } from "@/lib/salesApi";
 import type { SaleListItem, SalesListResponse } from "@/types/sale";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
@@ -57,6 +60,7 @@ const formatTime = (value: string) =>
   });
 
 export default function Transactions() {
+  const top = useScrollToTop();
   // "/dashboard" is only the Up target for a screen opened with no history
   // (deep link / web refresh); normal back pops the real stack.
   const { goBack } = useBackNavigation("/dashboard");
@@ -136,8 +140,11 @@ export default function Transactions() {
 
   const statusCounts = response?.statuses ?? {};
   const completedCount = statusCounts.completed ?? statusCounts.confirmed ?? 0;
-  const reversedCount =
-    (statusCounts.voided ?? 0) + (statusCounts.refunded ?? 0);
+  const voidedCount = statusCounts.voided ?? 0;
+  const refundedCount = statusCounts.refunded ?? 0;
+
+  const showCount = (value: number) =>
+    response ? value.toLocaleString("en-PH") : loading ? "…" : "—";
 
   const firstTransaction =
     totalCount === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
@@ -223,34 +230,14 @@ export default function Transactions() {
           <View className="h-8 w-8" />
         </View>
 
-        <View className="mb-4 flex-row gap-3">
-          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
-            <Text className="text-xs font-inter-medium text-ctp-subtext0">
-              Total
-            </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {response ? totalCount.toLocaleString("en-PH") : loading ? "…" : "—"}
-            </Text>
-          </View>
-
-          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
-            <Text className="text-xs font-inter-medium text-ctp-subtext0">
-              Completed
-            </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {response ? completedCount.toLocaleString("en-PH") : loading ? "…" : "—"}
-            </Text>
-          </View>
-
-          <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
-            <Text className="text-xs font-inter-medium text-ctp-subtext0">
-              Voided / Refunded
-            </Text>
-            <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {response ? reversedCount.toLocaleString("en-PH") : loading ? "…" : "—"}
-            </Text>
-          </View>
-        </View>
+        <StatGrid
+          items={[
+            { label: "Total", value: showCount(totalCount) },
+            { label: "Completed", value: showCount(completedCount) },
+            { label: "Voided", value: showCount(voidedCount) },
+            { label: "Refunded", value: showCount(refundedCount) },
+          ]}
+        />
 
         <View className="mb-3 flex-row gap-2">
           {(
@@ -292,6 +279,9 @@ export default function Transactions() {
           />
         ) : (
           <FlatList
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
             className="flex-1"
             data={transactions}
             keyExtractor={(item) => String(item.id)}
@@ -400,6 +390,7 @@ export default function Transactions() {
           </>
         ) : null}
       </View>
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} bottom={104} />
     </SafeAreaView>
   );
 }

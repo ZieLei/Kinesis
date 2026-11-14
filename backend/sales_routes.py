@@ -2217,6 +2217,15 @@ def product_group_key():
     )
 
 
+def product_image_url(product: Product | None) -> str | None:
+    """Same URL the product endpoints give; None without a photo."""
+
+    if product is None or not product.image_path:
+        return None
+
+    return f"/api/products/{product.id}/image"
+
+
 def product_sales_rows(
     db: Session,
     conditions: list,
@@ -2303,6 +2312,8 @@ def product_sales_rows(
                 "archived": product is not None and product.archived_at is not None,
                 # The product row no longer exists; only its sales remain.
                 "deleted": product is None,
+                "image_url": product_image_url(product),
+                "image_path": product.image_path if product else None,
             }
         )
 
@@ -2324,6 +2335,8 @@ def product_sales_rows(
                 "revenue": 0.0,
                 "archived": False,
                 "deleted": False,
+                "image_url": product_image_url(product),
+                "image_path": product.image_path,
             }
             for product in unsold
         )

@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -18,6 +20,7 @@ import { styledIcon } from "@/components/StyledIcon";
 import SalesTrendChart from "@/components/SalesTrendChart";
 import TopCategoriesChart from "@/components/TopCategoriesChart";
 import BusinessAnalyticsSection from "@/components/reports/BusinessAnalyticsSection";
+import ProductThumbnail from "@/components/reports/ProductThumbnail";
 import DateRangeSheet from "@/components/reports/DateRangeSheet";
 import ExportReportSheet from "@/components/reports/ExportReportSheet";
 import {
@@ -191,6 +194,7 @@ function ComparisonCard({
 
 export default function Reports() {
   const { canGoBack, goBack } = useBackNavigation();
+  const top = useScrollToTop();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const { formatCurrency } = usePOSFormatting();
@@ -383,6 +387,7 @@ export default function Reports() {
               onPress={() => {
                 setSelected(tab);
                 setOpen(null);
+                top.setVisible(false);
               }}
               className={`flex-1 items-center justify-center rounded-md py-4 ${selected === tab ? "bg-ctp-blue" : "bg-ctp-mantle"
                 }`}
@@ -428,6 +433,9 @@ export default function Reports() {
         <View className="flex-1">
           {selected === "sale" ? (
             <ScrollView
+              ref={top.ref}
+              onScroll={top.onScroll}
+              scrollEventThrottle={top.scrollEventThrottle}
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
@@ -530,6 +538,9 @@ export default function Reports() {
             </ScrollView>
           ) : (
             <ScrollView
+              ref={top.ref}
+              onScroll={top.onScroll}
+              scrollEventThrottle={top.scrollEventThrottle}
               showsVerticalScrollIndicator={false}
               contentContainerClassName="gap-4 pt-5 pb-8"
             >
@@ -654,11 +665,7 @@ export default function Reports() {
                         boxShadow: "0px 0px 8px 2px rgba(0, 0, 0, 0.05)",
                       }}
                     >
-                      <View className="m-2 h-20 w-20 items-center justify-center rounded-lg bg-ctp-surface0">
-                        <Text className="text-xs font-inter-medium text-ctp-subtext0">
-                          #{index + 1}
-                        </Text>
-                      </View>
+                      <ProductThumbnail product={product} fallback={`#${index + 1}`} />
 
                       <View className="mx-1 my-3 flex-1 justify-between">
                         <Text
@@ -727,6 +734,7 @@ export default function Reports() {
           setPickerOpen(false);
         }}
       />
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

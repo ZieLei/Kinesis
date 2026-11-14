@@ -1,4 +1,7 @@
 
+import { SHOW_AFTER, useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
+import { scheduleOnRN } from "react-native-worklets";
 import { LoadingState } from "@/components/ui/StateViews";
 import {
   Pressable,
@@ -36,6 +39,7 @@ const CameraIcon = styledIcon(Camera);
 const RefreshCwIcon = styledIcon(RefreshCw);
 
 export default function NewSale() {
+  const top = useScrollToTop();
   const { canGoBack, goBack } = useBackNavigation();
   const scrollY = useSharedValue(0);
 
@@ -90,9 +94,17 @@ export default function NewSale() {
     }, [fetchInventory]),
   );
 
+  const shownTop = useSharedValue(false);
+
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
+
+      const show = event.contentOffset.y > SHOW_AFTER;
+      if (show !== shownTop.value) {
+        shownTop.value = show;
+        scheduleOnRN(top.setVisible, show);
+      }
     },
   });
 
@@ -205,6 +217,7 @@ export default function NewSale() {
               ) : null}
 
               <Animated.FlatList
+                ref={top.ref}
                 data={filteredProducts}
                 keyExtractor={(item) => item.id.toString()}
                 onScroll={scrollHandler}
@@ -249,6 +262,7 @@ export default function NewSale() {
           />
         </View>
       </View>
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

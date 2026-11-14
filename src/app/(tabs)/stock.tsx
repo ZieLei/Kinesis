@@ -1,4 +1,7 @@
 
+import { SHOW_AFTER, useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
+import { scheduleOnRN } from "react-native-worklets";
 import { LoadingState } from "@/components/ui/StateViews";
 import {
   Pressable,
@@ -41,6 +44,7 @@ const StyledPlus = styledIcon(Plus);
 const StyledArchive = styledIcon(ArchiveIcon);
 
 export default function Stock() {
+  const top = useScrollToTop();
   const { canGoBack, goBack } = useBackNavigation();
   const openItemId = useSharedValue<number | null>(null);
   const scrollY = useSharedValue(0);
@@ -108,9 +112,17 @@ export default function Stock() {
     [inventory, lowStockThreshold],
   );
 
+  const shownTop = useSharedValue(false);
+
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
+
+      const show = event.contentOffset.y > SHOW_AFTER;
+      if (show !== shownTop.value) {
+        shownTop.value = show;
+        scheduleOnRN(top.setVisible, show);
+      }
     },
   });
 
@@ -299,6 +311,7 @@ export default function Stock() {
               ) : null}
 
               <Animated.FlatList
+                ref={top.ref}
                 data={filteredProducts}
                 keyExtractor={(item) => item.id.toString()}
                 ListHeaderComponent={listHeader}
@@ -402,6 +415,7 @@ export default function Stock() {
 
         <Snackbar message={notice} onHide={hideNotice} />
       </View>
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

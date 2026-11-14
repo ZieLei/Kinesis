@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { getStatusPresentation } from "@/lib/saleStatus";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -80,6 +82,7 @@ const percentageChange = (
 };
 
 export default function Dashboard() {
+  const top = useScrollToTop();
   const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
@@ -298,6 +301,9 @@ export default function Dashboard() {
   return (
     <SafeAreaView className="flex-1 bg-ctp-base">
       <ScrollView
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
         className="flex-1"
         contentContainerClassName="px-5 py-7"
         showsVerticalScrollIndicator={false}
@@ -701,6 +707,7 @@ export default function Dashboard() {
         onConfirm={() => void endCashierSession()}
         onCancel={() => setPendingAction(null)}
       />
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -124,6 +126,7 @@ function roundCashCents(
 }
 
 export default function Checkout() {
+  const top = useScrollToTop();
   // "/cart" is only the Up target for a screen opened with no history
   // (deep link / web refresh); normal back pops the real stack.
   const { goBack } = useBackNavigation("/cart");
@@ -544,6 +547,9 @@ export default function Checkout() {
         </View>
 
         <ScrollView
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
@@ -1081,6 +1087,7 @@ export default function Checkout() {
           />
         ) : null}
       </View>
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }

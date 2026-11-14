@@ -1,4 +1,6 @@
 
+import { useScrollToTop } from "@/hooks/useScrollToTop";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useCallback, useState } from "react";
 import {
   View,
@@ -33,6 +35,7 @@ import Snackbar from "@/components/Snackbar";
 import type { Service } from "@/types/service";
 
 export default function Services() {
+  const top = useScrollToTop();
   const { canGoBack, goBack } = useBackNavigation();
   const router = useRouter();
   const { colorScheme } = useColorScheme();
@@ -210,6 +213,9 @@ export default function Services() {
         </View>
 
         <FlatList
+          ref={top.ref}
+          onScroll={top.onScroll}
+          scrollEventThrottle={top.scrollEventThrottle}
           data={services}
           keyExtractor={(item) => String(item.id)}
           showsVerticalScrollIndicator={false}
@@ -416,6 +422,7 @@ export default function Services() {
       />
 
       <Snackbar message={notice} onHide={hideNotice} />
+          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
     </SafeAreaView>
   );
 }
