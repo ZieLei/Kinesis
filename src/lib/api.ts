@@ -12,6 +12,18 @@ const REQUEST_TIMEOUT_MS = 15000;
 // Matches the backend's "The CSRF token is missing or invalid." responses.
 const CSRF_REJECTION = /CSRF token/i;
 
+// The server answers 423 with this message while a terminal is locked
+// (backend/cashier_routes.py TERMINAL_LOCKED_DETAIL): keep the two in step.
+export const TERMINAL_LOCKED_MESSAGE =
+  "This terminal is locked. Enter your PIN to continue.";
+
+let terminalLockedHandler: (() => void) | null = null;
+
+/** Called when any request is refused because the terminal is locked. */
+export function setTerminalLockedHandler(handler: (() => void) | null): void {
+  terminalLockedHandler = handler;
+}
+
 export type ApiErrorKind = "http" | "network" | "timeout" | "config";
 
 export class ApiError extends Error {
@@ -239,6 +251,10 @@ export async function apiRequest<T>(
       ) {
         csrfRetried = true;
         continue;
+      }
+
+      if (response.status === 423 && message === TERMINAL_LOCKED_MESSAGE) {
+        terminalLockedHandler?.();
       }
 
       throw new ApiError(message, response.status);

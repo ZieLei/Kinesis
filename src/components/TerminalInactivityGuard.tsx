@@ -65,6 +65,10 @@ export default function TerminalInactivityGuard({
     status: authStatus,
     cashier,
     logout,
+    locked,
+    lockTerminal,
+    unlockTerminal,
+    markLocked,
   } = useCashierAuth();
 
   const { settings } = useTerminalSettings();
@@ -85,7 +89,6 @@ export default function TerminalInactivityGuard({
   const lastHeartbeatAt = useRef(0);
   const lockedRef = useRef(false);
 
-  const [locked, setLocked] = useState(false);
   const [pin, setPin] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
@@ -95,14 +98,16 @@ export default function TerminalInactivityGuard({
   }, [locked]);
 
   // --------------------------------------------------
-  // Reset local lock state when cashier authentication changes
+  // Reset the activity clock when cashier authentication changes.
+  // Whether the terminal is locked is the server's decision (it is part
+  // of the session), so it is not reset here: reloading the page must not
+  // unlock it.
   // --------------------------------------------------
 
   useEffect(() => {
     lastActivityAt.current = Date.now();
     lastHeartbeatAt.current = 0;
 
-    setLocked(false);
     setPin("");
     setError("");
   }, [authStatus]);
@@ -124,28 +129,32 @@ export default function TerminalInactivityGuard({
 
     lastActivityAt.current = now;
 
-    // Refresh the server-side session while the cashier is actively
-    // using the terminal. This prevents a long-running active session
-    // from expiring merely because the current screen made few API calls.
+    // Tell the server the cashier is active. It keeps its own inactivity
+    // clock (that is what locks the terminal if this app is closed or
+    // reloaded) and keeps the session from expiring while it is in use.
     if (
       now - lastHeartbeatAt.current >= HEARTBEAT_INTERVAL_MS
     ) {
       lastHeartbeatAt.current = now;
 
-      void apiRequest(
-        "/api/cashier-auth/session",
+      void apiRequest<{ locked: boolean }>(
+        "/api/cashier-auth/activity",
         {
-          method: "GET",
-          cache: "no-store",
+          method: "POST",
         },
-      ).catch(() => {
-        // Normal screen requests and session verification will report
-        // authentication or connectivity failures to the user.
-      });
+      )
+        .then((reply) => {
+          if (reply.locked) markLocked();
+        })
+        .catch(() => {
+          // Normal screen requests and session verification will report
+          // authentication or connectivity failures to the user.
+        });
     }
   }, [
     authStatus,
     isPublicRoute,
+    markLocked,
   ]);
 
   // --------------------------------------------------
@@ -168,7 +177,7 @@ export default function TerminalInactivityGuard({
       ) {
         setPin("");
         setError("");
-        setLocked(true);
+        lockTerminal();
       }
     }, 1000);
 
@@ -178,6 +187,7 @@ export default function TerminalInactivityGuard({
     isPublicRoute,
     locked,
     lockDuration,
+    lockTerminal,
   ]);
 
   // --------------------------------------------------
@@ -203,7 +213,7 @@ export default function TerminalInactivityGuard({
         ) {
           setPin("");
           setError("");
-          setLocked(true);
+          lockTerminal();
         }
       },
     );
@@ -213,6 +223,7 @@ export default function TerminalInactivityGuard({
     authStatus,
     isPublicRoute,
     lockDuration,
+    lockTerminal,
   ]);
 
   // --------------------------------------------------
@@ -267,7 +278,7 @@ export default function TerminalInactivityGuard({
 
       setPin("");
       setError("");
-      setLocked(false);
+      unlockTerminal();
     } catch (requestError) {
       // A wrong PIN must not sign the cashier out.
       // An expired/revoked session is different and requires a new login.

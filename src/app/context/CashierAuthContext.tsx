@@ -25,6 +25,7 @@ import {
   ApiError,
   apiRequest,
   isNetworkError,
+  setTerminalLockedHandler,
 } from "@/lib/api";
 import { credentials } from "@/lib/auth/credentials";
 
@@ -50,6 +51,8 @@ type CashierLoginResponse = {
 
 type CashierSessionResponse = {
   authenticated: boolean;
+  /** The server's verdict: a locked terminal stays locked across reloads. */
+  locked?: boolean;
   cashier: CashierAccount;
   terminal_id: number;
   idle_expires_at: string;
@@ -69,6 +72,14 @@ type CashierAuthContextValue = {
   status: CashierAuthStatus;
   cashier: CashierAccount | null;
   error: string | null;
+  /** True while the terminal is locked (decided by the server). */
+  locked: boolean;
+  /** Lock now: shows the lock screen and tells the server. */
+  lockTerminal: () => void;
+  /** Mark the terminal unlocked after the PIN was verified. */
+  unlockTerminal: () => void;
+  /** The server said it is locked (activity reply or a refused request). */
+  markLocked: () => void;
   login: (username: string, pin: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -115,6 +126,8 @@ export function CashierAuthProvider({
 
   const [error, setError] = useState<string | null>(null);
 
+  const [locked, setLocked] = useState(false);
+
 
   // --------------------------------------------------
   // Restore an existing cashier session
@@ -145,6 +158,9 @@ export function CashierAuthProvider({
         "/api/cashier-auth/session",
       );
 
+      // Before the status changes, so a reload of a locked terminal never
+      // shows the app unlocked, not even for a frame.
+      setLocked(response.locked === true);
       setCashier(response.cashier);
       setStatus("authenticated");
       setError(null);
@@ -244,6 +260,7 @@ export function CashierAuthProvider({
           );
         }
 
+        setLocked(false);
         setCashier(response.cashier);
         setStatus("authenticated");
         setError(null);
@@ -295,11 +312,40 @@ export function CashierAuthProvider({
         );
       }
 
+      setLocked(false);
       setCashier(null);
       setStatus("unauthenticated");
       setError(null);
     }
   }, [terminalPaired]);
+
+
+  // --------------------------------------------------
+  // Terminal lock
+  // --------------------------------------------------
+
+
+  const markLocked = useCallback(() => setLocked(true), []);
+
+  const unlockTerminal = useCallback(() => setLocked(false), []);
+
+  const lockTerminal = useCallback(() => {
+    setLocked(true);
+
+    // Best effort: if this fails (offline), the server still locks the
+    // session by itself once the inactivity period has passed.
+    void apiRequest("/api/cashier-auth/lock", { method: "POST" }).catch(
+      () => undefined,
+    );
+  }, []);
+
+  // Any request the server refuses because the terminal is locked also
+  // brings up the lock screen.
+  useEffect(() => {
+    setTerminalLockedHandler(markLocked);
+
+    return () => setTerminalLockedHandler(null);
+  }, [markLocked]);
 
 
   // --------------------------------------------------
@@ -312,6 +358,10 @@ export function CashierAuthProvider({
       status,
       cashier,
       error,
+      locked,
+      lockTerminal,
+      unlockTerminal,
+      markLocked,
       login,
       logout,
       refreshSession,
@@ -320,6 +370,10 @@ export function CashierAuthProvider({
       status,
       cashier,
       error,
+      locked,
+      lockTerminal,
+      unlockTerminal,
+      markLocked,
       login,
       logout,
       refreshSession,
