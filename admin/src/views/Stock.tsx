@@ -8,6 +8,7 @@ import {
   Info,
   PackagePlus,
   Plus,
+  Printer,
   RefreshCw,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ import StatusDot from "../components/ui/StatusDot";
 import SelectField from "../components/settings/SelectField";
 import ArchiveProductDialog from "../components/stock/ArchiveProductDialog";
 import Field from "../components/stock/Field";
+import StockReportDialog from "../components/stock/StockReportDialog";
 import ProductDetailsDialog from "../components/stock/ProductDetailsDialog";
 import ProductFormDialog, { type SkuPreviewState } from "../components/stock/ProductFormDialog";
 import ProductThumbnail from "../components/stock/ProductThumbnail";
@@ -76,6 +78,7 @@ type DialogState =
   | { kind: "archive"; product: InventoryItem }
   | { kind: "add"; product: InventoryItem | null }
   | { kind: "adjust"; product: InventoryItem }
+  | { kind: "report" }
   | null;
 
 type PageNotice = { text: string; tone: "success" | "warning" | "danger" } | null;
@@ -218,6 +221,14 @@ export default function Stock() {
                   className={refreshing ? "animate-spin" : ""}
                 />
                 {refreshing ? "Refreshing" : "Refresh"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDialog({ kind: "report" })}
+                className={buttonSecondary}
+              >
+                <Printer size={14} aria-hidden="true" />
+                Print report
               </button>
               <button
                 type="button"
@@ -530,6 +541,10 @@ export default function Stock() {
           </>
         )}
       </Section>
+
+      {dialog?.kind === "report" && (
+        <StockReportDialog category={category} search={search} onClose={() => setDialog(null)} />
+      )}
 
       {dialog?.kind === "product" && (
         <ProductFormDialog
