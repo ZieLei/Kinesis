@@ -138,6 +138,10 @@ export default function RootLayout() {
                         <Stack.Screen name="cart" dangerouslySingular />
                         <Stack.Screen name="checkout" dangerouslySingular />
                         <Stack.Screen
+                          name="counter-scanner"
+                          dangerouslySingular
+                        />
+                        <Stack.Screen
                           name="transactions"
                           dangerouslySingular
                         />

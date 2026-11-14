@@ -146,10 +146,10 @@ export default function NewSale() {
           onBack={canGoBack ? goBack : undefined}
           right={
             <Pressable
-              onPress={() => router.push("/")}
+              onPress={() => router.push("/counter-scanner")}
               className="h-8 w-8 items-center justify-center"
               accessibilityRole="button"
-              accessibilityLabel="Scan product"
+              accessibilityLabel="Open Counter Scanner"
             >
               <CameraIcon size={22} className="text-ctp-text" />
             </Pressable>
