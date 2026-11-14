@@ -31,7 +31,7 @@ jobs:
       # The test suite refuses any database whose name does not end in _test.
       KINESIS_TEST_ENV_FILE: ${{ github.workspace }}/backend/.env.ci-test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -67,7 +67,7 @@ jobs:
     name: POS app (types, unit tests, web build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -90,7 +90,7 @@ jobs:
       run:
         working-directory: admin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -104,7 +104,7 @@ jobs:
     name: Dependency, static and secret scanning
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
