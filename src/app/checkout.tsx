@@ -21,6 +21,7 @@ import Banknote from "lucide-react-native/icons/banknote";
 
 import { styledIcon } from "@/components/StyledIcon";
 import GcashReferenceScanner from "@/components/GcashReferenceScanner";
+import { formatGcashNumber } from "@/lib/gcashAccount";
 import { useCart } from "@/app/context/CartContext";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
 import { isNetworkError } from "@/lib/api";
@@ -146,6 +147,9 @@ export default function Checkout() {
   const settingsReady =
     settings !== null &&
     settingsStatus === "synced";
+
+  const gcashNumber = settings?.gcashNumber ?? "";
+  const gcashAccountName = settings?.gcashAccountName ?? "";
 
   const currencySymbol = settings?.currencySymbol ?? "₱";
   const currencyPlacement = settings?.currencyPlacement ?? "before";
@@ -916,13 +920,17 @@ export default function Checkout() {
                       <Text className="text-center font-inter-semibold text-sm text-ctp-subtext0">
                         {gcashQrLoadFailed
                           ? "Could not load the payment QR"
-                          : "No GCash payment QR configured"}
+                          : gcashNumber
+                            ? "No GCash QR saved"
+                            : "No GCash payment QR configured"}
                       </Text>
 
                       <Text className="mt-2 text-center font-inter-regular text-xs leading-5 text-ctp-subtext0">
                         {gcashQrLoadFailed
                           ? "Check the terminal connection and retry settings synchronization."
-                          : "Ask the shop administrator to upload the GCash QR code in Settings → Tax & receipts."}
+                          : gcashNumber
+                            ? "Ask the customer to send the payment to the GCash number below."
+                            : "Ask the shop administrator to upload the GCash QR code and number in Settings → Tax & receipts."}
                       </Text>
 
                       {gcashQrLoadFailed ? (
@@ -941,6 +949,30 @@ export default function Checkout() {
                     </View>
                   )}
                 </View>
+
+                {gcashNumber || gcashAccountName ? (
+                  <View className="mt-3 w-full rounded-xl border border-ctp-surface0 bg-ctp-mantle p-4">
+                    <Text className="font-inter-medium text-xs text-ctp-subtext0">
+                      Send payment to
+                    </Text>
+
+                    {gcashAccountName ? (
+                      <Text className="mt-1 font-inter-semibold text-base text-ctp-text">
+                        {gcashAccountName}
+                      </Text>
+                    ) : null}
+
+                    {gcashNumber ? (
+                      <Text
+                        selectable
+                        accessibilityLabel={`GCash number ${gcashNumber.split("").join(" ")}`}
+                        className="mt-0.5 font-inter-bold text-2xl text-ctp-text"
+                      >
+                        {formatGcashNumber(gcashNumber)}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
 
               <View className="gap-2">

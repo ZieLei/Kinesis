@@ -70,6 +70,9 @@ export type TerminalPOSSettings = {
   discountLimit: string;
   inactivityLock: string;
   gcashQrImagePath: string | null;
+  /** The GCash account customers pay to. Absent in settings cached by an older version. */
+  gcashNumber?: string;
+  gcashAccountName?: string;
   offlineQueueStrategy: string;
 };
 
