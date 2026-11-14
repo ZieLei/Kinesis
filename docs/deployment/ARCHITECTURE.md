@@ -96,6 +96,36 @@ diagnostic tool with no shell.
 PostgreSQL → backend → Caddy. Each template declares the dependency. Stop
 in reverse order; uvicorn drains requests for up to 20 seconds.
 
+### Restart, shut down and maintenance from the admin console
+The console's **Restart server** and **Shut down** buttons run
+`kinesisctl restart` and `kinesisctl stop`. The backend cannot do that itself:
+its sandbox has no access to the service manager, and a restart would kill it
+mid-request. So it only writes `<data>/control/request.json`, and a separate
+unsandboxed unit does the work:
+
+```
+console → backend → <data>/control/request.json
+                    kinesis-control.path (PathExists) → kinesis-control.service
+                    → deploy/control/kinesis_control.py → kinesisctl restart|stop
+                    → <data>/control/result.json → console
+```
+
+`kinesis_control.py` runs only those two commands, from a request that is not
+a symlink, belongs to the Kinesis account, is under 4 KB and under two minutes
+old. `kinesis-control.path` is **not** part of `kinesis.target`, so it keeps
+watching after `kinesisctl stop`. `install-kinesis.sh` installs it and adds
+`<data>/control` to the backend's writable paths. The console disables both
+buttons ("Control service not installed") on a host without it; macOS has no
+control service yet, use `kinesisctl` there.
+
+After a shutdown nothing answers, including the console: start it again on
+the host with `kinesisctl start`; the console page continues by itself.
+
+**Maintenance mode** (the wrench item) is stored in the `server_state` table.
+While it is on, every terminal behaves as if switched to maintenance
+individually: heartbeat and session report it, sales and stock changes return
+423, and the console keeps working. It survives restarts.
+
 ### Updates
 1. Stop the backend.
 2. Back up (below).
