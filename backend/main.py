@@ -17,7 +17,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import exists, or_, select, text
+from sqlalchemy import exists, func, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,8 @@ from models import (
     StockoutPeriod,
 )
 from sales_routes import router as sales_router
-from services_routes import router as services_router
+from sale_reversal_routes import router as sale_reversal_router
+from services_routes import admin_router as admin_services_router, router as services_router
 from inventory_routes import (
     InventoryReceiptCreate,
     ReceiptItemInput,
@@ -56,6 +57,7 @@ from cashier_routes import require_writable_cashier, router as cashier_router
 from activity_tracking import install_activity_tracking
 from inventory_tracking import install_inventory_tracking
 from overview_routes import router as overview_router
+from system_health import router as health_router
 from admin_inventory_routes import (
     require_admin_actor,
     router as admin_inventory_router,
@@ -84,6 +86,14 @@ IMAGE_FORMATS = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_application_logging()
+
+    if auth_settings.environment != "production":
+        logger.warning(
+            "KINESIS_ENVIRONMENT is not 'production': session cookies are "
+            "not Secure and the built-in development secret is in use. "
+            "Never run a shop server like this."
+        )
+
     install_activity_tracking()
     install_inventory_tracking()
     yield
@@ -157,7 +167,9 @@ install_admin_authentication(app)
 
 
 app.include_router(sales_router)
+app.include_router(sale_reversal_router)
 app.include_router(services_router)
+app.include_router(admin_services_router)
 app.include_router(inventory_router)
 app.include_router(analytics_router)
 app.include_router(terminal_router)
@@ -167,6 +179,7 @@ app.include_router(database_router)
 app.include_router(settings_router)
 app.include_router(cashier_router)
 app.include_router(overview_router)
+app.include_router(health_router)
 app.include_router(admin_inventory_router)
 
 
@@ -324,6 +337,52 @@ def product_response(product: Product) -> dict:
         "archived": product.archived_at is not None,
         "archived_at": product.archived_at,
     }
+
+
+PRODUCT_NAME_LOCK = 7_204_001  # pg advisory lock key: serializes catalog name checks
+
+
+def ensure_unique_product_name(
+    db: Session,
+    name: str,
+    category: str,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    """
+    Reject a second active product with the same name in the same category
+    (ignoring case and repeated spaces). Archived products do not count; they
+    are checked again when restored. The advisory lock lasts for the current
+    transaction, so two simultaneous creates cannot both pass the check.
+    """
+
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": PRODUCT_NAME_LOCK})
+
+    def normalized(column):
+        return func.lower(func.regexp_replace(func.btrim(column), r"\s+", " ", "g"))
+
+    wanted_name = " ".join(name.split()).lower()
+    wanted_category = " ".join(category.split()).lower()
+
+    statement = select(Product.id, Product.name).where(
+        Product.archived_at.is_(None),
+        normalized(Product.name) == wanted_name,
+        normalized(Product.category) == wanted_category,
+    )
+
+    if exclude_id is not None:
+        statement = statement.where(Product.id != exclude_id)
+
+    existing = db.execute(statement.limit(1)).first()
+
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"A product named '{existing.name}' already exists in "
+                f"{category.strip()}. Edit or restock that product instead."
+            ),
+        )
 
 
 def commit_or_raise_sku_conflict(db: Session) -> None:
@@ -513,6 +572,12 @@ def create_product(
     _cashier: object = Depends(require_writable_cashier),
     db: Session = Depends(get_db),
 ):
+    try:
+        ensure_unique_product_name(db, product_data.name, product_data.category)
+    except HTTPException:
+        db.rollback()
+        raise
+
     product_sku = (
         product_data.sku if product_data.sku is not None else generate_product_sku(db)
     )
@@ -602,6 +667,18 @@ def apply_product_update(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Provide at least one editable field to update.",
         )
+
+    if "name" in updates or "category" in updates:
+        try:
+            ensure_unique_product_name(
+                db,
+                updates.get("name", product.name),
+                updates.get("category", product.category),
+                exclude_id=product.id,
+            )
+        except HTTPException:
+            db.rollback()
+            raise
 
     for field, value in updates.items():
         setattr(product, field, value)
@@ -1049,6 +1126,8 @@ def admin_create_product(
     """
 
     try:
+        ensure_unique_product_name(db, product_data.name, product_data.category)
+
         if product_data.sku is not None and db.scalar(
             select(Product.id).where(Product.sku == product_data.sku)
         ):
@@ -1218,6 +1297,10 @@ def restore_product(
                         "Change one of the SKUs before restoring."
                     ),
                 )
+
+        ensure_unique_product_name(
+            db, product.name, product.category, exclude_id=product.id
+        )
 
         # Stock is untouched: the product returns with its prior quantity.
         product.archived_at = None

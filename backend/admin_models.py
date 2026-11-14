@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -82,10 +83,50 @@ class AdminUser(Base):
         nullable=True,
     )
 
+    # Two-factor authentication (TOTP). The secret is stored encrypted
+    # (auth/totp.py). It is set when enrolment starts and only enforced at
+    # login once totp_enabled_at is set by a successful confirmation.
+    totp_secret_enc: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Last accepted 30-second step: a code cannot be replayed.
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     sessions: Mapped[list["AdminSession"]] = relationship(
         back_populates="admin_user",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+
+
+class AdminRecoveryCode(Base):
+    """Single-use backup code for an administrator who lost their device."""
+
+    __tablename__ = "admin_recovery_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    admin_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
     )
 
 

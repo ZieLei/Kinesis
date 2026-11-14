@@ -143,9 +143,9 @@ class SettingsDocument(BaseModel):
     gcashQrImagePath: str | None = None
 
     listenAddress: Literal[
-        "0.0.0.0",
+        "0.0.0.0",  # nosec B104 - a setting value, not a bind call
         "127.0.0.1",
-    ] = "0.0.0.0"
+    ] = "0.0.0.0"  # nosec B104 - a setting value, not a bind call
 
     httpPort: str = Field(
         default="8000",

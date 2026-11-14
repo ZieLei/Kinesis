@@ -39,8 +39,9 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
-from database import engine, settings as database_settings
+from database import engine, get_db, settings as database_settings
 from terminal_routes import require_admin_token
 
 
@@ -94,6 +95,9 @@ class DatabaseAdminSettings(BaseSettings):
     backup_timeout_seconds: int = Field(default=300, ge=10, le=3600)
     restore_timeout_seconds: int = Field(default=900, ge=10, le=7200)
     backup_retention_days: int = Field(default=30, ge=1, le=3650)
+    # The newest backups are never deleted by age, so a long gap between
+    # backups cannot wipe out the only copies.
+    backup_keep_minimum: int = Field(default=7, ge=1, le=1000)
     max_restore_upload_bytes: int = Field(
         default=MAX_RESTORE_UPLOAD_BYTES,
         ge=1_048_576,
@@ -301,8 +305,15 @@ def log_utility_failure(
 
 
 def cleanup_expired_backups() -> None:
+    """
+    Delete managed backups older than the retention period, but always keep
+    the newest ``backup_keep_minimum`` files whatever their age.
+    """
+
     directory = ensure_backup_directory()
     cutoff = time.time() - admin_settings.backup_retention_days * 86400
+
+    managed: list[tuple[float, Path]] = []
 
     for path in directory.iterdir():
         if path.is_symlink() or not path.is_file():
@@ -312,8 +323,18 @@ def cleanup_expired_backups() -> None:
             continue
 
         try:
-            if path.stat().st_mtime < cutoff:
-                path.unlink(missing_ok=True)
+            managed.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+
+    managed.sort(key=lambda entry: entry[0], reverse=True)
+
+    for modified, path in managed[admin_settings.backup_keep_minimum :]:
+        if modified >= cutoff:
+            continue
+
+        try:
+            path.unlink(missing_ok=True)
 
         except OSError:
             logger.warning(
@@ -780,7 +801,7 @@ def run_read_only_query(
     # The server enforces a read-only transaction independently of the
     # frontend validation. A client cannot turn this endpoint into a write API.
     wrapped_query = (
-        "SELECT * FROM ("
+        "SELECT * FROM ("  # nosec B608 - validated single SELECT, run in a READ ONLY transaction
         + sql
         + ") AS kinesis_read_only_result LIMIT "
         + str(max_rows + 1)
@@ -916,6 +937,7 @@ async def restore_database(
     backup_file: UploadFile = File(...),
     database_name_confirmation: str = Form(...),
     _authorized: None = Depends(require_admin_token),
+    auth_session: Session = Depends(get_db),
 ):
     if database_name_confirmation != database_settings.database_name:
         raise HTTPException(
@@ -1035,6 +1057,12 @@ async def restore_database(
                     "No restore was performed."
                 ),
             )
+
+        # The administrator-authentication dependency shares this request's
+        # database session, which can still hold an open transaction (and
+        # locks on admin_sessions). pg_restore --clean must drop those tables
+        # and would wait for it forever, so release it first.
+        auth_session.rollback()
 
         # A recoverable pre-restore snapshot is mandatory. If it cannot be
         # created, restoration does not start.

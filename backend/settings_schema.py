@@ -77,7 +77,7 @@ class AppSettingsDocument(BaseModel):
     ] = "5"
 
     # Server and network
-    listenAddress: Literal["0.0.0.0", "127.0.0.1"] = "0.0.0.0"
+    listenAddress: Literal["0.0.0.0", "127.0.0.1"] = "0.0.0.0"  # nosec B104 - a setting value, not a bind call
     httpPort: str = Field(
         default="8000",
         pattern=r"^[0-9]{1,5}$",

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
@@ -68,7 +69,13 @@ GCASH_REFERENCE_SEPARATORS = re.compile(r"[\s-]+")
 GCASH_REFERENCE_PATTERN = re.compile(r"[0-9]{13}")
 
 PaymentMethod = Literal["cash", "gcash"]
-ReportPeriod = Literal["daily", "weekly", "monthly", "yearly"]
+ReportPeriod = Literal["daily", "weekly", "monthly", "yearly", "custom"]
+
+# A custom range is at most two years long; longer ranges are rejected so a
+# single request cannot scan the whole sales history.
+MAX_CUSTOM_RANGE_DAYS = 731
+# Up to this many days a custom range is charted per day, beyond it per month.
+DAILY_BUCKET_MAX_DAYS = 92
 
 
 def normalize_gcash_reference(value: str) -> str:
@@ -619,6 +626,22 @@ def authorize_supervisor_discount(
 # --------------------------------------------------
 
 
+def reversal_response(reversal) -> dict | None:
+    if reversal is None:
+        return None
+
+    return {
+        "kind": reversal.kind,
+        "reason_code": reversal.reason_code,
+        "note": reversal.note,
+        "amount": float(reversal.amount),
+        "restocked": reversal.restocked,
+        "requested_by_username": reversal.requested_by_username,
+        "authorized_by_username": reversal.authorized_by_username,
+        "created_at": reversal.created_at.isoformat(),
+    }
+
+
 def sale_response(sale: Sale) -> dict:
     subtotal = Decimal(sale.subtotal)
     gross_subtotal = Decimal(sale.gross_subtotal)
@@ -652,6 +675,7 @@ def sale_response(sale: Sale) -> dict:
         "amount_tendered": float(sale.amount_tendered),
         "change_due": float(sale.change_due),
         "settings_snapshot": sale.settings_snapshot or {},
+        "reversal": reversal_response(sale.reversal),
         "created_at": sale.created_at.isoformat(),
         "cashier_id": (str(sale.cashier_id) if sale.cashier_id is not None else None),
         "cashier_username": sale.cashier_username,
@@ -789,10 +813,29 @@ def checkout_belongs_to_cashier(
 def list_sales(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sale_status: Literal["completed", "voided", "refunded"] | None = Query(
+        default=None,
+        alias="status",
+    ),
+    search: str | None = Query(default=None, max_length=64),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
-    total = db.scalar(select(func.count(Sale.id))) or 0
+    filters = []
+
+    if sale_status is not None:
+        filters.append(Sale.status == sale_status)
+
+    if search and search.strip():
+        term = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(
+            or_(
+                Sale.transaction_code.ilike(f"%{term}%", escape="\\"),
+                Sale.reference_number.ilike(f"%{term}%", escape="\\"),
+            )
+        )
+
+    total = db.scalar(select(func.count(Sale.id)).where(*filters)) or 0
 
     sales = db.scalars(
         select(Sale)
@@ -800,6 +843,7 @@ def list_sales(
             selectinload(Sale.items),
             selectinload(Sale.service_items),
         )
+        .where(*filters)
         .order_by(
             Sale.created_at.desc(),
             Sale.id.desc(),
@@ -991,6 +1035,19 @@ def create_sale(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This transaction code has already been used.",
+            )
+
+        archived_services = [
+            service for service in locked_services if service.archived_at is not None
+        ]
+
+        if archived_services:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"'{archived_services[0].name}' is archived and can no "
+                    "longer be sold."
+                ),
             )
 
         # Checked under the row locks and after the idempotent replay above,
@@ -1375,6 +1432,167 @@ def period_dates(
     return start, date(reference_date.year + 1, 1, 1)
 
 
+@dataclass(frozen=True)
+class ReportRange:
+    """A resolved reporting window: [start, end) and the one to compare with."""
+
+    period: str
+    start: date
+    end: date  # exclusive
+    previous_start: date
+    previous_end: date  # exclusive
+    granularity: Literal["hour", "day", "month"]
+
+
+def bucket_granularity(period: str, start: date, end: date) -> str:
+    """How a window is charted: by hour, by day or by month."""
+
+    if period == "daily":
+        return "hour"
+
+    if period == "yearly":
+        return "month"
+
+    if period == "custom":
+        days = (end - start).days
+
+        if days <= 1:
+            return "hour"
+
+        return "day" if days <= DAILY_BUCKET_MAX_DAYS else "month"
+
+    return "day"
+
+
+def resolve_report_range(
+    period: str,
+    reference_date: date,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> ReportRange:
+    """Resolve the query into a window.
+
+    The fixed periods contain `reference_date` and compare with the period
+    before them. `custom` takes an inclusive start and end date and compares
+    with the equally long window immediately before it, which is how
+    analytics dashboards usually define "previous period".
+    """
+
+    if period != "custom":
+        if start_date is not None or end_date is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="start and end are only valid with period=custom.",
+            )
+
+        start, end = period_dates(period, reference_date)
+        previous_start, _ = period_dates(period, start - timedelta(days=1))
+
+        return ReportRange(
+            period,
+            start,
+            end,
+            previous_start,
+            start,
+            bucket_granularity(period, start, end),
+        )
+
+    if start_date is None or end_date is None:
+        raise HTTPException(
+            status_code=422,
+            detail="A custom range needs both start and end dates.",
+        )
+
+    if end_date < start_date:
+        raise HTTPException(
+            status_code=422,
+            detail="The end date must not be before the start date.",
+        )
+
+    end_exclusive = end_date + timedelta(days=1)
+    length = (end_exclusive - start_date).days
+
+    if length > MAX_CUSTOM_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A custom range can cover at most {MAX_CUSTOM_RANGE_DAYS} days.",
+        )
+
+    return ReportRange(
+        period,
+        start_date,
+        end_exclusive,
+        start_date - timedelta(days=length),
+        start_date,
+        bucket_granularity(period, start_date, end_exclusive),
+    )
+
+
+def month_starts(start: date, end: date) -> list[date]:
+    """First day of every month that overlaps [start, end)."""
+
+    months = []
+    cursor = date(start.year, start.month, 1)
+
+    while cursor < end:
+        months.append(cursor)
+        cursor = (
+            date(cursor.year + 1, 1, 1)
+            if cursor.month == 12
+            else date(cursor.year, cursor.month + 1, 1)
+        )
+
+    return months
+
+
+def bucket_label(period: str, granularity: str, value: date | int) -> str:
+    """Axis label of one bucket (an hour, a day or the first day of a month)."""
+
+    if granularity == "hour":
+        return f"{value:02d}:00"
+
+    if granularity == "month":
+        return (
+            value.strftime("%b '%y") if period == "custom" else value.strftime("%b")
+        )
+
+    if period == "weekly":
+        return value.strftime("%a")
+
+    if period == "custom":
+        return f"{value.strftime('%b')} {value.day}"
+
+    return str(value.day)
+
+
+def bucket_key_for(granularity: str, local: datetime):
+    if granularity == "hour":
+        return local.hour
+
+    if granularity == "month":
+        return date(local.year, local.month, 1)
+
+    return local.date()
+
+
+def bucket_keys(period: str, granularity: str, start: date, end: date) -> list:
+    if granularity == "hour":
+        return list(range(24))
+
+    if granularity == "month":
+        # A yearly report always shows the twelve months of its year.
+        return month_starts(start, end)
+
+    keys = []
+    cursor = start
+
+    while cursor < end:
+        keys.append(cursor)
+        cursor += timedelta(days=1)
+
+    return keys
+
+
 def utc_midnight(local_date: date) -> datetime:
     return datetime.combine(
         local_date,
@@ -1386,8 +1604,9 @@ def utc_midnight(local_date: date) -> datetime:
 def sale_conditions(
     start_date: date | None = None,
     end_date: date | None = None,
+    statuses: tuple[str, ...] = ("completed",),
 ) -> list:
-    conditions = [Sale.status == "completed"]
+    conditions = [Sale.status.in_(statuses)]
 
     if start_date is not None:
         conditions.append(Sale.created_at >= utc_midnight(start_date))
@@ -1408,14 +1627,33 @@ def sales_summary(
         end_date,
     )
 
-    transaction_count, revenue = db.execute(
+    (
+        transaction_count,
+        revenue,
+        gross_sales,
+        discounts,
+        net_sales,
+        tax,
+        discounted_transactions,
+    ) = db.execute(
         select(
             func.count(Sale.id),
-            func.coalesce(
-                func.sum(Sale.total),
-                ZERO_MONEY,
-            ),
+            func.coalesce(func.sum(Sale.total), ZERO_MONEY),
+            func.coalesce(func.sum(Sale.gross_subtotal), ZERO_MONEY),
+            func.coalesce(func.sum(Sale.discount_amount), ZERO_MONEY),
+            func.coalesce(func.sum(Sale.subtotal), ZERO_MONEY),
+            func.coalesce(func.sum(Sale.tax_amount), ZERO_MONEY),
+            func.count(Sale.id).filter(Sale.discount_amount > 0),
         ).where(*conditions)
+    ).one()
+
+    # Voided and refunded sales are excluded from every figure above; they
+    # are reported separately so the difference is visible, not hidden.
+    reversed_count, reversed_amount = db.execute(
+        select(
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.total), ZERO_MONEY),
+        ).where(*sale_conditions(start_date, end_date, ("voided", "refunded")))
     ).one()
 
     product_quantity = (
@@ -1453,9 +1691,19 @@ def sales_summary(
     )
 
     return {
+        # Total collected (after discounts, tax and cash rounding).
         "sales": float(revenue or ZERO_MONEY),
         "transactions": int(transaction_count or 0),
         "items": int(product_quantity) + int(service_quantity),
+        # Sales reconciliation: gross - discounts = net; net + tax (+ cash
+        # rounding) = sales. Additive fields; existing clients ignore them.
+        "gross_sales": float(gross_sales or ZERO_MONEY),
+        "discounts": float(discounts or ZERO_MONEY),
+        "net_sales": float(net_sales or ZERO_MONEY),
+        "tax": float(tax or ZERO_MONEY),
+        "discounted_transactions": int(discounted_transactions or 0),
+        "reversed_transactions": int(reversed_count or 0),
+        "reversed_amount": float(reversed_amount or ZERO_MONEY),
     }
 
 
@@ -1537,68 +1785,33 @@ def build_series(
     sales,
     quantities: dict[int, int],
 ) -> list[dict]:
+    granularity = bucket_granularity(period, start_date, end_date)
     buckets: list[dict] = []
     bucket_by_key: dict[object, dict] = {}
 
-    if period == "daily":
-        for hour in range(24):
-            bucket = {
-                "label": f"{hour:02d}:00",
-                "sales": ZERO_MONEY,
-                "transactions": 0,
-                "items": 0,
-            }
+    for key in bucket_keys(period, granularity, start_date, end_date):
+        bucket = {
+            "label": bucket_label(period, granularity, key),
+            "sales": ZERO_MONEY,
+            "transactions": 0,
+            "items": 0,
+        }
 
-            buckets.append(bucket)
-            bucket_by_key[hour] = bucket
+        if granularity == "day":
+            bucket["date"] = key.isoformat()
+        elif granularity == "month":
+            bucket["month"] = key.month
 
-    elif period == "yearly":
-        for month in range(1, 13):
-            bucket = {
-                "label": date(
-                    start_date.year,
-                    month,
-                    1,
-                ).strftime("%b"),
-                "month": month,
-                "sales": ZERO_MONEY,
-                "transactions": 0,
-                "items": 0,
-            }
+            if period == "custom":
+                bucket["date"] = key.isoformat()
 
-            buckets.append(bucket)
-            bucket_by_key[month] = bucket
-
-    else:
-        cursor = start_date
-
-        while cursor < end_date:
-            bucket = {
-                "label": (
-                    cursor.strftime("%a") if period == "weekly" else str(cursor.day)
-                ),
-                "date": cursor.isoformat(),
-                "sales": ZERO_MONEY,
-                "transactions": 0,
-                "items": 0,
-            }
-
-            buckets.append(bucket)
-            bucket_by_key[cursor] = bucket
-
-            cursor += timedelta(days=1)
+        buckets.append(bucket)
+        bucket_by_key[key] = bucket
 
     for row in sales:
-        created_at = local_datetime(row.created_at)
-
-        if period == "daily":
-            key = created_at.hour
-        elif period == "yearly":
-            key = created_at.month
-        else:
-            key = created_at.date()
-
-        bucket = bucket_by_key.get(key)
+        bucket = bucket_by_key.get(
+            bucket_key_for(granularity, local_datetime(row.created_at))
+        )
 
         if bucket is None:
             continue
@@ -1627,22 +1840,22 @@ def get_sales_report(
         default=None,
         alias="date",
     ),
+    start_date: date | None = Query(default=None, alias="start"),
+    end_date: date | None = Query(default=None, alias="end"),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
-    current_start, current_end = period_dates(
+    window = resolve_report_range(
         period,
         selected_date,
+        start_date,
+        end_date,
     )
 
-    previous_start, _ = period_dates(
-        period,
-        current_start - timedelta(days=1),
-    )
-
-    previous_end = current_start
+    current_start, current_end = window.start, window.end
+    previous_start, previous_end = window.previous_start, window.previous_end
 
     current_rows, current_quantities = load_period_rows(
         db,
@@ -1672,7 +1885,12 @@ def get_sales_report(
 
     return {
         "period": period,
-        "date": selected_date.isoformat(),
+        "granularity": window.granularity,
+        "date": (
+            current_start.isoformat()
+            if period == "custom"
+            else selected_date.isoformat()
+        ),
         "timezone": REPORT_TIMEZONE.key,
         "period_start": current_start.isoformat(),
         "period_end_exclusive": current_end.isoformat(),
@@ -1722,6 +1940,8 @@ def build_category_series(
     if not selected_categories:
         return []
 
+    granularity = bucket_granularity(period, start_date, end_date)
+
     conditions = sale_conditions(
         start_date,
         end_date,
@@ -1732,15 +1952,15 @@ def build_category_series(
         Sale.created_at,
     )
 
-    if period == "daily":
+    if granularity == "hour":
         bucket_expression = func.extract(
             "hour",
             local_created_at,
         )
-    elif period == "yearly":
-        bucket_expression = func.extract(
-            "month",
-            local_created_at,
+    elif granularity == "month":
+        bucket_expression = cast(
+            func.date_trunc("month", local_created_at),
+            SQLDate,
         )
     else:
         bucket_expression = cast(
@@ -1781,7 +2001,7 @@ def build_category_series(
         if category not in selected_category_set:
             continue
 
-        bucket_key = int(row.bucket) if period in ("daily", "yearly") else row.bucket
+        bucket_key = int(row.bucket) if granularity == "hour" else row.bucket
 
         bucket_categories = revenue_by_bucket.setdefault(
             bucket_key,
@@ -1793,66 +2013,24 @@ def build_category_series(
             ZERO_MONEY,
         ) + Decimal(row.revenue or ZERO_MONEY)
 
-    buckets: list[dict] = []
-    bucket_keys: list[object] = []
+    result: list[dict] = []
 
-    if period == "daily":
-        for hour in range(24):
-            bucket_keys.append(hour)
-            buckets.append({"label": f"{hour:02d}:00"})
+    for key in bucket_keys(period, granularity, start_date, end_date):
+        point: dict = {"label": bucket_label(period, granularity, key)}
 
-    elif period == "yearly":
-        for month in range(1, 13):
-            bucket_keys.append(month)
+        if granularity == "day" or (granularity == "month" and period == "custom"):
+            point["date"] = key.isoformat()
 
-            buckets.append(
-                {
-                    "label": date(
-                        start_date.year,
-                        month,
-                        1,
-                    ).strftime("%b")
-                }
+        point["categories"] = {
+            category: float(
+                revenue_by_bucket.get(key, {}).get(category, ZERO_MONEY)
             )
-
-    else:
-        cursor = start_date
-
-        while cursor < end_date:
-            bucket_keys.append(cursor)
-
-            buckets.append(
-                {
-                    "label": (
-                        cursor.strftime("%a") if period == "weekly" else str(cursor.day)
-                    ),
-                    "date": cursor.isoformat(),
-                }
-            )
-
-            cursor += timedelta(days=1)
-
-    return [
-        {
-            **bucket,
-            "categories": {
-                category: float(
-                    revenue_by_bucket.get(
-                        bucket_key,
-                        {},
-                    ).get(
-                        category,
-                        ZERO_MONEY,
-                    )
-                )
-                for category in selected_categories
-            },
+            for category in selected_categories
         }
-        for bucket_key, bucket in zip(
-            bucket_keys,
-            buckets,
-        )
-    ]
+
+        result.append(point)
+
+    return result
 
 
 @router.get("/reports/products", tags=["Reports"])
@@ -1863,6 +2041,8 @@ def get_product_report(
         default=None,
         alias="date",
     ),
+    start_date: date | None = Query(default=None, alias="start"),
+    end_date: date | None = Query(default=None, alias="end"),
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, max_length=150),
     # Not named `category`: the function body reuses that name in a loop.
@@ -1875,11 +2055,21 @@ def get_product_report(
 ):
     selected_date = report_date or datetime.now(REPORT_TIMEZONE).date()
 
+    if period is None and (start_date is not None or end_date is not None):
+        raise HTTPException(
+            status_code=422,
+            detail="start and end need a period.",
+        )
+
     if period is not None:
-        current_start, current_end = period_dates(
+        window = resolve_report_range(
             period,
             selected_date,
+            start_date,
+            end_date,
         )
+
+        current_start, current_end = window.start, window.end
 
         conditions = sale_conditions(
             current_start,
@@ -1983,7 +2173,16 @@ def get_product_report(
 
     return {
         "period": period,
-        "date": (selected_date.isoformat() if period is not None else None),
+        "granularity": (window.granularity if period is not None else None),
+        "date": (
+            (
+                current_start.isoformat()
+                if period == "custom"
+                else selected_date.isoformat()
+            )
+            if period is not None
+            else None
+        ),
         "timezone": REPORT_TIMEZONE.key,
         "period_start": (current_start.isoformat() if current_start else None),
         "period_end_exclusive": (current_end.isoformat() if current_end else None),

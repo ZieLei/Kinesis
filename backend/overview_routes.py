@@ -224,6 +224,17 @@ def get_operations_overview(
 
     today_revenue_value = _as_float(today_revenue)
 
+    # Excluded from the figures above; shown so the owner sees them.
+    reversed_today_count, reversed_today_amount = db.execute(
+        select(
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.total), 0),
+        ).where(
+            Sale.status.in_(("voided", "refunded")),
+            Sale.created_at >= start_of_day_utc,
+        )
+    ).one()
+
     average_transaction_value = (
         today_revenue_value / today_transactions if today_transactions else 0
     )
@@ -428,6 +439,8 @@ def get_operations_overview(
             "revenue": today_revenue_value,
             "transactions": int(today_transactions),
             "average_transaction_value": average_transaction_value,
+            "reversed_transactions": int(reversed_today_count or 0),
+            "reversed_amount": _as_float(reversed_today_amount),
         },
         "payment_breakdown": payment_breakdown,
         "terminal_summary": terminal_summary,

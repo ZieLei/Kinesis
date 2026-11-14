@@ -90,6 +90,28 @@ def validate_pin(value: SecretStr) -> SecretStr:
     return value
 
 
+def validate_new_pin(value: SecretStr) -> SecretStr:
+    """Format check plus a weak-PIN check. Only for PINs being set, never for
+    sign-in: existing cashiers may already have simple PINs."""
+
+    validate_pin(value)
+    raw_pin = value.get_secret_value()
+
+    digits = [int(character) for character in raw_pin]
+    steps = {digits[i + 1] - digits[i] for i in range(5)}
+
+    if len(set(digits)) == 1 or steps == {1} or steps == {-1}:
+        raise ValueError(
+            "That PIN is too easy to guess (for example 000000 or 123456). "
+            "Choose a different one."
+        )
+
+    if raw_pin[:3] == raw_pin[3:]:
+        raise ValueError("That PIN is too easy to guess. Choose a different one.")
+
+    return value
+
+
 def get_client_ip(request: Request) -> str | None:
     if request.client is None:
         return None
@@ -145,7 +167,7 @@ class CashierCreateRequest(BaseModel):
     @field_validator("pin")
     @classmethod
     def validate_cashier_pin(cls, value: SecretStr) -> SecretStr:
-        return validate_pin(value)
+        return validate_new_pin(value)
 
 
 class CashierUpdateRequest(BaseModel):
@@ -192,7 +214,7 @@ class CashierPinResetRequest(BaseModel):
     @field_validator("pin")
     @classmethod
     def validate_cashier_pin(cls, value: SecretStr) -> SecretStr:
-        return validate_pin(value)
+        return validate_new_pin(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +338,24 @@ def require_writable_cashier(
                 "This terminal is in maintenance mode. "
                 "POS modifications are temporarily unavailable."
             ),
+        )
+
+    return principal
+
+
+def require_supervisor_cashier(
+    principal: CashierPrincipal = Depends(require_writable_cashier),
+) -> CashierPrincipal:
+    """
+    Require a signed-in supervisor. Used for changes that alter what the shop
+    charges or sells (service prices, retiring a service), so an ordinary
+    cashier cannot reprice or remove items.
+    """
+
+    if not principal.cashier.is_supervisor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a supervisor can make this change.",
         )
 
     return principal
@@ -512,6 +552,7 @@ def login_cashier(
                 "id": str(locked_cashier.id),
                 "username": locked_cashier.username,
                 "display_name": locked_cashier.display_name,
+                "is_supervisor": locked_cashier.is_supervisor,
             },
             "idle_expires_at": (created_session.record.idle_expires_at.isoformat()),
             "absolute_expires_at": (
@@ -551,6 +592,7 @@ def get_cashier_session(
             "id": str(principal.cashier.id),
             "username": principal.cashier.username,
             "display_name": principal.cashier.display_name,
+            "is_supervisor": principal.cashier.is_supervisor,
         },
         "terminal_id": principal.terminal.id,
         "idle_expires_at": principal.session.idle_expires_at.isoformat(),
@@ -677,6 +719,7 @@ def verify_current_cashier_pin(
                 "id": str(cashier.id),
                 "username": cashier.username,
                 "display_name": cashier.display_name,
+                "is_supervisor": cashier.is_supervisor,
             },
         }
 

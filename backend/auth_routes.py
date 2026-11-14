@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from admin_models import AdminUser
+from admin_models import AdminRecoveryCode, AdminUser
 from auth.cookies import (
     clear_admin_session_cookie,
     set_admin_session_cookie,
@@ -31,6 +31,8 @@ from auth.login_limits import (
     record_failed_login,
     reset_login_attempts,
 )
+from auth.mfa import check_second_factor
+from auth import totp
 from auth.password import (
     DUMMY_PASSWORD_HASH,
     hash_password,
@@ -68,6 +70,10 @@ class AdminLoginRequest(BaseModel):
         min_length=1,
         max_length=128,
     )
+
+    # Authenticator code or recovery code; required only for accounts with
+    # two-factor authentication enabled.
+    otp: str | None = Field(default=None, max_length=32)
 
     @field_validator("username")
     @classmethod
@@ -185,6 +191,26 @@ def login_admin(
         )
 
         raise authentication_failed()
+
+    if admin.totp_enabled_at is not None:
+        if not (payload.otp or "").strip():
+            # Password was right; ask for the second factor. Not counted
+            # as a failure.
+            raise HTTPException(
+                status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                detail="Enter the 6-digit code from your authenticator app.",
+                headers={"Cache-Control": "no-store"},
+            )
+
+        if not check_second_factor(db, admin, payload.otp):
+            db.rollback()
+            record_failed_login(db, attempt_keys)
+
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="That verification code is not valid.",
+                headers={"Cache-Control": "no-store"},
+            )
 
     now = datetime.now(timezone.utc)
 
@@ -336,3 +362,155 @@ def logout_admin(
         "authenticated": False,
         "message": "Administrator session ended.",
     }
+
+
+# --------------------------------------------------
+# Two-factor authentication management
+# --------------------------------------------------
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class MfaDisableRequest(BaseModel):
+    password: SecretStr = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=1, max_length=32)
+
+
+def _recovery_remaining(db: Session, admin: AdminUser) -> int:
+    return len(
+        db.scalars(
+            select(AdminRecoveryCode.id).where(
+                AdminRecoveryCode.admin_user_id == admin.id,
+                AdminRecoveryCode.used_at.is_(None),
+            )
+        ).all()
+    )
+
+
+@router.get("/mfa")
+def mfa_status(
+    response: Response,
+    principal: AdminPrincipal = Depends(get_admin_principal),
+    db: Session = Depends(get_db),
+):
+    no_store(response)
+
+    return {
+        "enabled": principal.user.totp_enabled_at is not None,
+        "recovery_codes_remaining": _recovery_remaining(db, principal.user),
+    }
+
+
+@router.post("/mfa/setup")
+def mfa_setup(
+    response: Response,
+    principal: AdminPrincipal = Depends(get_admin_principal),
+    db: Session = Depends(get_db),
+):
+    """Start enrolment: create a secret to add to an authenticator app."""
+
+    no_store(response)
+    admin = principal.user
+
+    if admin.totp_enabled_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Two-factor authentication is already enabled. Disable it first.",
+        )
+
+    secret = totp.generate_secret()
+    admin.totp_secret_enc = totp.encrypt_secret(secret)
+    admin.totp_last_step = None
+    db.commit()
+
+    return {
+        "secret": secret,
+        "otpauth_uri": totp.provisioning_uri(secret, admin.username),
+    }
+
+
+@router.post("/mfa/enable")
+def mfa_enable(
+    payload: MfaCodeRequest,
+    response: Response,
+    principal: AdminPrincipal = Depends(get_admin_principal),
+    db: Session = Depends(get_db),
+):
+    """Confirm enrolment with a code; returns the recovery codes once."""
+
+    no_store(response)
+    admin = db.scalar(
+        select(AdminUser)
+        .where(AdminUser.id == principal.user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if admin is None or admin.totp_secret_enc is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Start the setup first.")
+
+    if admin.totp_enabled_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Two-factor authentication is already enabled.")
+
+    step = totp.verify_code(totp.decrypt_secret(admin.totp_secret_enc), payload.code)
+
+    if step is None:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "That code is not valid. Check the time on your phone and try the next code.",
+        )
+
+    codes = totp.generate_recovery_codes()
+    db.execute(
+        AdminRecoveryCode.__table__.delete().where(
+            AdminRecoveryCode.admin_user_id == admin.id
+        )
+    )
+    db.add_all(
+        AdminRecoveryCode(admin_user_id=admin.id, code_hash=totp.hash_recovery_code(code))
+        for code in codes
+    )
+
+    admin.totp_last_step = step
+    admin.totp_enabled_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"enabled": True, "recovery_codes": codes}
+
+
+@router.post("/mfa/disable")
+def mfa_disable(
+    payload: MfaDisableRequest,
+    response: Response,
+    principal: AdminPrincipal = Depends(get_admin_principal),
+    db: Session = Depends(get_db),
+):
+    """Turn off two-factor authentication; needs the password and a code."""
+
+    no_store(response)
+    admin = principal.user
+
+    if admin.totp_enabled_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Two-factor authentication is not enabled.")
+
+    if not verify_password(payload.password.get_secret_value(), admin.password_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The password is not correct.")
+
+    if not check_second_factor(db, admin, payload.code):
+        db.rollback()
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "That verification code is not valid.")
+
+    admin.totp_secret_enc = None
+    admin.totp_enabled_at = None
+    admin.totp_last_step = None
+    db.execute(
+        AdminRecoveryCode.__table__.delete().where(
+            AdminRecoveryCode.admin_user_id == admin.id
+        )
+    )
+    db.commit()
+
+    return {"enabled": False}

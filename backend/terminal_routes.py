@@ -102,6 +102,20 @@ class TerminalMaintenanceUpdate(BaseModel):
     maintenance_mode: bool
 
 
+class TerminalRename(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError("The terminal name cannot be blank.")
+
+        return value
+
+
 class TerminalBroadcastRequest(BaseModel):
     message: str = Field(
         min_length=1,
@@ -698,6 +712,38 @@ def set_terminal_maintenance(
             if terminal.maintenance_mode
             else "Maintenance mode disabled."
         ),
+    }
+
+
+@router.patch("/admin/terminals/{terminal_id}/name")
+def rename_terminal(
+    terminal_id: int,
+    update: TerminalRename,
+    _authorized: None = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+):
+    terminal = get_terminal_or_404(db, terminal_id)
+
+    terminal.name = update.name
+    terminal.updated_at = utc_now()
+
+    try:
+        db.commit()
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        logger.exception("Could not rename terminal.")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The terminal could not be renamed.",
+        ) from exc
+
+    return {
+        "terminal_id": terminal.id,
+        "name": terminal.name,
+        "message": f"Terminal renamed to {terminal.name}.",
     }
 
 

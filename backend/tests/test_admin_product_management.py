@@ -271,3 +271,54 @@ def test_archived_view_and_restore(pos, admin, db_session):
     assert listing(admin, archived=True)["total"] == 0
     assert [item["name"] for item in listing(admin)["items"]] == ["Old chain"]
     assert edit(admin, product.id, name="Old chain (restored)").status_code == 200
+
+
+def create(admin, **fields):
+    client, headers = admin
+    body = {"name": "Spark plug", "category": "Ignition", "price": "120.00", **fields}
+    return client.post("/api/admin/products", headers=headers, json=body)
+
+
+def test_duplicate_product_names_are_rejected(admin, db_session):
+    assert create(admin).status_code == 201
+
+    same = create(admin, name="  spark   PLUG ", category="ignition")
+    other_category = create(admin, category="Electrical")
+
+    assert same.status_code == 409
+    assert "already exists" in same.json()["detail"]
+    assert other_category.status_code == 201
+    assert len(db_session.scalars(select(Product)).all()) == 2
+
+
+def test_rename_into_a_duplicate_is_rejected_but_self_rename_is_fine(admin, db_session):
+    first = create(admin).json()
+    second = create(admin, name="Air filter").json()
+
+    clash = edit(admin, second["id"], name="Spark plug", category="Ignition")
+    own_case_change = edit(admin, first["id"], name="SPARK PLUG")
+
+    assert clash.status_code == 409
+    assert own_case_change.status_code == 200
+
+
+def test_restoring_into_a_duplicate_is_rejected(admin, db_session):
+    original = create(admin).json()
+    db_session.get(Product, original["id"]).archived_at = datetime.now(timezone.utc)
+    db_session.commit()
+    assert create(admin).status_code == 201  # archived products do not block
+
+    client, headers = admin
+    restore = client.post(
+        f"/api/admin/products/{original['id']}/restore", headers=headers
+    )
+
+    assert restore.status_code == 409
+
+
+def test_pos_create_rejects_duplicates(pos, db_session):
+    client, headers = pos
+    body = {"name": "Chain", "category": "Drive", "price": "500.00", "stock": 0}
+
+    assert client.post("/api/products", headers=headers, json=body).status_code in (200, 201)
+    assert client.post("/api/products", headers=headers, json=body).status_code == 409

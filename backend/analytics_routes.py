@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Sale, SaleItem, SaleServiceItem
-from sales_routes import period_dates, utc_midnight
+from sales_routes import (
+    bucket_granularity,
+    bucket_key_for,
+    bucket_keys,
+    bucket_label,
+    resolve_report_range,
+    utc_midnight,
+)
 from terminal_routes import require_admin_or_terminal
 
 
@@ -43,69 +50,34 @@ def local_datetime(value: datetime) -> datetime:
     return value.astimezone(TIMEZONE)
 
 
-def bucket_key(value: datetime, period: str):
-    local = local_datetime(value)
-
-    if period == "daily":
-        return local.hour
-
-    if period == "yearly":
-        return local.month
-
-    return local.date()
+def bucket_key(value: datetime, period: str, start: date, end: date):
+    return bucket_key_for(
+        bucket_granularity(period, start, end),
+        local_datetime(value),
+    )
 
 
 def build_buckets(period: str, start: date, end: date):
+    granularity = bucket_granularity(period, start, end)
     buckets = []
     lookup = {}
 
-    if period == "daily":
-        for hour in range(24):
-            bucket = {
-                "label": f"{hour:02d}:00",
-                "revenue": ZERO,
-                "gross_profit": ZERO,
-                "covered_revenue": ZERO,
-                "total_revenue": ZERO,
-                "parts_revenue": ZERO,
-                "services_revenue": ZERO,
-            }
-            buckets.append(bucket)
-            lookup[hour] = bucket
+    for key in bucket_keys(period, granularity, start, end):
+        bucket = {
+            "label": bucket_label(period, granularity, key),
+            "revenue": ZERO,
+            "gross_profit": ZERO,
+            "covered_revenue": ZERO,
+            "total_revenue": ZERO,
+            "parts_revenue": ZERO,
+            "services_revenue": ZERO,
+        }
 
-    elif period == "yearly":
-        for month in range(1, 13):
-            bucket = {
-                "label": date(start.year, month, 1).strftime("%b"),
-                "revenue": ZERO,
-                "gross_profit": ZERO,
-                "covered_revenue": ZERO,
-                "total_revenue": ZERO,
-                "parts_revenue": ZERO,
-                "services_revenue": ZERO,
-            }
-            buckets.append(bucket)
-            lookup[month] = bucket
+        if granularity == "day" or (granularity == "month" and period == "custom"):
+            bucket["date"] = key.isoformat()
 
-    else:
-        cursor = start
-
-        while cursor < end:
-            bucket = {
-                "label": (
-                    cursor.strftime("%a") if period == "weekly" else str(cursor.day)
-                ),
-                "date": cursor.isoformat(),
-                "revenue": ZERO,
-                "gross_profit": ZERO,
-                "covered_revenue": ZERO,
-                "total_revenue": ZERO,
-                "parts_revenue": ZERO,
-                "services_revenue": ZERO,
-            }
-            buckets.append(bucket)
-            lookup[cursor] = bucket
-            cursor += timedelta(days=1)
+        buckets.append(bucket)
+        lookup[key] = bucket
 
     return buckets, lookup
 
@@ -134,14 +106,17 @@ def finish_financial_bucket(bucket: dict):
 def get_business_analytics(
     period: str = Query(
         default="monthly",
-        pattern="^(daily|weekly|monthly|yearly)$",
+        pattern="^(daily|weekly|monthly|yearly|custom)$",
     ),
     report_date: date | None = Query(default=None, alias="date"),
+    start_date: date | None = Query(default=None, alias="start"),
+    end_date: date | None = Query(default=None, alias="end"),
     _authorized: object = Depends(require_admin_or_terminal),
     db: Session = Depends(get_db),
 ):
     selected_date = report_date or datetime.now(TIMEZONE).date()
-    start, end = period_dates(period, selected_date)
+    window = resolve_report_range(period, selected_date, start_date, end_date)
+    start, end = window.start, window.end
     conditions = conditions_for(start, end)
 
     buckets, bucket_lookup = build_buckets(period, start, end)
@@ -267,7 +242,7 @@ def get_business_analytics(
             else:
                 services_revenue += line_revenue
 
-            key = bucket_key(line.created_at, period)
+            key = bucket_key(line.created_at, period, start, end)
             bucket = bucket_lookup.get(key)
 
             if bucket is None:
@@ -351,7 +326,8 @@ def get_business_analytics(
 
     return {
         "period": period,
-        "date": selected_date.isoformat(),
+        "granularity": window.granularity,
+        "date": (start if period == "custom" else selected_date).isoformat(),
         "timezone": TIMEZONE.key,
         "period_start": start.isoformat(),
         "period_end_exclusive": end.isoformat(),

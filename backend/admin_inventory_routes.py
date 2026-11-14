@@ -27,6 +27,8 @@ from models import (
     InventoryReceipt,
     InventoryReceiptItem,
     Product,
+    Sale,
+    SaleItem,
     STOCK_ADJUSTMENT_REASONS,
     StockAdjustment,
 )
@@ -417,7 +419,40 @@ def stock_history(
         .limit(limit)
     ).all()
 
+    # Units sold (including sales later voided or refunded, whose restock
+    # appears above as a separate adjustment) so the history explains every
+    # change to the stock figure.
+    sales = db.execute(
+        select(
+            SaleItem.id,
+            SaleItem.quantity,
+            Sale.transaction_code,
+            Sale.status,
+            Sale.created_at,
+            Sale.cashier_display_name,
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(SaleItem.product_id == product_id)
+        .order_by(Sale.created_at.desc(), SaleItem.id.desc())
+        .limit(limit)
+    ).all()
+
     entries = [
+        {
+            "type": "sale",
+            "id": row.id,
+            "at": row.created_at.isoformat(),
+            "quantity_change": -row.quantity,
+            "stock_before": None,
+            "stock_after": None,
+            "reason": None,
+            "note": row.transaction_code
+            + ("" if row.status == "completed" else f" ({row.status})"),
+            "actor_name": row.cashier_display_name,
+            "unit_cost": None,
+        }
+        for row in sales
+    ] + [
         {
             "type": "receipt",
             "id": item.id,

@@ -74,6 +74,14 @@ class Service(Base):
             "estimated_cost IS NULL OR estimated_cost >= 0",
             name="ck_services_estimated_cost_nonnegative",
         ),
+        # No two active services may share a name (ignoring case and edge
+        # spaces). Archived services keep their name without blocking reuse.
+        Index(
+            "uq_services_active_name",
+            text("lower(btrim(name))"),
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -91,6 +99,21 @@ class Service(Base):
     estimated_cost: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 4),
         nullable=True,
+    )
+
+    # Set when the service is retired. Archived services cannot be sold but
+    # stay on past sales and reports; an administrator can restore them.
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=func.now(),
     )
 
 
@@ -281,6 +304,12 @@ class Sale(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="SaleServiceItem.id",
+    )
+
+    reversal: Mapped["SaleReversal | None"] = relationship(
+        uselist=False,
+        lazy="selectin",
+        viewonly=True,
     )
 
 
@@ -568,7 +597,8 @@ class StockAdjustment(Base):
             name="ck_stock_adjustments_arithmetic",
         ),
         CheckConstraint(
-            "reason IN ('damaged', 'lost', 'expired', 'count_correction', 'other')",
+            "reason IN ('damaged', 'lost', 'expired', 'count_correction', "
+            "'other', 'sale_reversal')",
             name="ck_stock_adjustments_reason",
         ),
         CheckConstraint(
@@ -599,6 +629,116 @@ class StockAdjustment(Base):
     actor_type: Mapped[str] = mapped_column(String(24), nullable=False)
     actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     actor_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+
+SALE_REVERSAL_KINDS = ("void", "refund")
+
+SALE_REVERSAL_REASONS = (
+    "customer_changed_mind",
+    "wrong_item",
+    "cashier_error",
+    "defective_item",
+    "duplicate_sale",
+    "pricing_dispute",
+    "other",
+)
+
+
+class SaleReversal(Base):
+    """
+    A full void or refund of one completed sale.
+
+    The original sale and its lines are never edited (apart from the sale's
+    status); this row records who reversed it, why, who authorized it and
+    whether the goods went back into stock. At most one per sale.
+    """
+
+    __tablename__ = "sale_reversals"
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('void', 'refund')",
+            name="ck_sale_reversals_kind",
+        ),
+        CheckConstraint(
+            "reason_code IN ('customer_changed_mind', 'wrong_item', "
+            "'cashier_error', 'defective_item', 'duplicate_sale', "
+            "'pricing_dispute', 'other')",
+            name="ck_sale_reversals_reason",
+        ),
+        CheckConstraint(
+            "reason_code <> 'other' OR note IS NOT NULL",
+            name="ck_sale_reversals_other_needs_note",
+        ),
+        CheckConstraint("amount >= 0", name="ck_sale_reversals_amount_nonnegative"),
+        UniqueConstraint("sale_id", name="uq_sale_reversals_sale_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    sale_id: Mapped[int] = mapped_column(
+        ForeignKey("sales.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    # Copied so the record stays readable on its own.
+    transaction_code: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Amount given back (cash) or marked reversed (GCash): the sale total.
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    # False when returned goods are unsellable (for example defective).
+    restocked: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+
+    requested_by: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "cashiers.id",
+            ondelete="SET NULL",
+            name="fk_sale_reversals_requested_by_cashiers",
+        ),
+        nullable=True,
+    )
+    requested_by_username: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+
+    authorized_by: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "cashiers.id",
+            ondelete="SET NULL",
+            name="fk_sale_reversals_authorized_by_cashiers",
+        ),
+        nullable=True,
+    )
+    authorized_by_username: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    terminal_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "terminals.id",
+            ondelete="SET NULL",
+            name="fk_sale_reversals_terminal_id_terminals",
+        ),
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

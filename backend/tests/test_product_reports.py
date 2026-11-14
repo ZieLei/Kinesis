@@ -190,3 +190,49 @@ def test_active_inventory_figures_exclude_archived(pos, client_factory, db_sessi
     assert inventory["out_of_stock_count"] == 0
     assert inventory["low_stock_count"] == 1
     assert [row["id"] for row in inventory["low_stock_products"]] == [low_active.id]
+
+
+# --------------------------------------------------------------------------
+# Sales summary reconciliation (used by the exported analytics report)
+
+
+def test_sales_summary_reconciles_gross_discounts_net_and_tax(pos, db_session):
+    client, headers = pos
+    product = add_product(db_session, stock=20)
+    assert sell(client, headers, product.id, code="TXN-RECON-0001", quantity=2).status_code == 200
+    assert sell(client, headers, product.id, code="TXN-RECON-0002", quantity=1).status_code == 200
+
+    # Second sale: 10% discount and 12% tax on its 350.00 gross.
+    discounted = db_session.scalars(select(Sale).where(Sale.transaction_code == "TXN-RECON-0002")).one()
+    discounted.gross_subtotal = Decimal("350.00")
+    discounted.discount_amount = Decimal("35.00")
+    discounted.subtotal = Decimal("315.00")
+    discounted.tax_amount = Decimal("37.80")
+    discounted.total = Decimal("352.80")
+    db_session.commit()
+
+    response = client.get("/api/reports/sales", headers=headers, params={"period": "daily"})
+    assert response.status_code == 200, response.text
+    current = response.json()["current"]
+
+    assert current["transactions"] == 2
+    assert current["discounted_transactions"] == 1
+    assert current["gross_sales"] == pytest.approx(1050.00)
+    assert current["discounts"] == pytest.approx(35.00)
+    assert current["net_sales"] == pytest.approx(1015.00)
+    assert current["tax"] == pytest.approx(37.80)
+    assert current["sales"] == pytest.approx(700.00 + 352.80)
+    # gross - discounts = net; net + tax = collected (no cash rounding here)
+    assert current["gross_sales"] - current["discounts"] == pytest.approx(current["net_sales"])
+    assert current["net_sales"] + current["tax"] == pytest.approx(current["sales"])
+
+    # Existing fields are unchanged, and lifetime carries the same breakdown.
+    assert set(response.json()["lifetime"]) >= {"sales", "transactions", "items", "gross_sales", "discounts", "net_sales", "tax"}
+
+
+def test_sales_summary_is_zero_without_sales(pos):
+    client, headers = pos
+    current = client.get("/api/reports/sales", headers=headers, params={"period": "daily"}).json()["current"]
+    assert {k: current[k] for k in ("gross_sales", "discounts", "net_sales", "tax", "discounted_transactions")} == {
+        "gross_sales": 0, "discounts": 0, "net_sales": 0, "tax": 0, "discounted_transactions": 0,
+    }
