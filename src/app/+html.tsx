@@ -43,6 +43,22 @@ export default function Root({ children }: PropsWithChildren) {
 
         {/* Expo's constant style reset for full-screen React Native web. */}
         <ScrollViewStyleReset />
+
+        {/* Touch-browser behaviour: iOS Safari zooms the page when a focused
+            field's text is under 16px; double-tap zoom delays taps; rubber-band
+            overscroll drags the whole POS shell. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              html, body { overscroll-behavior: none; }
+              button, [role="button"], a, input, textarea, select { touch-action: manipulation; }
+              body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+              @media (pointer: coarse) {
+                input, textarea, select { font-size: 16px !important; }
+              }
+            `,
+          }}
+        />
       </head>
       <body>{children}</body>
     </html>

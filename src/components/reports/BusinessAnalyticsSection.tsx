@@ -21,10 +21,10 @@ import type {
   BusinessAnalyticsReport,
   InventoryValuationResponse,
 } from "@/types/analytics";
-import type { ReportPeriod } from "@/types/sale";
+import type { ReportQuery } from "@/types/sale";
 
 type Props = {
-  period: ReportPeriod;
+  query: ReportQuery;
   refreshToken: number;
 };
 
@@ -901,7 +901,7 @@ function getError(error: unknown) {
 }
 
 export default function BusinessAnalyticsSection({
-  period,
+  query,
   refreshToken,
 }: Props) {
   const { colorScheme } = useColorScheme();
@@ -925,7 +925,7 @@ export default function BusinessAnalyticsSection({
     setReportLoading(true);
     setReportError("");
 
-    void fetchBusinessAnalytics(period, controller.signal)
+    void fetchBusinessAnalytics(query, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) {
           setReport(result);
@@ -943,7 +943,7 @@ export default function BusinessAnalyticsSection({
       });
 
     return () => controller.abort();
-  }, [period, refreshToken]);
+  }, [query, refreshToken]);
 
   useEffect(() => {
     const controller = new AbortController();

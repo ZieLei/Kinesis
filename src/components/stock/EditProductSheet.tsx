@@ -197,7 +197,10 @@ export default function EditProductSheet({
               style={{ maxHeight: formMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              // Native only: React Native Web dismisses the keyboard on *every*
+              // scroll event, including the scroll that brings a focused field
+              // into view when the keyboard opens, so the keyboard closed again.
+              keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
             >
               <View className="mb-4 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-4">
                 <View className="mb-4">

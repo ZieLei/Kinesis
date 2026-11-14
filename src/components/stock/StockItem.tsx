@@ -141,7 +141,11 @@ export default function StockItem({
         </Pressable>
       </View>
 
-      <GestureDetector gesture={gesture}>
+      {/* On web the detector otherwise sets touch-action: none on the card, so
+          a finger on a card can never scroll the list (only the gaps did).
+          pan-y hands vertical drags to the browser and keeps horizontal
+          swipes for the reveal gesture, as the library's own Swipeable does. */}
+      <GestureDetector gesture={gesture} touchAction="pan-y">
         {/* The animated layer only moves. On web, NativeWind classes on a
             Reanimated view are dropped (no radius, transparent background,
             so the edit/delete buttons showed through), so the card's look

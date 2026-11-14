@@ -1,14 +1,15 @@
 
+import { getStatusPresentation } from "@/lib/saleStatus";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/StateViews";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import ShoppingCart from "lucide-react-native/icons/shopping-cart";
@@ -55,39 +56,15 @@ const formatTime = (value: string) =>
     timeZone: "Asia/Manila",
   });
 
-function getStatusPresentation(status: string) {
-  switch (status.toLowerCase()) {
-    case "completed":
-    case "confirmed":
-      return {
-        label: status.toLowerCase() === "completed" ? "Completed" : "Confirmed",
-        style: "bg-ctp-green/15 text-ctp-green",
-      };
-    case "pending":
-      return {
-        label: "Pending",
-        style: "bg-ctp-yellow/15 text-ctp-yellow",
-      };
-    case "cancelled":
-    case "canceled":
-      return {
-        label: "Cancelled",
-        style: "bg-ctp-red/15 text-ctp-red",
-      };
-    default:
-      return {
-        label: status.charAt(0).toUpperCase() + status.slice(1),
-        style: "bg-ctp-surface0 text-ctp-text",
-      };
-  }
-}
-
 export default function Transactions() {
   // "/dashboard" is only the Up target for a screen opened with no history
   // (deep link / web refresh); normal back pops the real stack.
   const { goBack } = useBackNavigation("/dashboard");
 
   const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<
+    "completed" | "voided" | "refunded" | undefined
+  >(undefined);
   const [refreshCount, setRefreshCount] = useState(0);
   const [response, setResponse] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +81,7 @@ export default function Transactions() {
         PAGE_SIZE,
         (currentPage - 1) * PAGE_SIZE,
         controller.signal,
+        statusFilter,
       )
         .then((result) => {
           if (controller.signal.aborted) return;
@@ -131,7 +109,7 @@ export default function Transactions() {
         });
 
       return () => controller.abort();
-    }, [currentPage, refreshCount]),
+    }, [currentPage, refreshCount, statusFilter]),
   );
 
   const transactions = response?.items ?? [];
@@ -158,7 +136,8 @@ export default function Transactions() {
 
   const statusCounts = response?.statuses ?? {};
   const completedCount = statusCounts.completed ?? statusCounts.confirmed ?? 0;
-  const pendingCount = statusCounts.pending ?? 0;
+  const reversedCount =
+    (statusCounts.voided ?? 0) + (statusCounts.refunded ?? 0);
 
   const firstTransaction =
     totalCount === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
@@ -169,7 +148,17 @@ export default function Transactions() {
     const presentation = getStatusPresentation(item.status);
 
     return (
-      <View className="my-2 min-h-[90px] w-full flex-row items-center rounded-xl bg-ctp-mantle px-3 py-3">
+      <Pressable
+        onPress={() =>
+          router.push({
+            pathname: "/receipt",
+            params: { transactionCode: item.transaction_code },
+          })
+        }
+        accessibilityRole="button"
+        accessibilityLabel={`Open receipt ${item.transaction_code}`}
+        className="my-2 min-h-[90px] w-full flex-row items-center rounded-xl bg-ctp-mantle px-3 py-3 active:opacity-70"
+      >
         <View className="aspect-square rounded-lg bg-ctp-surface0 p-3">
           <StyledShoppingCart size={24} className="text-ctp-subtext0" />
         </View>
@@ -210,7 +199,7 @@ export default function Transactions() {
             {presentation.label}
           </Text>
         </View>
-      </View>
+      </Pressable>
     );
   };
 
@@ -255,36 +244,52 @@ export default function Transactions() {
 
           <View className="flex-1 items-center rounded-xl bg-ctp-mantle p-2">
             <Text className="text-xs font-inter-medium text-ctp-subtext0">
-              Pending
+              Voided / Refunded
             </Text>
             <Text className="mt-1 text-lg font-inter-bold text-ctp-text">
-              {response ? pendingCount.toLocaleString("en-PH") : loading ? "…" : "—"}
+              {response ? reversedCount.toLocaleString("en-PH") : loading ? "…" : "—"}
             </Text>
           </View>
         </View>
 
-        {error ? (
-          <View className="mb-3 gap-2 rounded-lg border border-ctp-red/40 bg-ctp-red/10 p-3">
-            <Text className="text-sm leading-5 text-ctp-red">{error}</Text>
-
+        <View className="mb-3 flex-row gap-2">
+          {(
+            [
+              [undefined, "All"],
+              ["completed", "Completed"],
+              ["voided", "Voided"],
+              ["refunded", "Refunded"],
+            ] as const
+          ).map(([value, label]) => (
             <Pressable
-              onPress={() => setRefreshCount((count) => count + 1)}
-              className="self-start rounded-md bg-ctp-surface0 px-3 py-2"
+              key={label}
+              onPress={() => {
+                setStatusFilter(value);
+                setCurrentPage(1);
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: statusFilter === value }}
+              className={`rounded-full border px-3 py-1.5 ${
+                statusFilter === value
+                  ? "border-ctp-blue bg-ctp-blue/10"
+                  : "border-ctp-surface1 bg-ctp-base"
+              }`}
             >
-              <Text className="text-sm font-inter-semibold text-ctp-text">
-                Retry
+              <Text className="text-xs font-inter-semibold text-ctp-text">
+                {label}
               </Text>
             </Pressable>
-          </View>
-        ) : null}
+          ))}
+        </View>
 
         {loading && !response ? (
-          <View className="flex-1 items-center justify-center gap-3">
-            <ActivityIndicator size="large" color="#89B4FA" />
-            <Text className="text-sm font-inter-medium text-ctp-subtext0">
-              Loading transactions...
-            </Text>
-          </View>
+          <LoadingState message="Loading transactions..." />
+        ) : error && !response ? (
+          <ErrorState
+            title="Transactions could not be loaded"
+            message={error}
+            onRetry={() => setRefreshCount((count) => count + 1)}
+          />
         ) : (
           <FlatList
             className="flex-1"
@@ -293,15 +298,24 @@ export default function Transactions() {
             renderItem={renderTransaction}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
+            ListHeaderComponent={
+              error ? (
+                <ErrorState
+                  title="Could not refresh"
+                  message={error}
+                  onRetry={() => setRefreshCount((count) => count + 1)}
+                />
+              ) : null
+            }
             ListEmptyComponent={
-              <View className="flex-1 items-center justify-center py-10">
-                <StyledShoppingCart size={36} className="text-ctp-overlay1" />
-                <Text className="mt-3 text-sm font-inter-medium text-ctp-subtext0">
-                  {error
-                    ? "Transactions could not be loaded."
-                    : "No transactions available."}
-                </Text>
-              </View>
+              <EmptyState
+                icon={<StyledShoppingCart size={36} className="text-ctp-overlay1" />}
+                message={
+                  statusFilter
+                    ? `No ${statusFilter} transactions.`
+                    : "No transactions yet."
+                }
+              />
             }
           />
         )}

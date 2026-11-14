@@ -1,6 +1,6 @@
 
+import { LoadingState } from "@/components/ui/StateViews";
 import {
-  ActivityIndicator,
   Pressable,
   Text,
   View,
@@ -192,28 +192,12 @@ export default function Stock() {
     }
   };
 
-  return (
-    <SafeAreaView className="flex-1 bg-ctp-base">
-      <View className="flex-1 px-5 pt-7">
-        <StockHeader
-          title="Inventory"
-          refreshing={refreshing}
-          refreshDisabled={loading || refreshing}
-          onBack={canGoBack ? goBack : undefined}
-          onRefresh={refreshInventory}
-        />
+  // Stats, the category row and the tabs scroll together with the list, so the
+  // products get the whole screen instead of a strip below a fixed header.
+  const listHeader = (
+    <View>
+      <StockStats stats={stockStats} />
 
-        <CollapsibleSearchBar
-          scrollY={scrollY}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          onOpenFilters={() => setFilterVisible(true)}
-          activeFilterCount={activeFilterCount}
-        />
-
-        <StockStats stats={stockStats} />
-
-        <View className="flex-1">
           <View className="mb-2 flex-row items-center justify-between">
             <Text className="font-inter-semibold text-lg text-ctp-text">
               Categories
@@ -247,17 +231,38 @@ export default function Stock() {
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
           />
+    </View>
+  );
 
+  return (
+    <SafeAreaView className="flex-1 bg-ctp-base">
+      <View className="flex-1 px-5 pt-7">
+        <StockHeader
+          title="Inventory"
+          refreshing={refreshing}
+          refreshDisabled={loading || refreshing}
+          onBack={canGoBack ? goBack : undefined}
+          onRefresh={refreshInventory}
+        />
+
+        <CollapsibleSearchBar
+          scrollY={scrollY}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onOpenFilters={() => setFilterVisible(true)}
+          activeFilterCount={activeFilterCount}
+        />
+
+        <View className="flex-1">
           {loading && inventory.length === 0 ? (
-            <View className="flex-1 items-center justify-center gap-3">
-              <ActivityIndicator size="large" color={selection} />
-
-              <Text className="font-inter-medium text-sm text-ctp-subtext0">
-                Loading inventory...
-              </Text>
-            </View>
+            <>
+              {listHeader}
+              <LoadingState message="Loading inventory..." />
+            </>
           ) : loadError && inventory.length === 0 ? (
-            <View className="flex-1 items-center justify-center px-3">
+            <View className="flex-1">
+              {listHeader}
+              <View className="flex-1 items-center justify-center px-3">
               <Text className="mb-2 text-center font-inter-semibold text-base text-ctp-red">
                 Could not load inventory
               </Text>
@@ -277,6 +282,7 @@ export default function Stock() {
                   Try again
                 </Text>
               </Pressable>
+              </View>
             </View>
           ) : (
             <>
@@ -295,6 +301,7 @@ export default function Stock() {
               <Animated.FlatList
                 data={filteredProducts}
                 keyExtractor={(item) => item.id.toString()}
+                ListHeaderComponent={listHeader}
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}

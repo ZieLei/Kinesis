@@ -4,6 +4,7 @@ import { apiRequest } from "@/lib/api";
 import type {
   Service,
   ServiceCreate,
+  ServiceUpdate,
   ServicesResponse,
 } from "@/types/service";
 
@@ -62,5 +63,23 @@ export function createService(
   return apiRequest<Service>("/api/services", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+/** Supervisors only (enforced by the server). */
+export function updateService(
+  id: number,
+  data: ServiceUpdate,
+): Promise<Service> {
+  return apiRequest<Service>(`/api/services/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Supervisors only. The service leaves the POS; its history is kept. */
+export function archiveService(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/services/${id}/archive`, {
+    method: "POST",
   });
 }

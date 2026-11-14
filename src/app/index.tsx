@@ -1,5 +1,6 @@
 
 import { View, Text, Pressable, Image } from "react-native";
+import { mocha } from "@/theme";
 import { useRouter } from "expo-router";
 import {
   Search,
@@ -18,6 +19,11 @@ export default function Home() {
   // Fixed preview dimensions to avoid unsupported asset resolution on web.
   const PREVIEW_WIDTH = 200;
   const PREVIEW_HEIGHT = 300;
+
+  // The screenshot is 1220x2712 (portrait). Draw it at the frame's width and
+  // its own aspect ratio, pinned to the top, so the frame crops the bottom
+  // instead of squashing the whole image into the box.
+  const PREVIEW_IMAGE_HEIGHT = Math.round(PREVIEW_WIDTH * (2712 / 1220));
 
   const workflow = [
     {
@@ -47,6 +53,9 @@ export default function Home() {
       <View
         className="bg-ctp-mantle px-10"
         style={{
+          // The card is always dark; pin the dark palette so its text
+          // classes stay readable when the device theme is light.
+          ...(mocha as Record<string, string>),
           width: "90%",
           height: 750,
           borderRadius: 10,
@@ -58,8 +67,8 @@ export default function Home() {
         }}
       >
         {/* Kinesis Logo */}
-        <View className="flex-row items-center">
-          <Text className="text-ctp-text text-2xl font-fredoka -mx-5">
+        <View className="flex-row items-center" style={{ paddingLeft: 8 }}>
+          <Text className="text-ctp-text text-2xl font-fredoka">
             Kinesis
           </Text>
         </View>
@@ -175,13 +184,13 @@ export default function Home() {
         >
           <Image
             source={POS_PREVIEW}
-            resizeMode="stretch"
+            resizeMode="cover"
             style={{
               position: "absolute",
               top: 0,
               left: 0,
               width: PREVIEW_WIDTH,
-              height: PREVIEW_HEIGHT,
+              height: PREVIEW_IMAGE_HEIGHT,
             }}
           />
         </View>

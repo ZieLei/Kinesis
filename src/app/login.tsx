@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { useNavigation } from "expo-router";
 
 import {
@@ -62,7 +63,32 @@ function getLoginErrorMessage(error: unknown): string {
 }
 
 
+// Catppuccin Mocha (dark) and Latte (light) values for the few places that
+// need a raw colour instead of a theme class (icon strokes, spinners, inputs).
+const DARK = {
+  text: "#CDD6F4",
+  warning: "#F9E2AF",
+  accent: "#89B4FA",
+  danger: "#F38BA8",
+  muted: "#A6ADC8",
+  placeholder: "#6C7086",
+  onAccent: "#11111B",
+};
+
+const LIGHT = {
+  text: "#4C4F69",
+  warning: "#DF8E1D",
+  accent: "#1E66F5",
+  danger: "#D20F39",
+  muted: "#6C6F85",
+  placeholder: "#8C8FA1",
+  onAccent: "#DCE0E8",
+};
+
 export default function CashierLogin() {
+  const { isDark } = useThemeColors();
+  const c = isDark ? DARK : LIGHT;
+
   const { login } = useCashierAuth();
 
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
@@ -251,7 +277,7 @@ export default function CashierLogin() {
           accessibilityLabel="Go back"
           className="mb-5 h-10 w-10 items-center justify-center rounded-full"
         >
-          <ArrowLeft size={23} color="#CDD6F4" />
+          <ArrowLeft size={23} color={c.text} />
         </Pressable>
 
         <View className="mb-7">
@@ -273,7 +299,7 @@ export default function CashierLogin() {
           <View className="mb-5 flex-row items-center gap-3 rounded-xl border border-ctp-yellow/30 bg-ctp-yellow/10 p-3">
             <WifiOff
               size={19}
-              color="#F9E2AF"
+              color={c.warning}
             />
 
             <View className="min-w-0 flex-1">
@@ -297,12 +323,12 @@ export default function CashierLogin() {
               {loadingAccounts ? (
                 <ActivityIndicator
                   size="small"
-                  color="#F9E2AF"
+                  color={c.warning}
                 />
               ) : (
                 <RefreshCw
                   size={16}
-                  color="#F9E2AF"
+                  color={c.warning}
                 />
               )}
             </Pressable>
@@ -327,12 +353,12 @@ export default function CashierLogin() {
                 {loadingAccounts && accounts.length === 0 ? (
                   <ActivityIndicator
                     size="small"
-                    color="#89B4FA"
+                    color={c.accent}
                   />
                 ) : (
                   <RefreshCw
                     size={17}
-                    color="#89B4FA"
+                    color={c.accent}
                   />
                 )}
               </Pressable>
@@ -352,7 +378,7 @@ export default function CashierLogin() {
               <View className="flex-1 items-center justify-center">
                 <ActivityIndicator
                   size="large"
-                  color="#89B4FA"
+                  color={c.accent}
                 />
 
                 <Text className="mt-4 font-inter-regular text-sm text-ctp-subtext0">
@@ -364,7 +390,7 @@ export default function CashierLogin() {
                 <View className="flex-row items-center gap-2">
                   <WifiOff
                     size={17}
-                    color="#F38BA8"
+                    color={c.danger}
                   />
 
                   <Text className="font-inter-bold text-sm text-ctp-red">
@@ -384,7 +410,7 @@ export default function CashierLogin() {
                   {loadingAccounts && (
                     <ActivityIndicator
                       size="small"
-                      color="#1E1E2E"
+                      color={c.onAccent}
                     />
                   )}
 
@@ -395,7 +421,7 @@ export default function CashierLogin() {
               </View>
             ) : accounts.length === 0 ? (
               <View className="items-center rounded-xl border border-ctp-surface0 bg-ctp-mantle px-5 py-8">
-                <UserRound size={32} color="#A6ADC8" />
+                <UserRound size={32} color={c.muted} />
 
                 <Text className="mt-4 text-center font-inter-bold text-base text-ctp-text">
                   No cashier accounts available
@@ -447,7 +473,7 @@ export default function CashierLogin() {
           <View className="flex-1">
             <View className="items-center rounded-xl border border-ctp-surface0 bg-ctp-mantle p-5">
               <View className="h-16 w-16 items-center justify-center rounded-full bg-ctp-blue/15">
-                <UserRound size={30} color="#89B4FA" />
+                <UserRound size={30} color={c.accent} />
               </View>
 
               <Text className="mt-3 font-inter-bold text-lg text-ctp-text">
@@ -472,7 +498,7 @@ export default function CashierLogin() {
 
             <View className="mt-8">
               <View className="mb-3 flex-row items-center justify-center gap-2">
-                <LockKeyhole size={17} color="#A6ADC8" />
+                <LockKeyhole size={17} color={c.muted} />
 
                 <Text className="font-inter-semibold text-sm text-ctp-text">
                   Enter your six-digit PIN
@@ -496,8 +522,8 @@ export default function CashierLogin() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="••••••"
-                placeholderTextColor="#6C7086"
-                selectionColor="#89B4FA"
+                placeholderTextColor={c.placeholder}
+                selectionColor={c.accent}
                 accessibilityLabel="Six-digit cashier PIN"
                 className="min-h-16 rounded-xl border border-ctp-surface1 bg-ctp-mantle px-5 text-center font-inter-regular text-2xl tracking-[12px] text-ctp-text"
                 onSubmitEditing={() => void handleLogin()}
@@ -534,7 +560,7 @@ export default function CashierLogin() {
                   }`}
               >
                 {submitting ? (
-                  <ActivityIndicator color="#1E1E2E" />
+                  <ActivityIndicator color={c.onAccent} />
                 ) : null}
 
                 <Text className="font-inter-bold text-base text-ctp-crust">

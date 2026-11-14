@@ -139,8 +139,20 @@ export function useTerminalAgent(
   const processingCommandIds = useRef<Set<number>>(new Set());
 
 
+  // True for a few seconds after the server comes back, so the cashier
+  // sees that the outage is over instead of the warning just vanishing.
+  const [justReconnected, setJustReconnected] = useState(false);
+
   const updateConnectionStatus = useCallback(
     (nextStatus: TerminalConnectionStatus) => {
+      if (
+        connectionStatusRef.current === "offline" &&
+        nextStatus === "online"
+      ) {
+        setJustReconnected(true);
+        setTimeout(() => setJustReconnected(false), 3500);
+      }
+
       connectionStatusRef.current = nextStatus;
       setConnectionStatus(nextStatus);
     },
@@ -679,6 +691,7 @@ export function useTerminalAgent(
   return {
     status,
     connectionStatus,
+    justReconnected,
     deviceId,
     message,
     accessDisabled,

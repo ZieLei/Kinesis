@@ -62,7 +62,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:web": "node --import ./tests/web/register.mjs --test tests/web/"
   },
   "private": true
 }

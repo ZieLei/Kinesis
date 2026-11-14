@@ -1,6 +1,6 @@
 
-import { useMemo } from "react";
-import { Text, View, useWindowDimensions } from "react-native";
+import { useMemo, useState } from "react";
+import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { BarChart } from "react-native-gifted-charts";
 
 import { usePOSFormatting } from "@/hooks/usePOSFormatting";
@@ -37,10 +37,25 @@ function getPointLabel(
   index: number,
   length: number,
 ) {
+  if (period === "custom") {
+    if (/^\d\d:00$/.test(label)) return index % 4 === 0 ? label.slice(0, 2) : "";
+
+    // A bar slot is only a few pixels wide, so "Nov 21" would be cut off:
+    // days show their day number (the range is printed above the chart) and
+    // months their initial, like the yearly report.
+    if (/^[A-Za-z]{3} \d{1,2}$/.test(label)) {
+      const every = Math.max(1, Math.ceil(length / 6));
+      return index % every === 0 ? label.split(" ")[1] : "";
+    }
+
+    return label.slice(0, 1);
+  }
   if (period === "daily") return index % 4 === 0 ? label.slice(0, 2) : "";
   if (period === "monthly") {
     return index % 5 === 0 || index === length - 1 ? label : "";
   }
+  // Twelve month names do not fit side by side on a phone: use initials.
+  if (period === "yearly") return label.slice(0, 1);
   return label;
 }
 
@@ -52,7 +67,20 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
   const colors = isDark ? COLORS.mocha : COLORS.latte;
 
   const Y_LABEL_W = 58;
-  const availableWidth = Math.max(200, width - 64 - Y_LABEL_W);
+  const EDGE = 10;
+
+  // Measure the real container: window-based guesses were wider than the card
+  // on phones, which cut the right-hand bars off.
+  const [containerWidth, setContainerWidth] = useState(0);
+  const onLayout = (event: LayoutChangeEvent) => {
+    const next = Math.floor(event.nativeEvent.layout.width);
+    if (next !== containerWidth) setContainerWidth(next);
+  };
+
+  const availableWidth = Math.max(
+    160,
+    (containerWidth > 0 ? containerWidth : width - 72) - Y_LABEL_W - 6,
+  );
 
   const chartData = useMemo(() => {
     if (
@@ -65,12 +93,53 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
 
     const categoryNames = report.categories.map((item) => item.category);
 
-    const stacks = report.category_series.map((point, index) => ({
+    // Leave out hours, days and months that have not happened yet.
+    const manilaNow = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+    }).formatToParts(new Date());
+    const part = (type: string) =>
+      Number(manilaNow.find((p) => p.type === type)?.value ?? 0);
+    const nowDate = `${part("year")}-${String(part("month")).padStart(2, "0")}-${String(part("day")).padStart(2, "0")}`;
+    const periodStart = report.period_start ?? "";
+
+    const visibleSeries = report.category_series.filter((_, index) => {
+      if (!periodStart) return true;
+      if (report.period === "custom") {
+        // Day and month points carry their date; hour points do not.
+        const point = report.category_series[index];
+        if (point.date) return point.date <= nowDate;
+        return periodStart.slice(0, 10) !== nowDate || index <= part("hour") % 24;
+      }
+      if (report.period === "monthly") {
+        const day = new Date(`${periodStart}T00:00:00Z`);
+        day.setUTCDate(day.getUTCDate() + index);
+        return day.toISOString().slice(0, 10) <= nowDate;
+      }
+      if (report.period === "yearly") {
+        const year = Number(periodStart.slice(0, 4));
+        return year < part("year") || index + 1 <= part("month");
+      }
+      if (report.period === "daily") {
+        return periodStart.slice(0, 10) !== nowDate || index <= part("hour") % 24;
+      }
+      return true;
+    });
+    const seriesToDraw = visibleSeries.length > 0 ? visibleSeries : report.category_series;
+
+    const stacks = seriesToDraw.map((point, index) => ({
+      // The label box defaults to the bar's own width, which cuts "21" down
+      // to "2." for the thin bars of a long custom range.
+      ...(report.period === "custom" ? { labelWidth: 32 } : {}),
       label: getPointLabel(
         report.period!,
         point.label,
         index,
-        report.category_series.length,
+        seriesToDraw.length,
       ),
       stacks: categoryNames.map((category, categoryIndex) => ({
         value: Math.max(
@@ -89,16 +158,13 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
     );
 
     const stepValue = getChartStep(maximum);
-    const dense =
-      report.period === "daily" || report.period === "monthly";
+    // Fit every bar inside the card: 24 hours or 31 days must not scroll
+    // sideways or spill past the edge.
+    const slot = (availableWidth - EDGE * 2) / Math.max(1, stacks.length);
+    const barWidth = Math.max(4, Math.min(22, Math.floor(slot * 0.62)));
+    const spacing = Math.max(1, Math.floor(slot - barWidth));
 
-    const barWidth = dense ? 12 : 22;
-    const spacing = dense ? 14 : 20;
-
-    const chartWidth = Math.max(
-      availableWidth,
-      stacks.length * (barWidth + spacing) + 32,
-    );
+    const chartWidth = availableWidth;
 
     return {
       stacks,
@@ -121,7 +187,7 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
   }
 
   return (
-    <View>
+    <View onLayout={onLayout}>
       <View className="mb-5 flex-row flex-wrap gap-2">
         {report.categories.map((category, index) => (
           <View
@@ -147,9 +213,10 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
         width={chartData.chartWidth}
         height={200}
         barWidth={chartData.barWidth}
+        labelWidth={Math.max(chartData.barWidth, 28)}
         spacing={chartData.spacing}
-        initialSpacing={14}
-        endSpacing={14}
+        initialSpacing={EDGE}
+        endSpacing={EDGE}
         maxValue={chartData.maxValue}
         noOfSections={4}
         stepValue={chartData.stepValue}
@@ -180,9 +247,7 @@ export default function TopCategoriesChart({ report, isDark }: Props) {
         dashGap={5}
         showVerticalLines={false}
         backgroundColor="transparent"
-        scrollToEnd
-        disableScroll={chartData.chartWidth <= availableWidth}
-        nestedScrollEnabled
+        disableScroll
         isAnimated
         animationDuration={600}
         allowFontScaling={false}

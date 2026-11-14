@@ -1,15 +1,11 @@
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   TextInput,
   FlatList,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,7 +17,7 @@ import {
   Wrench,
   X,
   Clock,
-  PhilippinePeso,
+  Pencil,
   ShoppingCart,
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
@@ -30,31 +26,11 @@ import { useServices } from "@/hooks/useServices";
 import { useCart } from "@/app/context/CartContext";
 import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
-import { useDismissOnBack } from "@/hooks/useDismissOnBack";
-
-const MAX_AMOUNT = 99999999.9999;
-
-function parseOptionalCost(value: string): number | null {
-  const trimmed = value.trim();
-
-  if (!trimmed) return null;
-
-  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) {
-    return Number.NaN;
-  }
-
-  const parsed = Number(trimmed);
-
-  if (
-    !Number.isFinite(parsed) ||
-    parsed < 0 ||
-    parsed > MAX_AMOUNT
-  ) {
-    return Number.NaN;
-  }
-
-  return Number(parsed.toFixed(4));
-}
+import { useCashierAuth } from "@/app/context/CashierAuthContext";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import ServiceFormSheet from "@/components/services/ServiceFormSheet";
+import Snackbar from "@/components/Snackbar";
+import type { Service } from "@/types/service";
 
 export default function Services() {
   const { canGoBack, goBack } = useBackNavigation();
@@ -68,99 +44,64 @@ export default function Services() {
   const {
     services,
     loading,
-    creating,
     loadError,
     refreshServices,
     addService,
+    editService,
+    archiveService,
   } = useServices(searchQuery);
 
-  const { addServiceToCart, items } = useCart();
+  const { addServiceToCart, removeFromCart, items } = useCart();
+  const { cashier } = useCashierAuth();
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [serviceName, setServiceName] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [estimatedCost, setEstimatedCost] = useState("");
-  const [formError, setFormError] = useState("");
+  // Only supervisors reprice or retire services (the server enforces it too).
+  const canManage = cashier?.is_supervisor === true;
 
-  const resetForm = () => {
-    setServiceName("");
-    setDescription("");
-    setPrice("");
-    setEstimatedCost("");
-    setFormError("");
+  // `undefined`: sheet closed. `null`: creating. A service: editing it.
+  const [sheetTarget, setSheetTarget] = useState<Service | null | undefined>(
+    undefined,
+  );
+  const [archiveTarget, setArchiveTarget] = useState<Service | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const hideNotice = useCallback(() => setNotice(null), []);
+
+  const submitService = async (values: Parameters<typeof addService>[0]) => {
+    if (sheetTarget) {
+      const saved = await editService(sheetTarget.id, values);
+      setNotice(`${saved.name} was updated.`);
+    } else {
+      const created = await addService(values);
+      setSearchQuery("");
+      setNotice(`${created.name} was added.`);
+    }
+
+    setSheetTarget(undefined);
   };
 
-  const closeModal = () => {
-    if (creating) return;
+  const confirmArchive = async () => {
+    const service = archiveTarget;
+    if (!service || archiving) return;
 
-    setModalVisible(false);
-    resetForm();
-  };
-
-  // Android back / browser back closes this first (web; native handles it).
-  useDismissOnBack(modalVisible, closeModal);
-
-  const createService = async () => {
-    const trimmedPrice = price.trim();
-    const parsedPrice = Number(trimmedPrice);
-
-    if (!serviceName.trim()) {
-      setFormError("Please enter a service name.");
-      return;
-    }
-
-    if (serviceName.trim().length > 80) {
-      setFormError("Service names must be 80 characters or fewer.");
-      return;
-    }
-
-    if (description.trim().length > 300) {
-      setFormError("Descriptions must be 300 characters or fewer.");
-      return;
-    }
-
-    if (
-      !trimmedPrice ||
-      !/^\d+(\.\d{1,2})?$/.test(trimmedPrice) ||
-      !Number.isFinite(parsedPrice) ||
-      parsedPrice < 0 ||
-      parsedPrice > 99999999.99
-    ) {
-      setFormError(
-        "Enter a valid price with up to two decimal places.",
-      );
-      return;
-    }
-
-    const parsedEstimatedCost = parseOptionalCost(estimatedCost);
-
-    if (Number.isNaN(parsedEstimatedCost)) {
-      setFormError(
-        "Estimated cost must be a non-negative amount with up to 4 decimal places.",
-      );
-      return;
-    }
-
-    setFormError("");
+    setArchiving(true);
+    setArchiveError("");
 
     try {
-      await addService({
-        name: serviceName.trim(),
-        description: description.trim(),
-        price: Number(parsedPrice.toFixed(2)),
-        estimated_cost: parsedEstimatedCost,
-      });
-
-      setSearchQuery("");
-      setModalVisible(false);
-      resetForm();
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : "The service could not be saved. Please try again.",
+      await archiveService(service.id);
+      // A retired service cannot be sold: take it out of this cart too.
+      removeFromCart("service", service.id);
+      setArchiveTarget(null);
+      setSheetTarget(undefined);
+      setNotice(`${service.name} was archived.`);
+    } catch (caught) {
+      setArchiveError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not archive this service. Check your connection and try again.",
       );
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -343,6 +284,23 @@ export default function Services() {
                   Add to Sale
                 </Text>
               </Pressable>
+
+              {canManage ? (
+                <Pressable
+                  onPress={() => setSheetTarget(item)}
+                  className="mt-2 flex-row items-center justify-center gap-2 rounded-lg border border-ctp-surface2 px-4 py-2.5"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${item.name}`}
+                >
+                  <Pencil
+                    size={15}
+                    color={isDark ? "#CDD6F4" : "#4C4F69"}
+                  />
+                  <Text className="font-inter-semibold text-sm text-ctp-text">
+                    Edit service
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
           ListEmptyComponent={
@@ -390,7 +348,7 @@ export default function Services() {
           }
           ListFooterComponent={
             <Pressable
-              onPress={() => setModalVisible(true)}
+              onPress={() => setSheetTarget(null)}
               className="mt-3 min-h-[100px] flex-row items-center justify-center rounded-lg border border-dashed border-ctp-surface2 bg-ctp-mantle p-6"
               accessibilityRole="button"
               accessibilityLabel="Create new service"
@@ -421,197 +379,43 @@ export default function Services() {
         />
       </View>
 
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeModal}
-        statusBarTranslucent
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          className="flex-1 justify-end"
-        >
-          <Pressable
-            onPress={closeModal}
-            disabled={creating}
-            className="absolute inset-0 bg-black/50"
-            accessibilityLabel="Close modal"
-          />
+      {sheetTarget !== undefined ? (
+        <ServiceFormSheet
+          service={sheetTarget}
+          onClose={() => setSheetTarget(undefined)}
+          onSubmit={submitService}
+          onArchive={
+            sheetTarget && canManage
+              ? () => {
+                  setArchiveError("");
+                  setArchiveTarget(sheetTarget);
+                }
+              : undefined
+          }
+        />
+      ) : null}
 
-          <View className="max-h-[90%] rounded-t-3xl bg-ctp-base px-5 pb-8 pt-3">
-            <View className="mb-5 items-center">
-              <View className="h-1.5 w-12 rounded-full bg-ctp-surface2" />
-            </View>
+      <ConfirmDialog
+        visible={archiveTarget !== null}
+        title="Archive service?"
+        message={
+          archiveTarget
+            ? `"${archiveTarget.name}" will be removed from the POS and can no longer be sold. Its past sales and reports are kept, and an administrator can restore it from the admin console.`
+            : ""
+        }
+        confirmLabel="Archive"
+        busy={archiving}
+        error={archiveError}
+        onConfirm={() => void confirmArchive()}
+        onCancel={() => {
+          if (!archiving) {
+            setArchiveTarget(null);
+            setArchiveError("");
+          }
+        }}
+      />
 
-            <View className="mb-6 flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-xl font-inter-bold text-ctp-text">
-                  Create Service
-                </Text>
-
-                <Text className="mt-1 text-sm font-inter-regular text-ctp-subtext0">
-                  Enter the service details and its estimated direct cost.
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={closeModal}
-                disabled={creating}
-                className="h-9 w-9 items-center justify-center rounded-lg bg-ctp-mantle"
-                accessibilityRole="button"
-                accessibilityLabel="Close modal"
-              >
-                <X
-                  size={19}
-                  color={isDark ? "#CDD6F4" : "#4C4F69"}
-                />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
-                Service Name *
-              </Text>
-
-              <TextInput
-                value={serviceName}
-                onChangeText={(value) => {
-                  setServiceName(value);
-                  setFormError("");
-                }}
-                editable={!creating}
-                placeholder="e.g. Oil Change"
-                placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
-                selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                className="mb-5 rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4 py-3 text-sm font-inter-regular text-ctp-text"
-                maxLength={80}
-                returnKeyType="next"
-              />
-
-              <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
-                Description
-              </Text>
-
-              <TextInput
-                value={description}
-                onChangeText={(value) => {
-                  setDescription(value);
-                  setFormError("");
-                }}
-                editable={!creating}
-                placeholder="Describe what's included in the service..."
-                placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
-                selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                multiline
-                textAlignVertical="top"
-                className="mb-5 min-h-[100px] rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4 py-3 text-sm font-inter-regular text-ctp-text"
-                maxLength={300}
-              />
-
-              <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
-                Service Price (₱) *
-              </Text>
-
-              <View className="mb-5 flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4">
-                <PhilippinePeso
-                  size={18}
-                  color={isDark ? "#A6ADC8" : "#6C6F85"}
-                />
-
-                <TextInput
-                  value={price}
-                  onChangeText={(value) => {
-                    setPrice(value);
-                    setFormError("");
-                  }}
-                  editable={!creating}
-                  placeholder="0.00"
-                  placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
-                  selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                  keyboardType="decimal-pad"
-                  className="flex-1 px-3 py-3 text-sm font-inter-regular text-ctp-text"
-                />
-              </View>
-
-              <Text className="mb-2 text-sm font-inter-semibold text-ctp-text">
-                Estimated Cost per Service
-              </Text>
-
-              <View className="mb-2 flex-row items-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4">
-                <PhilippinePeso
-                  size={18}
-                  color={isDark ? "#A6ADC8" : "#6C6F85"}
-                />
-
-                <TextInput
-                  value={estimatedCost}
-                  onChangeText={(value) => {
-                    setEstimatedCost(value);
-                    setFormError("");
-                  }}
-                  editable={!creating}
-                  placeholder="Optional"
-                  placeholderTextColor={isDark ? "#A6ADC8" : "#6C6F85"}
-                  selectionColor={isDark ? "#89B4FA" : "#1E66F5"}
-                  keyboardType="decimal-pad"
-                  className="flex-1 px-3 py-3 text-sm font-inter-regular text-ctp-text"
-                />
-              </View>
-
-              <Text className="mb-3 text-xs leading-5 font-inter-regular text-ctp-subtext0">
-                Optional estimated direct labour and material cost. This is
-                used for service profitability reports and does not deduct
-                parts from inventory.
-              </Text>
-
-              {formError ? (
-                <Text className="mb-3 text-sm font-inter-medium text-ctp-red">
-                  {formError}
-                </Text>
-              ) : null}
-
-              <View className="mt-4 flex-row gap-3">
-                <Pressable
-                  onPress={closeModal}
-                  disabled={creating}
-                  className="flex-1 items-center justify-center rounded-lg border border-ctp-surface2 bg-ctp-mantle px-4 py-3"
-                >
-                  <Text className="text-sm font-inter-semibold text-ctp-text">
-                    Cancel
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => void createService()}
-                  disabled={creating}
-                  className={`flex-1 flex-row items-center justify-center rounded-xl px-4 py-3 ${creating ? "bg-ctp-blue/50" : "bg-ctp-blue"
-                    }`}
-                >
-                  {creating ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={isDark ? "#11111B" : "#FFFFFF"}
-                    />
-                  ) : (
-                    <Plus
-                      size={17}
-                      color={isDark ? "#11111B" : "#FFFFFF"}
-                    />
-                  )}
-
-                  <Text className="ml-2 text-sm font-inter-semibold text-white">
-                    {creating ? "Saving..." : "Create Service"}
-                  </Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <Snackbar message={notice} onHide={hideNotice} />
     </SafeAreaView>
   );
 }

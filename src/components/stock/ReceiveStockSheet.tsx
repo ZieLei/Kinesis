@@ -3,17 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useColorScheme } from "nativewind";
+import { BottomSheet, Host, RNHostView } from "@expo/ui";
 import { PackagePlus, X } from "lucide-react-native";
+
+import { useThemeColors } from "@/hooks/useThemeColors";
 
 import type { Product } from "@/types/product";
 import type { InventoryReceiptCreate } from "@/types/inventory";
@@ -63,6 +65,12 @@ export default function ReceiveStockSheet({
 }: ReceiveStockSheetProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { width, height } = useWindowDimensions();
+  const { sheetBackground } = useThemeColors();
+
+  // The form scrolls between a fixed header and pinned actions; sized from
+  // the window so the actions stay above the keyboard (same as Add Product).
+  const formMaxHeight = Math.max(140, Math.round(height * 0.85) - 220);
 
   const [selectedProductId, setSelectedProductId] = useState<number | null>(
     null,
@@ -215,32 +223,29 @@ export default function ReceiveStockSheet({
     "rounded-lg border border-ctp-surface2 bg-ctp-base px-3 py-3 font-inter-regular text-sm text-ctp-text";
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={close}
-      statusBarTranslucent
+    <Host
+      style={
+        Platform.OS === "web"
+          ? { position: "absolute", left: 0, top: 0, width: 0, height: 0 }
+          : { position: "absolute", width }
+      }
     >
-      {/* iOS lifts the sheet above the keyboard here. Android's modal
-          window and the web app (interactive-widget=resizes-content) already
-          resize for the keyboard, so padding there would double-adjust. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        className="flex-1 justify-end"
+      {/* Same sheet as Add Product: themed, opaque, and the top handle drags
+          it down to dismiss. */}
+      <BottomSheet
+        isPresented={visible}
+        onDismiss={close}
+        containerColor={sheetBackground}
+        contentPadding={0}
       >
-        <Pressable
-          onPress={close}
-          disabled={saving}
-          className="absolute inset-0 bg-black/50"
-          accessibilityLabel="Close receive stock sheet"
-        />
-
-        <View className="max-h-[92%] rounded-t-3xl bg-ctp-base px-5 pb-6 pt-3">
-          <View className="mb-5 items-center">
-            <View className="h-1.5 w-12 rounded-full bg-ctp-surface2" />
-          </View>
-
+        <RNHostView
+          matchContents
+          style={Platform.OS === "web" ? { width: "100%" } : undefined}
+        >
+        <View
+          style={{ width: Platform.OS === "web" ? "100%" : width }}
+          className="bg-ctp-base px-5 pb-6 pt-3"
+        >
           <View className="mb-5 flex-row items-center justify-between">
             <View className="flex-1 flex-row items-center">
               <View className="mr-3 h-10 w-10 items-center justify-center rounded-xl bg-ctp-surface0">
@@ -269,12 +274,13 @@ export default function ReceiveStockSheet({
             </Pressable>
           </View>
 
-          {/* The form scrolls; the header above and the actions below stay
-              put, so Receive/Cancel are always reachable, keyboard or not. */}
           <ScrollView
-            style={{ flexGrow: 0, flexShrink: 1 }}
+            style={{ maxHeight: formMaxHeight }}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            // Native only: React Native Web dismisses the keyboard on *every*
+            // scroll event, including the scroll that brings a focused field
+            // into view when the keyboard opens, so the keyboard closed again.
+            keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
             showsVerticalScrollIndicator={false}
           >
             <Text className="mb-2 font-inter-semibold text-sm text-ctp-text">
@@ -536,7 +542,8 @@ export default function ReceiveStockSheet({
             </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        </RNHostView>
+      </BottomSheet>
+    </Host>
   );
 }

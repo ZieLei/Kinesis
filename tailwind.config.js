@@ -3,6 +3,10 @@ module.exports = {
   content: [
     "./src/app/**/*.{js,jsx,ts,tsx}",
     "./src/components/**/*.{js,jsx,ts,tsx}",
+    // Class names built in shared helpers (for example lib/saleStatus.ts) must
+    // be scanned too, or Tailwind silently drops them from the build.
+    "./src/lib/**/*.{js,jsx,ts,tsx}",
+    "./src/hooks/**/*.{js,jsx,ts,tsx}",
   ],
   presets: [require("nativewind/preset")],
   // Required for setColorScheme() (theme toggle) on web; native is unaffected.

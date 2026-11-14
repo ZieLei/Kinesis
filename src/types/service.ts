@@ -5,7 +5,11 @@ export type Service = {
   description: string;
   price: number;
   estimated_cost: number | null;
+  archived?: boolean;
+  updated_at?: string | null;
 };
+
+export type ServiceUpdate = Partial<ServiceCreate>;
 
 export type ServiceCreate = {
   name: string;

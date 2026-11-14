@@ -19,7 +19,7 @@ import type {
   ProductFormValues,
   ProductUpdate,
 } from "@/types/product";
-import type { Service, ServiceCreate } from "@/types/service";
+import type { Service, ServiceCreate, ServiceUpdate } from "@/types/service";
 import type {
   InventoryReceipt,
   InventoryReceiptCreate,
@@ -53,6 +53,8 @@ type CatalogContextValue = {
   fetchServices: (signal?: AbortSignal) => Promise<void>;
   refreshServices: () => void;
   addService: (values: ServiceCreate) => Promise<Service>;
+  editService: (id: number, values: ServiceUpdate) => Promise<Service>;
+  archiveService: (id: number) => Promise<void>;
 
   synchronizeCatalog: () => Promise<{
     productCount: number;
@@ -352,6 +354,33 @@ export function CatalogProvider({
     [],
   );
 
+  const editService = useCallback(
+    async (id: number, values: ServiceUpdate): Promise<Service> => {
+      setServicesCreating(true);
+
+      try {
+        const saved = await servicesApi.updateService(id, values);
+
+        setServices((previous) =>
+          previous
+            .map((service) => (service.id === id ? saved : service))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+
+        return saved;
+      } finally {
+        setServicesCreating(false);
+      }
+    },
+    [],
+  );
+
+  const archiveService = useCallback(async (id: number): Promise<void> => {
+    await servicesApi.archiveService(id);
+
+    setServices((previous) => previous.filter((service) => service.id !== id));
+  }, []);
+
   // --------------------------------------------------
   // Full catalog synchronization
   // --------------------------------------------------
@@ -435,6 +464,8 @@ export function CatalogProvider({
       fetchServices,
       refreshServices,
       addService,
+      editService,
+      archiveService,
 
       synchronizeCatalog,
     }),
@@ -457,6 +488,8 @@ export function CatalogProvider({
       fetchServices,
       refreshServices,
       addService,
+      editService,
+      archiveService,
 
       synchronizeCatalog,
     ],

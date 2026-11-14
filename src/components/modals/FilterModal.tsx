@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Modal,
+  Platform,
   View,
   Text,
   TextInput,
   Pressable,
   ScrollView,
-  Animated,
-  Easing,
+  useWindowDimensions,
 } from "react-native";
+import { BottomSheet, Host, RNHostView } from "@expo/ui";
 import X from "lucide-react-native/icons/x";
 import { useDismissOnBack } from "@/hooks/useDismissOnBack";
+import { useThemeColors } from "@/hooks/useThemeColors";
 
 export type FilterOption = {
   label: string;
@@ -48,31 +49,16 @@ export default function FilterModal({
   const [selectedValues, setSelectedValues] =
     useState<FilterValues>(initialValues);
 
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const panelTranslateY = useRef(new Animated.Value(500)).current;
+  const { width, height } = useWindowDimensions();
+  const { sheetBackground, placeholder, selection } = useThemeColors();
+
+  const bodyMaxHeight = Math.max(140, Math.round(height * 0.85) - 200);
 
   useEffect(() => {
     if (visible) {
       setSelectedValues(initialValues);
-
-      overlayOpacity.setValue(0);
-      panelTranslateY.setValue(500);
-
-      Animated.parallel([
-        Animated.timing(overlayOpacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(panelTranslateY, {
-          toValue: 0,
-          duration: 300,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
     }
-  }, [visible, initialValues, overlayOpacity, panelTranslateY]);
+  }, [visible, initialValues]);
 
   const toggleOption = (section: FilterSection, value: string) => {
     if (section.type === "range") return;
@@ -168,36 +154,27 @@ export default function FilterModal({
   useDismissOnBack(visible, onClose);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={onClose}
+    <Host
+      style={
+        Platform.OS === "web"
+          ? { position: "absolute", left: 0, top: 0, width: 0, height: 0 }
+          : { position: "absolute", width }
+      }
     >
-      <View className="flex-1 justify-end">
-        <Animated.View
-          pointerEvents="none"
-          className="absolute inset-0 bg-black"
-          style={{
-            opacity: overlayOpacity.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 0.4],
-            }),
-          }}
-        />
-
-        <Pressable
-          className="absolute inset-0"
-          onPress={onClose}
-        />
-
-        <Animated.View
-          className="max-h-[85%] rounded-t-3xl bg-ctp-base px-5 pt-5"
-          style={{
-            paddingBottom: 20,
-            transform: [{ translateY: panelTranslateY }],
-          }}
+      {/* Same sheet as Add Product: themed, opaque, draggable handle. */}
+      <BottomSheet
+        isPresented={visible}
+        onDismiss={onClose}
+        containerColor={sheetBackground}
+        contentPadding={0}
+      >
+        <RNHostView
+          matchContents
+          style={Platform.OS === "web" ? { width: "100%" } : undefined}
+        >
+        <View
+          style={{ width: Platform.OS === "web" ? "100%" : width }}
+          className="bg-ctp-base px-5 pb-5 pt-3"
         >
           <View className="mb-5 flex-row items-center justify-between">
             <View>
@@ -211,11 +188,12 @@ export default function FilterModal({
               className="h-9 w-9 items-center justify-center rounded-full"
               accessibilityLabel="Close filters"
             >
-              <X size={20} color="#A6ADC8" />
+              <X size={20} color={placeholder} />
             </Pressable>
           </View>
 
           <ScrollView
+            style={{ maxHeight: bodyMaxHeight }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 16 }}
@@ -234,11 +212,11 @@ export default function FilterModal({
                         updateRange(section.key, 0, value)
                       }
                       placeholder="Min price"
-                      placeholderTextColor="#A6ADC8"
+                      placeholderTextColor={placeholder}
                       keyboardType="numeric"
                       inputMode="decimal"
-                      selectionColor="#89B4FA"
-                      className="h-12 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
+                      selectionColor={selection}
+                      className="h-12 min-w-0 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
                     />
 
                     <Text className="font-inter-medium text-ctp-subtext0">
@@ -251,11 +229,11 @@ export default function FilterModal({
                         updateRange(section.key, 1, value)
                       }
                       placeholder="Max price"
-                      placeholderTextColor="#A6ADC8"
+                      placeholderTextColor={placeholder}
                       keyboardType="numeric"
                       inputMode="decimal"
-                      selectionColor="#89B4FA"
-                      className="h-12 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
+                      selectionColor={selection}
+                      className="h-12 min-w-0 flex-1 rounded-lg border border-ctp-surface1 bg-ctp-mantle px-3 font-inter-medium text-ctp-text"
                     />
                   </View>
                 ) : (
@@ -316,8 +294,9 @@ export default function FilterModal({
               </Text>
             </Pressable>
           </View>
-        </Animated.View>
-      </View>
-    </Modal>
+        </View>
+        </RNHostView>
+      </BottomSheet>
+    </Host>
   );
 }

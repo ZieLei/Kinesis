@@ -27,6 +27,7 @@ import TerminalInactivityGuard from "@/components/TerminalInactivityGuard";
 import { useKeepFocusedFieldVisible } from "@/hooks/useKeepFocusedFieldVisible";
 
 import { latte, mocha } from "@/theme";
+import { loadThemePreference } from "@/lib/themePreference";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -46,7 +47,21 @@ const styles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const { colorScheme } = useColorScheme();
+  const { colorScheme, setColorScheme } = useColorScheme();
+
+  // Restore the light/dark choice made on the dashboard (survives reloads,
+  // and applies on the login screen too).
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadThemePreference().then((saved) => {
+      if (saved && !cancelled) setColorScheme(saved);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setColorScheme]);
 
   // Web: scroll the focused field above the on-screen keyboard.
   useKeepFocusedFieldVisible();

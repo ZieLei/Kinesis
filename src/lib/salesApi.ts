@@ -5,7 +5,9 @@ import type {
   CheckoutRequest,
   ProductSalesReport,
   ReportPeriod,
+  ReportQuery,
   SaleRecord,
+  SaleReversalRequest,
   SalesListResponse,
   SalesReportResponse,
 } from "@/types/sale";
@@ -33,11 +35,16 @@ export function fetchSalesList(
   limit = 10,
   offset = 0,
   signal?: AbortSignal,
+  status?: "completed" | "voided" | "refunded",
 ): Promise<SalesListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
+
+  if (status) {
+    params.set("status", status);
+  }
 
   return apiRequest<SalesListResponse>(
     `/api/sales?${params.toString()}`,
@@ -45,12 +52,27 @@ export function fetchSalesList(
   );
 }
 
+/** A bare period means "the current one"; a query may carry a custom range. */
+export type ReportQueryInput = ReportPeriod | ReportQuery;
+
+export function reportQueryParams(input: ReportQueryInput): URLSearchParams {
+  const query: ReportQuery = typeof input === "string" ? { period: input } : input;
+  const params = new URLSearchParams({ period: query.period });
+
+  if (query.period === "custom") {
+    if (query.start) params.set("start", query.start);
+    if (query.end) params.set("end", query.end);
+  }
+
+  return params;
+}
+
 export function fetchSalesReport(
-  period: ReportPeriod,
+  query: ReportQueryInput,
   signal?: AbortSignal,
 ): Promise<SalesReportResponse> {
   return apiRequest<SalesReportResponse>(
-    `/api/reports/sales?period=${encodeURIComponent(period)}`,
+    `/api/reports/sales?${reportQueryParams(query).toString()}`,
     { signal },
   );
 }
@@ -68,7 +90,7 @@ export type ProductSalesReportOptions = {
 export function fetchProductSalesReport(
   limit = 5,
   signal?: AbortSignal,
-  period?: ReportPeriod,
+  period?: ReportQueryInput,
   options: ProductSalesReportOptions = {},
 ): Promise<ProductSalesReport> {
   const params = new URLSearchParams({
@@ -76,7 +98,9 @@ export function fetchProductSalesReport(
   });
 
   if (period) {
-    params.set("period", period);
+    for (const [key, value] of reportQueryParams(period)) {
+      params.set(key, value);
+    }
   }
 
   if (options.offset) {
@@ -106,5 +130,18 @@ export function fetchProductSalesReport(
   return apiRequest<ProductSalesReport>(
     `/api/reports/products?${params.toString()}`,
     { signal },
+  );
+}
+
+export function reverseSale(
+  transactionCode: string,
+  request: SaleReversalRequest,
+): Promise<SaleRecord> {
+  return apiRequest<SaleRecord>(
+    `/api/sales/${encodeURIComponent(transactionCode)}/reversal`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
   );
 }

@@ -1,11 +1,10 @@
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   ScrollView,
-  Share,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
@@ -19,6 +18,15 @@ import { styledIcon } from "@/components/StyledIcon";
 import SalesTrendChart from "@/components/SalesTrendChart";
 import TopCategoriesChart from "@/components/TopCategoriesChart";
 import BusinessAnalyticsSection from "@/components/reports/BusinessAnalyticsSection";
+import DateRangeSheet from "@/components/reports/DateRangeSheet";
+import ExportReportSheet from "@/components/reports/ExportReportSheet";
+import {
+  addDays,
+  formatDayCount,
+  formatRangeLabel,
+  todayInReportZone,
+  type DateRange,
+} from "@/lib/dateRange";
 
 import {
   fetchProductSalesReport,
@@ -30,6 +38,7 @@ import { usePOSFormatting } from "@/hooks/usePOSFormatting";
 import type {
   ProductSalesReport,
   ReportPeriod,
+  ReportQuery,
   SalesReportResponse,
 } from "@/types/sale";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
@@ -43,6 +52,7 @@ const options = [
   { label: "Weekly", value: "weekly" },
   { label: "Monthly", value: "monthly" },
   { label: "Yearly", value: "yearly" },
+  { label: "Custom range…", value: "custom" },
 ] as const;
 
 const number = (value: number) => value.toLocaleString("en-PH");
@@ -67,7 +77,17 @@ const periodLabels: Record<
     current: "This Year",
     previous: "Last Year",
   },
+  custom: {
+    current: "Selected",
+    previous: "Previous",
+  },
 };
+
+/** "Nov 21 – Dec 20, 2026 · 30 days" from a report's [start, end) dates. */
+function describeWindow(start: string, endExclusive: string) {
+  const end = addDays(endExclusive, -1);
+  return `${formatRangeLabel(start, end)} · ${formatDayCount(start, end)}`;
+}
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error
@@ -178,6 +198,8 @@ export default function Reports() {
   const [selected, setSelected] = useState<"sale" | "product">("sale");
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
 
   const [salesReport, setSalesReport] =
@@ -190,7 +212,18 @@ export default function Reports() {
   const [productsLoading, setProductsLoading] = useState(true);
 
   const [salesError, setSalesError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
   const [productsError, setProductsError] = useState("");
+
+  // What every report on this screen is asked for. A custom range sends its
+  // two dates; the other periods mean "the current one".
+  const query = useMemo<ReportQuery>(
+    () =>
+      period === "custom" && customRange
+        ? { period, start: customRange.start, end: customRange.end }
+        : { period: period === "custom" ? "monthly" : period },
+    [period, customRange],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -201,7 +234,7 @@ export default function Reports() {
       setSalesError("");
       setProductsError("");
 
-      void fetchSalesReport(period, controller.signal)
+      void fetchSalesReport(query, controller.signal)
         .then((report) => {
           if (!controller.signal.aborted) {
             setSalesReport(report);
@@ -221,7 +254,7 @@ export default function Reports() {
       void fetchProductSalesReport(
         5,
         controller.signal,
-        period,
+        query,
       )
         .then((report) => {
           if (!controller.signal.aborted) {
@@ -240,57 +273,23 @@ export default function Reports() {
         });
 
       return () => controller.abort();
-    }, [period, refreshCount]),
+    }, [query, refreshCount]),
   );
 
   const selectedLabel =
-    options.find((option) => option.value === period)?.label ??
-    "Monthly";
+    query.period === "custom" && query.start && query.end
+      ? formatRangeLabel(query.start, query.end)
+      : (options.find((option) => option.value === query.period)?.label ??
+        "Monthly");
 
   const refreshReports = () => {
     setOpen(null);
     setRefreshCount((value) => value + 1);
   };
 
-  const handleExport = async () => {
-    if (!salesReport) {
-      refreshReports();
-      return;
-    }
-
-    const currentLabels = periodLabels[period];
-
-    const message = [
-      "KINESIS REPORT",
-      `Period: ${selectedLabel}`,
-      `Generated: ${new Date().toLocaleString("en-PH", {
-        timeZone: "Asia/Manila",
-      })}`,
-      "",
-      "LIFETIME TOTALS",
-      `Sales: ${formatCurrency(salesReport.lifetime.sales)}`,
-      `Transactions: ${number(salesReport.lifetime.transactions)}`,
-      `Items sold: ${number(salesReport.lifetime.items)}`,
-      "",
-      currentLabels.current,
-      `Sales: ${formatCurrency(salesReport.current.sales)}`,
-      `Transactions: ${number(salesReport.current.transactions)}`,
-      `Items sold: ${number(salesReport.current.items)}`,
-      "",
-      currentLabels.previous,
-      `Sales: ${formatCurrency(salesReport.previous.sales)}`,
-      `Transactions: ${number(salesReport.previous.transactions)}`,
-      `Items sold: ${number(salesReport.previous.items)}`,
-    ].join("\n");
-
-    try {
-      await Share.share({
-        title: "Kinesis Sales Report",
-        message,
-      });
-    } catch {
-      // Dismissing the native share sheet does not affect saved sales.
-    }
+  const handleExport = () => {
+    setOpen(null);
+    setExportOpen(true);
   };
 
   const renderPeriodSelector = () => (
@@ -301,9 +300,12 @@ export default function Reports() {
         }
         accessibilityRole="button"
         accessibilityLabel={`Selected period: ${selectedLabel}`}
-        className="h-11 w-[130px] flex-row items-center justify-between rounded-md border border-ctp-surface0 bg-ctp-mantle px-3"
+        className={`h-11 flex-row items-center justify-between gap-2 rounded-md border border-ctp-surface0 bg-ctp-mantle px-3 ${query.period === "custom" ? "max-w-[190px] shrink" : "w-[130px]"}`}
       >
-        <Text className="font-inter-medium text-ctp-text">
+        <Text
+          numberOfLines={1}
+          className={`shrink font-inter-medium text-ctp-text ${query.period === "custom" ? "text-xs" : ""}`}
+        >
           {selectedLabel}
         </Text>
 
@@ -311,15 +313,21 @@ export default function Reports() {
       </Pressable>
 
       {open === "period" ? (
-        <View className="absolute right-0 top-12 z-50 w-[150px] rounded-xl border border-ctp-surface0 bg-ctp-mantle p-1">
+        <View className="absolute right-0 top-12 z-50 w-[170px] rounded-xl border border-ctp-surface0 bg-ctp-mantle p-1">
           {options.map((option) => (
             <Pressable
               key={option.value}
               onPress={() => {
-                setPeriod(option.value);
                 setOpen(null);
+
+                if (option.value === "custom") {
+                  setPickerOpen(true);
+                } else {
+                  setPeriod(option.value);
+                }
               }}
-              className="rounded-lg px-3 py-3"
+              accessibilityRole="button"
+              className={`rounded-lg px-3 py-3 ${option.value === "custom" ? "mt-1 border-t border-ctp-surface0" : ""}`}
             >
               <Text className="font-inter-medium text-ctp-text">
                 {option.label}
@@ -390,6 +398,32 @@ export default function Reports() {
             </Pressable>
           ))}
         </View>
+
+        {(() => {
+          const span =
+            selected === "sale"
+              ? salesReport && salesReport.period === query.period
+                ? { start: salesReport.period_start, end: salesReport.period_end_exclusive, previousStart: salesReport.previous_period_start, previousEnd: salesReport.previous_period_end_exclusive }
+                : null
+              : productReport?.period === query.period && productReport.period_start && productReport.period_end_exclusive
+                ? { start: productReport.period_start, end: productReport.period_end_exclusive, previousStart: null, previousEnd: null }
+                : null;
+
+          if (!span) return null;
+
+          return (
+            <View className="mt-3" accessibilityLiveRegion="polite">
+              <Text className="font-inter-semibold text-xs text-ctp-text">
+                {describeWindow(span.start, span.end)}
+              </Text>
+              {span.previousStart && span.previousEnd ? (
+                <Text className="mt-0.5 font-inter-regular text-xs text-ctp-subtext0">
+                  Compared with {formatRangeLabel(span.previousStart, addDays(span.previousEnd, -1))}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })()}
 
         <View className="flex-1">
           {selected === "sale" ? (
@@ -465,7 +499,7 @@ export default function Reports() {
                     lifetimeTotal={salesReport.lifetime.sales}
                     current={salesReport.current.sales}
                     previous={salesReport.previous.sales}
-                    period={period}
+                    period={query.period}
                     format={formatCurrency}
                   />
 
@@ -474,7 +508,7 @@ export default function Reports() {
                     lifetimeTotal={salesReport.lifetime.transactions}
                     current={salesReport.current.transactions}
                     previous={salesReport.previous.transactions}
-                    period={period}
+                    period={query.period}
                     format={number}
                   />
 
@@ -483,14 +517,14 @@ export default function Reports() {
                     lifetimeTotal={salesReport.lifetime.items}
                     current={salesReport.current.items}
                     previous={salesReport.previous.items}
-                    period={period}
+                    period={query.period}
                     format={number}
                   />
                 </>
               ) : null}
 
               <BusinessAnalyticsSection
-                period={period}
+                query={query}
                 refreshToken={refreshCount}
               />
             </ScrollView>
@@ -564,7 +598,12 @@ export default function Reports() {
                       onPress={() =>
                         router.push({
                           pathname: "/product-performance",
-                          params: { period },
+                          params: {
+                            period: query.period,
+                            ...(query.start && query.end
+                              ? { start: query.start, end: query.end }
+                              : {}),
+                          },
                         })
                       }
                       className="rounded-md bg-ctp-surface0 px-2 py-2"
@@ -665,6 +704,29 @@ export default function Reports() {
           )}
         </View>
       </View>
+
+      <ExportReportSheet
+        visible={exportOpen}
+        query={query}
+        rangeLabel={
+          salesReport && salesReport.period === query.period
+            ? describeWindow(salesReport.period_start, salesReport.period_end_exclusive)
+            : null
+        }
+        onClose={() => setExportOpen(false)}
+      />
+
+      <DateRangeSheet
+        visible={pickerOpen}
+        value={customRange}
+        today={todayInReportZone()}
+        onClose={() => setPickerOpen(false)}
+        onApply={(range) => {
+          setCustomRange(range);
+          setPeriod("custom");
+          setPickerOpen(false);
+        }}
+      />
     </SafeAreaView>
   );
 }

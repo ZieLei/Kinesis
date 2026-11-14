@@ -1,6 +1,6 @@
 
+import { LoadingState } from "@/components/ui/StateViews";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   Text,
@@ -163,12 +163,7 @@ export default function NewSale() {
           />
 
           {loading && products.length === 0 ? (
-            <View className="flex-1 items-center justify-center gap-3">
-              <ActivityIndicator size="large" color={selection} />
-              <Text className="font-inter-medium text-sm text-ctp-subtext0">
-                Loading products...
-              </Text>
-            </View>
+            <LoadingState message="Loading products..." />
           ) : loadError && products.length === 0 ? (
             <View className="flex-1 items-center justify-center px-5">
               <Text className="mb-2 text-center font-inter-semibold text-base text-ctp-text">

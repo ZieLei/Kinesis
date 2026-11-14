@@ -36,6 +36,7 @@ export function TerminalAgent({
   const {
     status,
     connectionStatus,
+    justReconnected,
     deviceId,
     message,
     accessDisabled,
@@ -389,11 +390,32 @@ export function TerminalAgent({
 
             <Text className="mt-0.5 font-line-seed text-xs leading-5 text-ctp-subtext0">
               {connectionStatus === "offline"
-                ? "Check the shop Wi-Fi and host computer. Kinesis will retry automatically."
+                ? "Check the shop Wi-Fi and host computer. Sales can't be completed until the connection returns; Kinesis retries automatically."
                 : "Checking the connection to the host computer."}
             </Text>
           </View>
 
+        </View>
+      </View>
+    ) : null;
+
+
+  const reconnectedBanner =
+    status === "active" &&
+      !accessDisabled &&
+      !maintenanceMode &&
+      connectionStatus === "online" &&
+      justReconnected ? (
+      <View
+        pointerEvents="none"
+        accessibilityLiveRegion="polite"
+        className="absolute left-4 right-4 top-12 z-[90] rounded-xl border border-ctp-green/30 bg-ctp-mantle px-4 py-3"
+      >
+        <View className="flex-row items-center gap-3">
+          <Check size={19} color="#a6e3a1" />
+          <Text className="font-line-seed text-sm font-semibold text-ctp-text">
+            Back online
+          </Text>
         </View>
       </View>
     ) : null;
@@ -410,6 +432,7 @@ export function TerminalAgent({
   return (
     <>
       {connectionBanner}
+      {reconnectedBanner}
       {blockingScreen}
 
       <Modal

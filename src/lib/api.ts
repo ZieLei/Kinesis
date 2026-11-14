@@ -145,9 +145,9 @@ async function readErrorMessage(
       message = body.detail;
     } else if (Array.isArray(body.detail)) {
       message = body.detail
-        .map(
-          (item: { msg?: string }) =>
-            item.msg || "Invalid input",
+        .map((item: { msg?: string }) =>
+          // Pydantic prefixes custom validator messages with this.
+          (item.msg || "Invalid input").replace(/^Value error, /, ""),
         )
         .join("\n");
     } else if (

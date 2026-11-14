@@ -26,7 +26,8 @@ import { styledIcon } from "@/components/StyledIcon";
 import { useColorScheme } from "nativewind";
 import { useInventory } from "@/hooks/useInventory";
 import { fetchProductSalesReport } from "@/lib/salesApi";
-import type { ProductSalesReport, ReportPeriod } from "@/types/sale";
+import { formatRangeLabel, validateRange } from "@/lib/dateRange";
+import type { ProductSalesReport, ReportPeriod, ReportQuery } from "@/types/sale";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 const StyledChevronLeft = styledIcon(ChevronLeft);
@@ -46,13 +47,14 @@ const money = (amount: number) =>
 
 const number = (value: number) => value.toLocaleString("en-PH");
 
-const REPORT_PERIODS: ReportPeriod[] = ["daily", "weekly", "monthly", "yearly"];
+const REPORT_PERIODS: ReportPeriod[] = ["daily", "weekly", "monthly", "yearly", "custom"];
 
 const PERIOD_LABELS: Record<ReportPeriod, string> = {
   daily: "Today",
   weekly: "This week",
   monthly: "This month",
   yearly: "This year",
+  custom: "Custom range",
 };
 
 // Same ranges as before, now applied by the report endpoint to real sales.
@@ -71,8 +73,21 @@ export default function ProductPerformance() {
   const isDark = colorScheme === "dark";
 
   // Same report and period as the Top Products card on the Reports tab.
-  const { period: periodParam } = useLocalSearchParams<{ period?: string }>();
-  const period = REPORT_PERIODS.find((value) => value === periodParam);
+  const {
+    period: periodParam,
+    start: startParam,
+    end: endParam,
+  } = useLocalSearchParams<{ period?: string; start?: string; end?: string }>();
+  const periodName = REPORT_PERIODS.find((value) => value === periodParam);
+
+  // A custom range is only usable with two valid dates; otherwise fall back
+  // to the unfiltered, all-time list.
+  const period = useMemo<ReportQuery | undefined>(() => {
+    if (!periodName) return undefined;
+    if (periodName !== "custom") return { period: periodName };
+    if (!startParam || !endParam || validateRange(startParam, endParam)) return undefined;
+    return { period: "custom", start: startParam, end: endParam };
+  }, [periodName, startParam, endParam]);
 
   // Only used to offer categories of active products that have not sold.
   const { inventory, fetchInventory } = useInventory();
@@ -311,7 +326,7 @@ export default function ProductPerformance() {
           </Text>
 
           <Text className="font-inter-medium text-sm text-ctp-subtext0">
-            {period ? PERIOD_LABELS[period] : "All time"} · by units sold
+            {period?.start && period.end ? formatRangeLabel(period.start, period.end) : period ? PERIOD_LABELS[period.period] : "All time"} · by units sold
           </Text>
         </View>
 

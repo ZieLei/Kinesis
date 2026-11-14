@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -21,6 +21,7 @@ import { styledIcon } from "@/components/StyledIcon";
 import GcashReferenceScanner from "@/components/GcashReferenceScanner";
 import { useCart } from "@/app/context/CartContext";
 import { useTerminalSettings } from "@/app/context/TerminalSettingsContext";
+import { isNetworkError } from "@/lib/api";
 import { createSale, fetchSale } from "@/lib/salesApi";
 import { randomCode } from "@/lib/secureRandom";
 import type {
@@ -174,6 +175,7 @@ export default function Checkout() {
   const [supervisorPin, setSupervisorPin] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
 
   // While a sale is being recorded, every back path is held — not just the
   // in-app button (disabled below) but Android system back and, via the
@@ -423,6 +425,16 @@ export default function Checkout() {
 
     if (
       paymentMethod === "gcash" &&
+      !/^[0-9]{13}$/.test(referenceNumber.replace(/[\s-]+/g, ""))
+    ) {
+      setError(
+        "A GCash reference number has exactly 13 digits. Check it against the customer's receipt.",
+      );
+      return;
+    }
+
+    if (
+      paymentMethod === "gcash" &&
       !gcashVerified
     ) {
       setError(
@@ -460,9 +472,15 @@ export default function Checkout() {
           amount_tendered: receivedCents / 100,
         }
         : {
-          reference_number: referenceNumber.trim(),
+          reference_number: referenceNumber.replace(/[\s-]+/g, ""),
         }),
     };
+
+    // State updates are asynchronous: a quick double tap could otherwise
+    // start two requests. (The server is idempotent on the transaction
+    // code, so this protects the UI, not the books.)
+    if (submitLock.current) return;
+    submitLock.current = true;
 
     setSubmitting(true);
 
@@ -481,13 +499,16 @@ export default function Checkout() {
       }
 
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "The sale could not be completed. Check your connection and retry.",
+        isNetworkError(requestError)
+          ? "The connection dropped before the server answered. The sale may not have been saved. Press Complete Sale to try again — the customer will not be charged twice."
+          : requestError instanceof Error
+            ? requestError.message
+            : "The sale could not be completed. Check your connection and retry.",
       );
 
       setRequestFailed(true);
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   };

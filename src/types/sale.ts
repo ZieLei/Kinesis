@@ -1,7 +1,20 @@
 
 export type PaymentMethod = "cash" | "gcash";
 
-export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
+export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly" | "custom";
+
+/** How a report's chart is bucketed; chosen by the server from the range. */
+export type ReportGranularity = "hour" | "day" | "month";
+
+/**
+ * What the reports are asked for: a fixed period containing today, or a
+ * custom range of calendar dates (both ends included, YYYY-MM-DD).
+ */
+export type ReportQuery = {
+  period: ReportPeriod;
+  start?: string;
+  end?: string;
+};
 
 export type CheckoutItemInput = {
   product_id: number;
@@ -66,6 +79,37 @@ export type ReceiptSettingsSnapshot = {
   inactivityLock?: string;
 };
 
+export type ReversalKind = "void" | "refund";
+
+export type ReversalReasonCode =
+  | "customer_changed_mind"
+  | "wrong_item"
+  | "cashier_error"
+  | "defective_item"
+  | "duplicate_sale"
+  | "pricing_dispute"
+  | "other";
+
+export type SaleReversalInfo = {
+  kind: ReversalKind;
+  reason_code: ReversalReasonCode;
+  note: string | null;
+  amount: number;
+  restocked: boolean;
+  requested_by_username: string | null;
+  authorized_by_username: string;
+  created_at: string;
+};
+
+export type SaleReversalRequest = {
+  kind: ReversalKind;
+  reason_code: ReversalReasonCode;
+  note?: string;
+  return_to_stock: boolean;
+  supervisor_username: string;
+  supervisor_pin: string;
+};
+
 export type SaleRecord = {
   id: number;
   transaction_code: string;
@@ -87,6 +131,7 @@ export type SaleRecord = {
   change_due: number;
 
   settings_snapshot: ReceiptSettingsSnapshot;
+  reversal?: SaleReversalInfo | null;
   created_at: string;
 
   cashier_id?: string | null;
@@ -129,9 +174,19 @@ export type SalesListResponse = {
 };
 
 export type SalesSummary = {
+  /** Total collected: after discounts, tax and cash rounding. */
   sales: number;
   transactions: number;
   items: number;
+  /** Sales reconciliation (servers from v1.5): gross - discounts = net; net + tax (+ rounding) = sales. */
+  gross_sales?: number;
+  discounts?: number;
+  net_sales?: number;
+  tax?: number;
+  discounted_transactions?: number;
+  /** Voided and refunded sales: excluded from every figure above. */
+  reversed_transactions?: number;
+  reversed_amount?: number;
 };
 
 export type SalesSeriesPoint = {
@@ -145,6 +200,7 @@ export type SalesSeriesPoint = {
 
 export type SalesReportResponse = {
   period: ReportPeriod;
+  granularity: ReportGranularity;
   date: string;
   timezone: string;
   period_start: string;
@@ -185,6 +241,7 @@ export type TopProductSales = {
 
 export type ProductSalesReport = {
   period: ReportPeriod | null;
+  granularity: ReportGranularity | null;
   date: string | null;
   timezone: string;
   period_start: string | null;

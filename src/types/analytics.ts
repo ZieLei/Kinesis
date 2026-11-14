@@ -1,6 +1,6 @@
 
 
-import type { ReportPeriod } from "@/types/sale";
+import type { ReportGranularity, ReportPeriod } from "@/types/sale";
 
 export type PaymentMethodAnalytics = {
   method: "cash" | "gcash";
@@ -40,6 +40,7 @@ export type HeatmapRow = {
 
 export type BusinessAnalyticsReport = {
   period: ReportPeriod;
+  granularity: ReportGranularity;
   date: string;
   timezone: string;
   period_start: string;

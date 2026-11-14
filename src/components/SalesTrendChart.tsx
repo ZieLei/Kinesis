@@ -28,7 +28,7 @@ const PLOT_TOP = 34;
 const PLOT_BOTTOM = 158;
 const LABEL_H = 26;
 const TOTAL_H = PLOT_BOTTOM + LABEL_H;
-const Y_GUTTER = 46;
+const Y_GUTTER = 58;
 const RIGHT_PAD = 14;
 const TOOLTIP_W = 140;
 const LABEL_W = 36;
@@ -56,16 +56,69 @@ export default function SalesTrendChart({ report, isDark }: Props) {
 
   useEffect(() => setPicked(null), [report]);
 
+  // Weekly shows the trailing seven days; every other period shows its own
+  // series (hours of the day, days of the month, months of the year). The
+  // server only fills trailing_series for weekly reports.
+  const source = useMemo(() => {
+    const trailing = Array.isArray(report.trailing_series)
+      ? report.trailing_series
+      : [];
+    const own = Array.isArray(report.series) ? report.series : [];
+
+    const points =
+      report.period === "weekly" && trailing.length > 0 ? trailing : own;
+
+    // Do not draw days, months or hours that have not happened yet: a flat
+    // line there would read as "no sales".
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+
+    if (report.period === "custom") {
+      const nowHour = Number(
+        new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", hour12: false }).format(new Date()),
+      );
+      const upToNow = own.filter((point, index) =>
+        point.date
+          ? point.date <= today
+          : report.period_start !== today || index <= nowHour,
+      );
+
+      return upToNow.length >= 2 ? upToNow : own;
+    }
+
+    if (report.date !== today && !(report.period === "monthly" || report.period === "yearly")) {
+      return points;
+    }
+
+    const selectedYear = Number(report.date.slice(0, 4));
+    const nowYear = Number(today.slice(0, 4));
+    const nowMonth = Number(today.slice(5, 7));
+    const nowHour = Number(
+      new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", hour12: false }).format(new Date()),
+    );
+
+    const keep = points.filter((point, index) => {
+      if (report.period === "daily") {
+        return report.date !== today || index <= nowHour;
+      }
+      if (report.period === "monthly") {
+        return !point.date || point.date <= today;
+      }
+      if (report.period === "yearly") {
+        return selectedYear < nowYear || (point.month ?? index + 1) <= nowMonth;
+      }
+      return true;
+    });
+
+    return keep.length >= 2 ? keep : points;
+  }, [report]);
+
   const series = useMemo(
     () =>
-      (Array.isArray(report.trailing_series)
-        ? report.trailing_series
-        : []
-      ).map((p) => ({
+      source.map((p) => ({
         label: String(p.label),
         value: Number.isFinite(p.sales) ? Math.max(0, p.sales) : 0,
       })),
-    [report],
+    [source],
   );
 
   const geo = useMemo(() => {
@@ -122,7 +175,12 @@ export default function SalesTrendChart({ report, isDark }: Props) {
     );
   }
 
-  const selected = picked ?? series.length - 1;
+  // Start on the latest point that has sales (the end of a month or year may
+  // still be in the future).
+  let lastWithSales = series.length - 1;
+  while (lastWithSales > 0 && series[lastWithSales].value === 0) lastWithSales -= 1;
+
+  const selected = picked ?? lastWithSales;
   const labelEvery = Math.ceil(series.length / 7);
 
   return (
@@ -212,6 +270,7 @@ export default function SalesTrendChart({ report, isDark }: Props) {
           {geo.ticks.map((tick) => (
             <Text
               key={`y-${tick.value}`}
+              numberOfLines={1}
               allowFontScaling={false}
               style={{
                 position: "absolute",
@@ -286,7 +345,10 @@ export default function SalesTrendChart({ report, isDark }: Props) {
                 fontFamily: "LINESeed-Regular",
               }}
             >
-              {series[selected].label} ·{" "}
+              {report.period === "monthly"
+                ? `Day ${series[selected].label}`
+                : series[selected].label}{" "}
+              ·{" "}
               {formatCurrency(series[selected].value)}
             </Text>
           </View>

@@ -63,13 +63,25 @@ export async function uploadProductImage(
   id: number,
   image: ImagePickerAsset,
 ): Promise<Product> {
-  const imageResponse = await fetch(image.uri);
+  // In browsers the picker hands back the File itself (a Blob). Use it
+  // directly: its uri is a blob: URL, and fetching that is blocked by the
+  // POS Content Security Policy (connect-src 'self'), which made uploads
+  // fail with "NetworkError" / "Failed to fetch". Native apps read the
+  // file:// URI instead (no CSP there).
+  let imageBlob: Blob;
 
-  if (!imageResponse.ok) {
-    throw new Error("Could not read the selected image from your device.");
+  if (image.file) {
+    imageBlob = image.file;
+  } else {
+    const imageResponse = await fetch(image.uri);
+
+    if (!imageResponse.ok) {
+      throw new Error("Could not read the selected image from your device.");
+    }
+
+    imageBlob = await imageResponse.blob();
   }
 
-  const imageBlob = await imageResponse.blob();
   const formData = new FormData();
 
   const filename =

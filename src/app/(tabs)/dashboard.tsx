@@ -1,7 +1,7 @@
 
+import { getStatusPresentation } from "@/lib/saleStatus";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   ActivityIndicator,
   View,
   Text,
@@ -12,6 +12,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { saveThemePreference } from "@/lib/themePreference";
 
 import { styledIcon } from "@/components/StyledIcon";
 import WeeklyRevenueChart from "@/components/WeeklyRevenueChart";
@@ -77,39 +79,6 @@ const percentageChange = (
   return `${change >= 0 ? "+" : "-"}${rounded}%`;
 };
 
-function getStatusPresentation(status: string) {
-  switch (status.toLowerCase()) {
-    case "completed":
-    case "confirmed":
-      return {
-        label:
-          status.toLowerCase() === "completed"
-            ? "Completed"
-            : "Confirmed",
-        style: "bg-ctp-green/15 text-ctp-green",
-      };
-
-    case "pending":
-      return {
-        label: "Pending",
-        style: "bg-ctp-peach/15 text-ctp-peach",
-      };
-
-    case "cancelled":
-    case "canceled":
-      return {
-        label: "Cancelled",
-        style: "bg-ctp-red/15 text-ctp-red",
-      };
-
-    default:
-      return {
-        label: status.charAt(0).toUpperCase() + status.slice(1),
-        style: "bg-ctp-surface0 text-ctp-text",
-      };
-  }
-}
-
 export default function Dashboard() {
   const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -162,24 +131,40 @@ export default function Dashboard() {
   );
 
   const toggleTheme = () => {
-    setColorScheme(isDark ? "light" : "dark");
+    const next = isDark ? "light" : "dark";
+
+    setColorScheme(next);
+    void saveThemePreference(next);
   };
 
   // --------------------------------------------------
   // Cashier session management
   // --------------------------------------------------
 
+  const [pendingAction, setPendingAction] = useState<
+    "switch" | "logout" | null
+  >(null);
+  const [sessionError, setSessionError] = useState("");
+
   const endCashierSession = async () => {
     if (endingSession) return;
 
     setEndingSession(true);
-
-    clearCart();
+    setSessionError("");
 
     try {
       // CashierRouteGuard sends a signed-out terminal to login with a
       // cleared history, the same path as inactivity sign-out.
       await logout();
+      clearCart();
+      setPendingAction(null);
+    } catch (error) {
+      // Keep the dialog open so the cashier can retry or cancel.
+      setSessionError(
+        error instanceof Error
+          ? error.message
+          : "Could not end the session. Check the connection and try again.",
+      );
     } finally {
       setEndingSession(false);
     }
@@ -190,39 +175,23 @@ export default function Dashboard() {
   ) => {
     if (endingSession) return;
 
+    setSessionError("");
+    setPendingAction(action);
+  };
+
+  const sessionDialogMessage = (() => {
     const hasCartItems = cartItems.length > 0;
 
-    const title =
-      action === "switch"
-        ? "Switch cashier?"
-        : "Log out of Kinesis?";
-
-    const message = hasCartItems
-      ? action === "switch"
+    if (pendingAction === "switch") {
+      return hasCartItems
         ? "Your current cart will be cleared. The current cashier session will end, and another cashier can sign in."
-        : "Your current cart will be cleared and your cashier session will end."
-      : action === "switch"
-        ? "Your cashier session will end so another employee can sign in."
-        : "Your cashier session will end and you will return to the login screen.";
+        : "Your cashier session will end so another employee can sign in.";
+    }
 
-    Alert.alert(
-      title,
-      message,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: action === "switch" ? "Switch cashier" : "Log out",
-          style: "destructive",
-          onPress: () => {
-            void endCashierSession();
-          },
-        },
-      ],
-    );
-  };
+    return hasCartItems
+      ? "Your current cart will be cleared and your cashier session will end."
+      : "Your cashier session will end and you will return to the login screen.";
+  })();
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -715,6 +684,23 @@ export default function Dashboard() {
           )}
         </View>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={pendingAction !== null}
+        title={
+          pendingAction === "switch"
+            ? "Switch cashier?"
+            : "Log out of Kinesis?"
+        }
+        message={sessionDialogMessage}
+        confirmLabel={
+          pendingAction === "switch" ? "Switch cashier" : "Log out"
+        }
+        busy={endingSession}
+        error={sessionError}
+        onConfirm={() => void endCashierSession()}
+        onCancel={() => setPendingAction(null)}
+      />
     </SafeAreaView>
   );
 }

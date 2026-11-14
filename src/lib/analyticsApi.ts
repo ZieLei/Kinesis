@@ -1,18 +1,18 @@
 
 
 import { apiRequest } from "@/lib/api";
-import type { ReportPeriod } from "@/types/sale";
+import { reportQueryParams, type ReportQueryInput } from "@/lib/salesApi";
 import type {
   BusinessAnalyticsReport,
   InventoryValuationResponse,
 } from "@/types/analytics";
 
 export function fetchBusinessAnalytics(
-  period: ReportPeriod,
+  query: ReportQueryInput,
   signal?: AbortSignal,
 ): Promise<BusinessAnalyticsReport> {
   return apiRequest<BusinessAnalyticsReport>(
-    `/api/reports/analytics?period=${period}`,
+    `/api/reports/analytics?${reportQueryParams(query).toString()}`,
     { signal },
   );
 }

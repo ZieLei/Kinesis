@@ -12,6 +12,8 @@ export function useServices(searchQuery: string) {
     fetchServices,
     refreshServices,
     addService,
+    editService,
+    archiveService,
   } = useCatalog();
 
   // Load services when the Services screen first mounts.
@@ -41,5 +43,7 @@ export function useServices(searchQuery: string) {
     loadError: servicesLoadError,
     refreshServices,
     addService,
+    editService,
+    archiveService,
   };
 }

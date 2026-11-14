@@ -33,6 +33,8 @@ export type CashierAccount = {
   id: string;
   username: string;
   display_name: string;
+  /** Supervisors can edit and archive services. The server enforces it. */
+  is_supervisor?: boolean;
 };
 
 

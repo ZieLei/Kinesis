@@ -9,9 +9,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 
 import { exportReceipt } from "@/lib/receiptExport";
-import { fetchSale } from "@/lib/salesApi";
+import { fetchSale, reverseSale } from "@/lib/salesApi";
+import ReverseSaleSheet, { REVERSAL_REASONS } from "@/components/ReverseSaleSheet";
 import type { SaleRecord } from "@/types/sale";
 
 type CurrencyPlacement = "before" | "after";
@@ -207,6 +209,54 @@ function createReceiptHtml(sale: SaleRecord): string {
         </div>
       `
       : "";
+
+  const cashierRow = sale.cashier_display_name || sale.cashier_username
+    ? `
+      <div class="meta-row">
+        <span>Cashier</span>
+        <span>${escapeHtml(sale.cashier_display_name || sale.cashier_username || "")}</span>
+      </div>
+    `
+    : "";
+
+  const terminalRow = sale.terminal_device_id
+    ? `
+      <div class="meta-row">
+        <span>Terminal</span>
+        <span>${escapeHtml(sale.terminal_device_id)}</span>
+      </div>
+    `
+    : "";
+
+  const approvalRow = sale.discount_authorized_username
+    ? `
+      <div class="summary-row">
+        <span>Discount approved by</span>
+        <span>${escapeHtml(sale.discount_authorized_username)}</span>
+      </div>
+    `
+    : "";
+
+  const reversalBlock = sale.reversal
+    ? `
+      <div class="divider"></div>
+      <div class="summary-row">
+        <strong>${sale.reversal.kind === "void" ? "VOIDED" : "REFUNDED"}</strong>
+        <span>${escapeHtml(formatDate(sale.reversal.created_at).date)} ${escapeHtml(formatDate(sale.reversal.created_at).time)}</span>
+      </div>
+      <div class="summary-row">
+        <span>Reason</span>
+        <span>${escapeHtml(
+          REVERSAL_REASONS.find((r) => r.code === sale.reversal?.reason_code)?.label ??
+            sale.reversal.reason_code,
+        )}${sale.reversal.note ? ` — ${escapeHtml(sale.reversal.note)}` : ""}</span>
+      </div>
+      <div class="summary-row">
+        <span>Approved by</span>
+        <span>${escapeHtml(sale.reversal.authorized_by_username)}</span>
+      </div>
+    `
+    : "";
 
   const referenceRow = sale.reference_number
     ? `
@@ -405,6 +455,10 @@ function createReceiptHtml(sale: SaleRecord): string {
             <span>${escapeHtml(time)}</span>
           </div>
 
+          ${cashierRow}
+
+          ${terminalRow}
+
           <div class="meta-row">
             <span>Status</span>
             <span class="status">${escapeHtml(sale.status)}</span>
@@ -427,6 +481,8 @@ function createReceiptHtml(sale: SaleRecord): string {
           </div>
 
           ${discountRow}
+
+          ${approvalRow}
 
           <div class="summary-row">
             <strong>Subtotal after discount</strong>
@@ -468,6 +524,8 @@ function createReceiptHtml(sale: SaleRecord): string {
             <span>${money(sale.change_due)}</span>
           </div>
 
+          ${reversalBlock}
+
           ${settings.receiptNotes
       ? `
                 <div class="divider"></div>
@@ -497,11 +555,13 @@ export default function Receipt() {
     ? params.transactionCode[0]
     : params.transactionCode;
 
+  const { canGoBack, goBack } = useBackNavigation();
   const [sale, setSale] = useState<SaleRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+  const [reversing, setReversing] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -678,16 +738,51 @@ export default function Receipt() {
                 </Text>
               </View>
 
+              {sale.cashier_display_name || sale.cashier_username ? (
+                <View className="flex-row justify-between gap-3">
+                  <Text className="text-xs font-inter-regular text-ctp-subtext0">
+                    Cashier
+                  </Text>
+
+                  <Text className="text-right text-xs font-inter-regular text-ctp-text">
+                    {sale.cashier_display_name || sale.cashier_username}
+                  </Text>
+                </View>
+              ) : null}
+
               <View className="flex-row justify-between gap-3">
                 <Text className="text-xs font-inter-regular text-ctp-subtext0">
                   Status
                 </Text>
 
-                <Text className="text-right text-xs font-inter-semibold text-ctp-green">
+                <Text
+                  className={`text-right text-xs font-inter-semibold ${
+                    sale.status === "completed" ? "text-ctp-green" : "text-ctp-red"
+                  }`}
+                >
                   {sale.status.toUpperCase()}
                 </Text>
               </View>
             </View>
+
+            {sale.reversal ? (
+              <View className="mt-3 rounded-lg border border-ctp-red/40 bg-ctp-red/10 p-3">
+                <Text className="text-xs font-inter-semibold text-ctp-red">
+                  {sale.reversal.kind === "void" ? "VOIDED" : "REFUNDED"} ·{" "}
+                  {formatDate(sale.reversal.created_at).date}{" "}
+                  {formatDate(sale.reversal.created_at).time}
+                </Text>
+                <Text className="mt-1 text-xs font-inter-regular text-ctp-text">
+                  {REVERSAL_REASONS.find((r) => r.code === sale.reversal?.reason_code)
+                    ?.label ?? sale.reversal.reason_code}
+                  {sale.reversal.note ? ` — ${sale.reversal.note}` : ""}
+                </Text>
+                <Text className="mt-1 text-xs font-inter-regular text-ctp-subtext0">
+                  Approved by {sale.reversal.authorized_by_username}
+                  {sale.reversal.restocked ? " · items returned to stock" : " · not returned to stock"}
+                </Text>
+              </View>
+            ) : null}
 
             <View className="my-3 border-t border-dashed border-ctp-surface1" />
 
@@ -764,6 +859,18 @@ export default function Receipt() {
 
                   <Text className="text-[11px] font-inter-semibold text-ctp-green">
                     -{money(amounts.discountAmount)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {sale.discount_authorized_username ? (
+                <View className="flex-row justify-between gap-3">
+                  <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
+                    Discount approved by
+                  </Text>
+
+                  <Text className="text-[11px] font-inter-regular text-ctp-subtext0">
+                    {sale.discount_authorized_username}
                   </Text>
                 </View>
               ) : null}
@@ -889,6 +996,19 @@ export default function Receipt() {
             {/* Actions */}
 
             <View className="mt-5 items-center gap-2 pb-2">
+              {canGoBack ? (
+                <Pressable
+                  onPress={goBack}
+                  disabled={exporting}
+                  accessibilityRole="button"
+                  className="w-full rounded-lg border border-ctp-surface1 bg-ctp-base px-4 py-3"
+                >
+                  <Text className="text-center text-sm font-inter-semibold text-ctp-text">
+                    Back
+                  </Text>
+                </Pressable>
+              ) : null}
+
               <Pressable
                 onPress={() => router.dismissTo("/new-sale")}
                 disabled={exporting}
@@ -910,6 +1030,19 @@ export default function Receipt() {
                   Back to Home
                 </Text>
               </Pressable>
+
+              {sale.status === "completed" ? (
+                <Pressable
+                  onPress={() => setReversing(true)}
+                  disabled={exporting}
+                  accessibilityRole="button"
+                  className="w-full rounded-lg border border-ctp-red/50 bg-ctp-base px-4 py-3"
+                >
+                  <Text className="text-center text-sm font-inter-semibold text-ctp-red">
+                    Void / Refund
+                  </Text>
+                </Pressable>
+              ) : null}
 
               <Pressable
                 onPress={handleExport}
@@ -940,6 +1073,17 @@ export default function Receipt() {
           </View>
         ) : null}
       </ScrollView>
+
+      {sale && reversing ? (
+        <ReverseSaleSheet
+          visible
+          transactionCode={sale.transaction_code}
+          onClose={() => setReversing(false)}
+          onSubmit={async (request) => {
+            setSale(await reverseSale(sale.transaction_code, request));
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
