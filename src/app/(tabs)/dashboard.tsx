@@ -305,7 +305,7 @@ export default function Dashboard() {
           onScroll={top.onScroll}
           scrollEventThrottle={top.scrollEventThrottle}
         className="flex-1"
-        contentContainerClassName="px-5 py-7"
+        contentContainerClassName="px-5 pb-24 pt-7"
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}

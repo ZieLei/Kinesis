@@ -262,7 +262,8 @@ export default function NewSale() {
           />
         </View>
       </View>
-          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
+          {/* Above the checkout bar (about 84px tall). */}
+      <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} bottom={100} />
     </SafeAreaView>
   );
 }

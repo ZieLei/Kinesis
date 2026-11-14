@@ -12,13 +12,15 @@ type Props = {
   onPress: () => void;
   /** Extra distance from the bottom edge, e.g. above a pagination bar. */
   bottom?: number;
+  /** Distance from the right edge. */
+  right?: number;
 };
 
 /**
  * Round arrow-up button pinned to the bottom-right of its (relatively
  * positioned) parent. Fades in once the list is scrolled down.
  */
-export default function ScrollToTopButton({ visible, onPress, bottom = 16 }: Props) {
+export default function ScrollToTopButton({ visible, onPress, bottom = 16, right = 16 }: Props) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function ScrollToTopButton({ visible, onPress, bottom = 16 }: Pro
   return (
     <Animated.View
       pointerEvents={visible ? "box-none" : "none"}
-      style={{ opacity, position: "absolute", right: 16, bottom, zIndex: 50 }}
+      style={{ opacity, position: "absolute", right, bottom, zIndex: 50 }}
     >
       <Pressable
         onPress={onPress}

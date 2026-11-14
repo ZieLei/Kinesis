@@ -415,7 +415,8 @@ export default function Stock() {
 
         <Snackbar message={notice} onHide={hideNotice} />
       </View>
-          <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} />
+          {/* Stacked above the 56px add-product button, centred on it. */}
+      <ScrollToTopButton visible={top.visible} onPress={top.scrollToTop} bottom={92} right={26} />
     </SafeAreaView>
   );
 }

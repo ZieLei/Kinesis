@@ -551,7 +551,7 @@ export default function Checkout() {
           onScroll={top.onScroll}
           scrollEventThrottle={top.scrollEventThrottle}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 28 }}
+          contentContainerStyle={{ paddingBottom: 84 }}
           keyboardShouldPersistTaps="handled"
         >
           {!settingsReady ? (

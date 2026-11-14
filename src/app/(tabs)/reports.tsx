@@ -437,7 +437,7 @@ export default function Reports() {
               onScroll={top.onScroll}
               scrollEventThrottle={top.scrollEventThrottle}
               showsVerticalScrollIndicator={false}
-              contentContainerClassName="gap-4 pt-5 pb-8"
+              contentContainerClassName="gap-4 pt-5 pb-24"
             >
               {/* z-10 on the card and its header: on web every View is its own
                   stacking layer, so the period menu (z-50) was drawn under
@@ -542,7 +542,7 @@ export default function Reports() {
               onScroll={top.onScroll}
               scrollEventThrottle={top.scrollEventThrottle}
               showsVerticalScrollIndicator={false}
-              contentContainerClassName="gap-4 pt-5 pb-8"
+              contentContainerClassName="gap-4 pt-5 pb-24"
             >
               {/* z-10 on the card and its header: on web every View is its own
                   stacking layer, so the period menu (z-50) was drawn under

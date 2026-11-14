@@ -656,7 +656,7 @@ export default function Receipt() {
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 28,
-          paddingBottom: 32,
+          paddingBottom: 84,
         }}
         showsVerticalScrollIndicator={false}
       >

@@ -220,7 +220,7 @@ export default function Services() {
           keyExtractor={(item) => String(item.id)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingBottom: 20,
+            paddingBottom: 80,
             flexGrow: 1,
           }}
           ItemSeparatorComponent={() => <View className="h-3" />}
