@@ -1,5 +1,4 @@
 import {
-  Bell,
   Users,
   Sun,
   Moon,
@@ -15,6 +14,11 @@ import TabButton from "./components/TabButton";
 import Notice from "./components/ui/Notice";
 import Dialog from "./components/ui/Dialog";
 import StatusDot from "./components/ui/StatusDot";
+import MaintenanceBanner from "./components/server/MaintenanceBanner";
+import NotificationsMenu from "./components/server/NotificationsMenu";
+import ServerStateOverlay from "./components/server/ServerStateOverlay";
+import { useNotifications } from "./hooks/useNotifications";
+import { useServerControl } from "./hooks/useServerControl";
 import {
   buttonDangerSolid,
   buttonSecondary,
@@ -46,7 +50,8 @@ const tabs = [
 
 type Tab = (typeof tabs)[number];
 type Theme = "light" | "dark";
-type ServerAction = "restart" | "shutdown";
+/** What the confirmation dialog is asking about. */
+type PendingAction = "restart" | "shutdown" | "maintenance-on";
 type BackendStatus = "checking" | "connected" | "disconnected";
 
 type BackendHealthResponse = {
@@ -75,10 +80,15 @@ export default function Dashboard() {
   });
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const server = useServerControl(true);
+  const notifications = useNotifications(true);
+  const maintenanceMode = server.status?.maintenance.enabled ?? false;
+  const controlAvailable = server.status?.control.available ?? false;
 
   const [pendingAction, setPendingAction] =
-    useState<ServerAction | null>(null);
+    useState<PendingAction | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const [notice, setNotice] = useState("");
   const [compactHeader, setCompactHeader] = useState(false);
@@ -242,24 +252,22 @@ export default function Dashboard() {
     );
   };
 
-  const handleServerAction = (
-    action: "maintenance" | ServerAction,
+  const handleServerAction = async (
+    action: "maintenance" | "restart" | "shutdown",
   ) => {
     setMenuOpen(false);
     setNotice("");
+    setActionError("");
 
     if (action === "maintenance") {
-      setMaintenanceMode((current) => {
-        const next = !current;
-
-        setNotice(
-          next
-            ? "Maintenance mode enabled in the UI preview only."
-            : "Maintenance mode disabled in the UI preview only.",
-        );
-
-        return next;
-      });
+      // Turning it off is harmless and immediate; turning it on locks every
+      // terminal, so it asks first.
+      if (maintenanceMode) {
+        const failure = await server.toggleMaintenance(false);
+        setNotice(failure ?? "Maintenance mode is off. Terminals can sell again.");
+      } else {
+        setPendingAction("maintenance-on");
+      }
 
       return;
     }
@@ -267,14 +275,23 @@ export default function Dashboard() {
     setPendingAction(action);
   };
 
-  const confirmServerAction = () => {
-    if (!pendingAction) return;
+  const confirmServerAction = async () => {
+    if (!pendingAction || actionBusy) return;
 
-    setNotice(
-      pendingAction === "restart"
-        ? "Restart was not performed. Connect this action to the backend first."
-        : "Shutdown was not performed. Connect this action to the backend first.",
-    );
+    setActionBusy(true);
+    setActionError("");
+
+    const failure =
+      pendingAction === "maintenance-on"
+        ? await server.toggleMaintenance(true)
+        : await server.runAction(pendingAction);
+
+    setActionBusy(false);
+
+    if (failure) {
+      setActionError(failure);
+      return;
+    }
 
     setPendingAction(null);
   };
@@ -332,19 +349,17 @@ export default function Dashboard() {
         )}
       </button>
 
-      <button
-        type="button"
-        aria-label="Notifications"
-        title="Notifications"
-        onClick={() =>
-          setNotice(
-            "Notifications are not connected to the backend yet.",
-          )
-        }
-        className={iconButton}
-      >
-        <Bell size={16} />
-      </button>
+      <NotificationsMenu
+        items={notifications.items}
+        loaded={notifications.loaded}
+        failed={notifications.failed}
+        onOpen={notifications.refresh}
+        onDismiss={notifications.dismiss}
+        onDismissAll={notifications.dismissAll}
+        onNavigate={(tab) => {
+          if ((tabs as readonly string[]).includes(tab)) setActiveTab(tab as Tab);
+        }}
+      />
 
       <div
         ref={compact ? floatingMenuRef : menuRef}
@@ -353,8 +368,11 @@ export default function Dashboard() {
         <button
           type="button"
           aria-label="Shut down server"
+          disabled={!controlAvailable}
+          title={controlAvailable ? undefined : "The server control service is not installed on this host"}
           onClick={() => {
             setMenuOpen(false);
+            setActionError("");
             setPendingAction("shutdown");
           }}
           className={`${buttonDangerSolid} rounded-r-none ${compact ? "!px-2" : ""}`}
@@ -390,8 +408,9 @@ export default function Dashboard() {
             <button
               type="button"
               role="menuitem"
-              onClick={() => handleServerAction("restart")}
-              className={`${menuItemClass} hover:bg-ctp-surface0`}
+              onClick={() => void handleServerAction("restart")}
+              disabled={!controlAvailable}
+              className={`${menuItemClass} hover:bg-ctp-surface0 disabled:cursor-not-allowed disabled:opacity-50`}
             >
               <RotateCcw
                 size={15}
@@ -404,7 +423,9 @@ export default function Dashboard() {
                 </span>
 
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
-                  Restart the API service
+                  {controlAvailable
+                    ? "Run kinesisctl restart"
+                    : "Control service not installed"}
                 </span>
               </span>
             </button>
@@ -412,9 +433,7 @@ export default function Dashboard() {
             <button
               type="button"
               role="menuitem"
-              onClick={() =>
-                handleServerAction("maintenance")
-              }
+              onClick={() => void handleServerAction("maintenance")}
               className={`${menuItemClass} hover:bg-ctp-surface0`}
             >
               <Wrench
@@ -429,8 +448,8 @@ export default function Dashboard() {
 
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
                   {maintenanceMode
-                    ? "Currently enabled in preview"
-                    : "Temporarily restrict terminal operations"}
+                    ? "On: click to turn off"
+                    : "Make every terminal read-only"}
                 </span>
               </span>
 
@@ -447,8 +466,9 @@ export default function Dashboard() {
             <button
               type="button"
               role="menuitem"
-              onClick={() => handleServerAction("shutdown")}
-              className={`${menuItemClass} hover:bg-ctp-red/10`}
+              onClick={() => void handleServerAction("shutdown")}
+              disabled={!controlAvailable}
+              className={`${menuItemClass} hover:bg-ctp-red/10 disabled:cursor-not-allowed disabled:opacity-50`}
             >
               <Power
                 size={15}
@@ -461,7 +481,9 @@ export default function Dashboard() {
                 </span>
 
                 <span className="mt-0.5 block text-xs text-ctp-subtext0">
-                  Stop the backend service
+                  {controlAvailable
+                    ? "Run kinesisctl stop"
+                    : "Control service not installed"}
                 </span>
               </span>
             </button>
@@ -562,7 +584,7 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-4">
             {maintenanceMode && (
-              <StatusDot tone="warning">Maintenance preview</StatusDot>
+              <StatusDot tone="warning">Maintenance mode</StatusDot>
             )}
 
             <span
@@ -592,6 +614,40 @@ export default function Dashboard() {
           </Notice>
         )}
 
+        {server.status && (
+          <MaintenanceBanner
+            maintenance={server.status.maintenance}
+            onTurnOff={() => server.toggleMaintenance(false)}
+          />
+        )}
+
+        {server.recoveredMessage && (
+          <Notice
+            tone="success"
+            role="status"
+            className="mt-4"
+            onDismiss={server.clearRecovered}
+          >
+            {server.recoveredMessage}
+          </Notice>
+        )}
+
+        {server.phase.kind === "failed" && (
+          <Notice
+            tone="danger"
+            role="alert"
+            className="mt-4"
+            title={
+              server.phase.action === "restart"
+                ? "The restart did not complete"
+                : "The shutdown did not complete"
+            }
+            onDismiss={server.dismissFailure}
+          >
+            {server.phase.message}
+          </Notice>
+        )}
+
         {/* Full dashboard tabs */}
         {renderTabs(false)}
 
@@ -611,23 +667,30 @@ export default function Dashboard() {
       {/* Server action confirmation */}
       <Dialog
         open={pendingAction !== null}
-        onClose={() => setPendingAction(null)}
+        onClose={() => {
+          if (!actionBusy) setPendingAction(null);
+        }}
         role="alertdialog"
         labelledBy="server-action-title"
         title={
           pendingAction === "shutdown"
             ? "Shut down the server?"
-            : "Restart the server?"
+            : pendingAction === "maintenance-on"
+              ? "Turn on maintenance mode?"
+              : "Restart the server?"
         }
         description={
           pendingAction === "shutdown"
-            ? "Stopping the backend may disconnect all terminals and interrupt new sales until the service starts again."
-            : "Restarting the backend may temporarily disconnect terminals. Pending offline sales should remain safely queued on each terminal."
+            ? "This runs kinesisctl stop. Every terminal loses the server and nothing can be sold until someone starts it again on the server with kinesisctl start. This console will also stop responding."
+            : pendingAction === "maintenance-on"
+              ? "Every terminal becomes read-only within a few seconds: no new sales, stock changes or catalog edits. This console keeps working."
+              : "This runs kinesisctl restart. Terminals disconnect for a short moment and reconnect by themselves; sales waiting on a terminal stay queued there."
         }
         footer={
           <>
             <button
               type="button"
+              disabled={actionBusy}
               onClick={() => setPendingAction(null)}
               className={buttonSecondary}
             >
@@ -636,21 +699,34 @@ export default function Dashboard() {
 
             <button
               type="button"
-              onClick={confirmServerAction}
+              disabled={actionBusy}
+              onClick={() => void confirmServerAction()}
               className={buttonDangerSolid}
             >
-              {pendingAction === "shutdown"
-                ? "Confirm shutdown"
-                : "Confirm restart"}
+              {actionBusy
+                ? "Working…"
+                : pendingAction === "shutdown"
+                  ? "Shut down"
+                  : pendingAction === "maintenance-on"
+                    ? "Turn on maintenance"
+                    : "Restart"}
             </button>
           </>
         }
       >
-        <Notice tone="warning" role="note">
-          Backend actions are not implemented yet. Confirming here will
-          only display a notice; it will not stop or restart anything.
-        </Notice>
+        {actionError && (
+          <Notice tone="danger" role="alert">
+            {actionError}
+          </Notice>
+        )}
       </Dialog>
+
+      <ServerStateOverlay
+        phase={server.phase}
+        restartOverdue={server.restartOverdue}
+        unclaimed={server.unclaimed}
+        onCheckNow={server.checkNow}
+      />
     </div>
   );
 }

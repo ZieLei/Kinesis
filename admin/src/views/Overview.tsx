@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { API_BASE_URL } from "../lib/api";
 import { useAdminOverview } from "../hooks/useAdminOverview";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import Section, { Badge } from "../components/ui/Section";
@@ -47,8 +47,10 @@ function formatCurrency(value: number | string | null | undefined) {
 
 function VirtualizedActivityFeed({
   activities,
+  terminalNames,
 }: {
   activities: ActivityEventRecord[];
+  terminalNames: Map<number, string>;
 }) {
   const scrollElementRef = useRef<HTMLDivElement>(null);
 
@@ -85,7 +87,7 @@ function VirtualizedActivityFeed({
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <ActivityRow event={event} />
+              <ActivityRow event={event} terminalNames={terminalNames} />
             </div>
           );
         })}
@@ -435,7 +437,7 @@ function getActivityAccent(event: ActivityEventRecord) {
 }
 
 
-function getActivityDetail(event: ActivityEventRecord) {
+function getActivityDetail(event: ActivityEventRecord): string | null {
   const details = event.details || {};
 
   if (event.event_type.startsWith("sale.")) {
@@ -477,26 +479,62 @@ function getActivityDetail(event: ActivityEventRecord) {
     }
   }
 
-  if (event.actor_name) {
-    return event.actor_name;
-  }
-
-  if (event.terminal_id !== null) {
-    return `Terminal ${event.terminal_id}`;
-  }
-
-  return event.actor_type === "system"
-    ? "System event"
-    : event.actor_type;
+  return null;
 }
+
+
+type ActivityActor = {
+  role: "Admin" | "Cashier" | "Terminal" | "System";
+  name: string;
+  /** Where it happened, when that is a different thing from the actor. */
+  terminal: string | null;
+};
+
+
+/** Who did it, as far as the record knows. */
+function describeActor(
+  event: ActivityEventRecord,
+  terminalNames: Map<number, string>,
+): ActivityActor {
+  const terminal =
+    event.terminal_id !== null
+      ? (terminalNames.get(event.terminal_id) ?? `Terminal ${event.terminal_id}`)
+      : null;
+
+  if (event.actor_type === "admin") {
+    return { role: "Admin", name: event.actor_name ?? "Unknown administrator", terminal: null };
+  }
+
+  if (event.actor_type === "cashier") {
+    return { role: "Cashier", name: event.actor_name ?? "Unknown cashier", terminal };
+  }
+
+  if (event.actor_type === "terminal") {
+    return { role: "Terminal", name: event.actor_name ?? terminal ?? "Unknown terminal", terminal: null };
+  }
+
+  return { role: "System", name: event.actor_name ?? "Automatic", terminal };
+}
+
+
+const actorRoleClass: Record<ActivityActor["role"], string> = {
+  Admin: "bg-ctp-mauve/15 text-ctp-mauve",
+  Cashier: "bg-ctp-green/15 text-ctp-green",
+  Terminal: "bg-ctp-blue/15 text-ctp-blue",
+  System: "bg-ctp-surface1 text-ctp-subtext1",
+};
 
 
 function ActivityRow({
   event,
+  terminalNames,
 }: {
   event: ActivityEventRecord;
+  terminalNames: Map<number, string>;
 }) {
   const accent = getActivityAccent(event);
+  const actor = describeActor(event, terminalNames);
+  const detail = getActivityDetail(event);
 
   return (
     <div className="flex items-start gap-3 py-2.5">
@@ -519,8 +557,26 @@ function ActivityRow({
           </time>
         </div>
 
-        <p className="mt-0.5 break-words text-xs leading-relaxed text-ctp-subtext0">
-          {getActivityDetail(event)}
+        <p
+          className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 break-words text-xs leading-relaxed text-ctp-subtext0"
+          title={`${actor.role}: ${actor.name}${actor.terminal ? ` on ${actor.terminal}` : ""} · ${formatDateTime(event.created_at)}`}
+        >
+          <span
+            className={`rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide ${actorRoleClass[actor.role]}`}
+          >
+            {actor.role}
+          </span>
+
+          <span className="font-medium text-ctp-subtext1">{actor.name}</span>
+
+          {actor.terminal && <span>on {actor.terminal}</span>}
+
+          {detail && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{detail}</span>
+            </>
+          )}
         </p>
       </div>
     </div>
@@ -759,6 +815,14 @@ export default function Overview() {
 
   const inventory = data?.inventory_summary;
   const activities = data?.activity ?? [];
+
+  const terminalNames = useMemo(
+    () =>
+      new Map(
+        (data?.terminals ?? []).map((terminal) => [terminal.id, terminal.name]),
+      ),
+    [data?.terminals],
+  );
 
   const topProducts = productReport.data?.top_products ?? [];
   const transactions = recentSales.data?.items ?? [];
@@ -1033,7 +1097,7 @@ export default function Overview() {
               description="New sales, stock changes, cashier sessions, and terminal actions will appear here."
             />
           ) : (
-            <VirtualizedActivityFeed activities={activities} />
+            <VirtualizedActivityFeed activities={activities} terminalNames={terminalNames} />
           )}
         </Panel>
 
