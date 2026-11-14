@@ -190,6 +190,8 @@ export type OperationsOverviewResponse = {
     revenue: number;
     transactions: number;
     average_transaction_value: number;
+    reversed_transactions: number;
+    reversed_amount: number;
   };
 
   payment_breakdown: PaymentBreakdown[];
@@ -260,7 +262,8 @@ export type StockAdjustmentReason =
   | "lost"
   | "expired"
   | "count_correction"
-  | "other";
+  | "other"
+  | "sale_reversal";
 
 export type AddStockRequest = {
   product_id: number;
@@ -284,7 +287,7 @@ export type StockChangeResponse = {
 };
 
 export type StockHistoryEntry = {
-  type: "receipt" | "adjustment";
+  type: "receipt" | "adjustment" | "sale";
   id: number;
   at: string;
   quantity_change: number;
@@ -327,4 +330,44 @@ export type ArchiveProductResponse = {
   id: number;
   archived: boolean;
   deleted: boolean;
+};
+
+// --------------------------------------------------
+// Service catalog management
+// --------------------------------------------------
+
+export type ManagedService = {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  estimated_cost: number | null;
+  archived: boolean;
+  archived_at: string | null;
+  updated_at: string | null;
+  /** Units sold and revenue from completed sales only. */
+  times_sold: number;
+  revenue: number;
+  last_sold_at: string | null;
+  /** False once the service appears on any sale: it can only be archived. */
+  can_delete: boolean;
+};
+
+export type ServiceListResponse = {
+  items: ManagedService[];
+  count: number;
+  limit: number;
+  offset: number;
+  active_count: number;
+  archived_count: number;
+};
+
+export type ServiceState = "active" | "archived" | "all";
+export type ServiceSort = "name" | "price" | "updated" | "sold" | "revenue";
+
+export type ServiceInput = {
+  name: string;
+  description: string;
+  price: string;
+  estimated_cost: string | null;
 };

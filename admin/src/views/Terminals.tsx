@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 import {
+  Check,
   ChevronRight,
   Plus,
   RefreshCw,
@@ -34,10 +35,12 @@ import type {
 import {
   broadcastToTerminals,
   createTerminalPairingChallenge,
+  fetchTerminalPairingChallengeStatus,
   disableTerminal,
   enableTerminal,
   requestTerminalSync,
   revokeTerminalPairingChallenge,
+  renameTerminal,
   updateTerminalMaintenance,
 } from "../lib/terminalApi";
 
@@ -294,6 +297,7 @@ function SectionLabel({
 function TerminalPairingDialog({
   challenge,
   remainingSeconds,
+  paired,
   busy,
   error,
   onGenerate,
@@ -301,6 +305,8 @@ function TerminalPairingDialog({
 }: {
   challenge: TerminalPairingChallenge | null;
   remainingSeconds: number;
+  /** A device has redeemed the code: the dialog is about to close. */
+  paired: boolean;
   busy: boolean;
   error: string | null;
   onGenerate: () => void;
@@ -312,7 +318,7 @@ function TerminalPairingDialog({
   return (
     <Dialog
       onClose={onClose}
-      dismissible={!busy}
+      dismissible={!busy && !paired}
       labelledBy="terminal-pairing-title"
       title="Pair a new terminal"
       description="Scan this code using the Kinesis mobile app."
@@ -321,7 +327,7 @@ function TerminalPairingDialog({
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
+            disabled={busy || paired}
             className={buttonSecondary}
           >
             Cancel pairing
@@ -330,7 +336,7 @@ function TerminalPairingDialog({
           <button
             type="button"
             onClick={onGenerate}
-            disabled={busy}
+            disabled={busy || paired}
             className={buttonPrimary}
           >
             {busy && (
@@ -349,7 +355,31 @@ function TerminalPairingDialog({
       }
     >
       <div className="flex min-h-[300px] flex-col items-center justify-center rounded-md border border-ctp-surface0 bg-ctp-base p-4">
-        {challenge && !expired ? (
+        {challenge && paired ? (
+          <div role="status" className="flex flex-col items-center">
+            <div className="relative bg-white p-3">
+              {/* Blurred so the used code can no longer be read or copied. */}
+              <div className="blur-md" aria-hidden="true">
+                <QRCodeSVG
+                  value={challenge.pairing_payload}
+                  size={248}
+                  level="M"
+                  includeMargin
+                />
+              </div>
+
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="flex size-20 items-center justify-center rounded-full bg-ctp-green text-ctp-base shadow-lg">
+                  <Check size={44} strokeWidth={3} aria-hidden="true" />
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm font-medium text-ctp-green">
+              Terminal paired
+            </p>
+          </div>
+        ) : challenge && !expired ? (
           <>
             <div className="bg-white p-3">
               <QRCodeSVG
@@ -458,6 +488,7 @@ function TerminalRow({
   onConfirmDisable,
   onSync,
   onMaintenance,
+  onRename,
   onDisable,
   onEnable,
 }: {
@@ -470,6 +501,7 @@ function TerminalRow({
   onConfirmDisable: (confirm: boolean) => void;
   onSync: (terminal: ManagedTerminal) => Promise<void>;
   onMaintenance: (terminal: ManagedTerminal) => Promise<void>;
+  onRename: (terminal: ManagedTerminal) => Promise<void>;
   onDisable: (terminal: ManagedTerminal) => Promise<void>;
   onEnable: (terminal: ManagedTerminal) => Promise<void>;
 }) {
@@ -628,6 +660,16 @@ function TerminalRow({
             )}
 
             Sync
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void onRename(terminal)}
+            disabled={busy}
+            className={`${buttonSecondary} ${buttonSmall}`}
+            title="Give this terminal a recognisable name"
+          >
+            Rename
           </button>
 
           <button
@@ -809,6 +851,9 @@ export default function Terminals() {
 
   const [pairingBusy, setPairingBusy] = useState(false);
 
+  // True once a device has redeemed the code (the code is single-use).
+  const [pairingPaired, setPairingPaired] = useState(false);
+
   const [pairingError, setPairingError] =
     useState<string | null>(null);
 
@@ -866,6 +911,70 @@ export default function Terminals() {
 
     return () => window.clearInterval(interval);
   }, [pairingChallenge]);
+
+  // Watch the code: as soon as a device redeems it, show the confirmation.
+  // The server marks a challenge consumed on first use, so it can never pair
+  // a second device.
+
+  // Depends on a boolean, not the per-second countdown, so the interval is
+  // not torn down and restarted every second.
+  const pairingCodeLive = pairingSecondsRemaining > 0;
+
+  useEffect(() => {
+    if (
+      !pairingOpen ||
+      !pairingChallenge ||
+      pairingPaired ||
+      !pairingCodeLive
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const challengeId = pairingChallenge.id;
+
+    const interval = window.setInterval(() => {
+      fetchTerminalPairingChallengeStatus(challengeId, controller.signal)
+        .then((result) => {
+          if (result.status === "paired" && !controller.signal.aborted) {
+            setPairingPaired(true);
+            void refresh();
+          }
+        })
+        .catch(() => {
+          // A missed poll is harmless; the next one retries.
+        });
+    }, 2000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [
+    pairingOpen,
+    pairingChallenge,
+    pairingPaired,
+    pairingCodeLive,
+    refresh,
+  ]);
+
+  // After the confirmation has been seen, close the dialog on its own.
+
+  useEffect(() => {
+    if (!pairingPaired) return;
+
+    const timer = window.setTimeout(() => {
+      setPairingOpen(false);
+      setPairingChallenge(null);
+      setPairingPaired(false);
+      setPairingNotice({
+        message: "Terminal paired successfully.",
+        error: false,
+      });
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [pairingPaired]);
 
   // Refresh the list while the pairing dialog is open.
 
@@ -958,6 +1067,7 @@ export default function Terminals() {
     setPairingError(null);
     setPairingNotice(null);
     setPairingChallenge(null);
+    setPairingPaired(false);
     setPairingOpen(true);
 
     void generatePairingCode();
@@ -972,6 +1082,7 @@ export default function Terminals() {
 
       if (
         pairingChallenge &&
+        !pairingPaired &&
         pairingSecondsRemaining > 0
       ) {
         await revokeTerminalPairingChallenge(
@@ -1000,6 +1111,7 @@ export default function Terminals() {
 
     const stillValid =
       challenge !== null &&
+      !pairingPaired &&
       pairingSecondsRemaining > 0;
 
     setPairingBusy(true);
@@ -1116,6 +1228,42 @@ export default function Terminals() {
         message: getErrorMessage(
           requestError,
           "Maintenance mode could not be updated.",
+        ),
+        error: true,
+      });
+    } finally {
+      setBusy(terminal.id, null);
+    }
+  }
+
+  async function handleRename(
+    terminal: ManagedTerminal,
+  ) {
+    const entered = window.prompt(
+      "Terminal name (for example “Front counter”):",
+      terminal.name,
+    );
+
+    if (entered === null || entered.trim() === "" || entered.trim() === terminal.name) {
+      return;
+    }
+
+    setBusy(terminal.id, "rename");
+
+    try {
+      const response = await renameTerminal(terminal.id, entered);
+
+      saveTerminalNotice(terminal.id, {
+        message: response.message,
+        error: false,
+      });
+
+      void refresh();
+    } catch (requestError) {
+      saveTerminalNotice(terminal.id, {
+        message: getErrorMessage(
+          requestError,
+          "The terminal could not be renamed.",
         ),
         error: true,
       });
@@ -1530,6 +1678,7 @@ export default function Terminals() {
                   }
                   onSync={handleSync}
                   onMaintenance={handleMaintenance}
+                  onRename={handleRename}
                   onDisable={handleDisable}
                   onEnable={handleEnable}
                 />
@@ -1762,6 +1911,7 @@ export default function Terminals() {
         <TerminalPairingDialog
           challenge={pairingChallenge}
           remainingSeconds={pairingSecondsRemaining}
+          paired={pairingPaired}
           busy={pairingBusy}
           error={pairingError}
           onGenerate={() => void generatePairingCode()}

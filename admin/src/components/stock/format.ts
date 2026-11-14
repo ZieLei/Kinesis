@@ -22,6 +22,7 @@ export const REASON_LABEL: Record<StockAdjustmentReason, string> = {
   expired: "Expired",
   count_correction: "Stock count correction",
   other: "Other",
+  sale_reversal: "Sale voided or refunded",
 };
 
 

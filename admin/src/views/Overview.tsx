@@ -12,6 +12,7 @@ import PageHeader from "../components/ui/PageHeader";
 import Notice from "../components/ui/Notice";
 import StatusDot from "../components/ui/StatusDot";
 import StatList from "../components/ui/StatList";
+import SystemHealthSection from "../components/SystemHealthSection";
 import {
   buttonSecondary,
   selectClass,
@@ -852,6 +853,8 @@ export default function Overview() {
       </div>
 
 
+      <SystemHealthSection />
+
       {/* Sales snapshot */}
 
       <div className="grid grid-cols-1 gap-x-10 gap-y-10 xl:grid-cols-[1.4fr_1fr]">
@@ -877,6 +880,11 @@ export default function Overview() {
                 label: "Average transaction",
                 value: formatCurrency(salesToday?.average_transaction_value),
                 hint: "Average sale value",
+              },
+              {
+                label: "Voided / refunded",
+                value: formatNumber(salesToday?.reversed_transactions),
+                hint: `${formatCurrency(salesToday?.reversed_amount)} not counted above`,
               },
               {
                 label: "Active terminals",

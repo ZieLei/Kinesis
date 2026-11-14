@@ -9,6 +9,11 @@ import type {
   ApiHealth,
   InventoryListQuery,
   InventoryListResponse,
+  ManagedService,
+  ServiceInput,
+  ServiceListResponse,
+  ServiceSort,
+  ServiceState,
   StockChangeResponse,
   StockHistoryResponse,
   OperationsOverviewResponse,
@@ -391,4 +396,76 @@ export function restoreProduct(productId: number): Promise<Product> {
   return apiRequest<Product>(`/api/admin/products/${productId}/restore`, {
     method: "POST",
   });
+}
+
+
+export type SystemHealthCheck = {
+  id: string;
+  label: string;
+  status: "ok" | "warning" | "critical";
+  detail: string;
+};
+
+export type SystemHealth = {
+  overall: "ok" | "warning" | "critical";
+  checked_at: string;
+  checks: SystemHealthCheck[];
+};
+
+export function fetchSystemHealth(signal?: AbortSignal): Promise<SystemHealth> {
+  return apiRequest<SystemHealth>("/api/admin/health", { method: "GET", signal });
+}
+
+// --------------------------------------------------
+// Services
+// --------------------------------------------------
+
+export function fetchAdminServices(
+  params: {
+    search: string;
+    state: ServiceState;
+    sort: ServiceSort;
+    direction: "asc" | "desc";
+    limit: number;
+    offset: number;
+  },
+  signal?: AbortSignal,
+): Promise<ServiceListResponse> {
+  const query = new URLSearchParams({
+    state: params.state,
+    sort: params.sort,
+    direction: params.direction,
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+
+  if (params.search.trim()) query.set("search", params.search.trim());
+
+  return apiRequest<ServiceListResponse>(`/api/admin/services?${query.toString()}`, { signal });
+}
+
+export function createAdminService(input: ServiceInput): Promise<ManagedService> {
+  return apiRequest<ManagedService>("/api/admin/services", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAdminService(id: number, input: Partial<ServiceInput>): Promise<ManagedService> {
+  return apiRequest<ManagedService>(`/api/admin/services/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveAdminService(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/admin/services/${id}/archive`, { method: "POST" });
+}
+
+export function restoreAdminService(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/admin/services/${id}/restore`, { method: "POST" });
+}
+
+export function deleteAdminService(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/admin/services/${id}`, { method: "DELETE" });
 }

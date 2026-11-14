@@ -40,7 +40,7 @@ export default function StockHistoryTable({ productId }: { productId: number }) 
   }
 
   if (entries.length === 0) {
-    return <EmptyState title="No stock changes yet" description="Receipts and adjustments appear here." />;
+    return <EmptyState title="No stock changes yet" description="Receipts, sales and adjustments appear here." />;
   }
 
   return (
@@ -61,7 +61,11 @@ export default function StockHistoryTable({ productId }: { productId: number }) 
                 {formatDateTime(entry.at)}
               </td>
               <td className="px-3 py-2 text-sm text-ctp-text">
-                {entry.type === "receipt" ? "Stock received" : REASON_LABEL[entry.reason ?? "other"]}
+                {entry.type === "receipt"
+                  ? "Stock received"
+                  : entry.type === "sale"
+                    ? "Sold"
+                    : REASON_LABEL[entry.reason ?? "other"]}
               </td>
               <td
                 className={`px-3 py-2 text-right text-sm font-medium tabular-nums ${entry.quantity_change < 0 ? "text-ctp-red" : "text-ctp-green"}`}

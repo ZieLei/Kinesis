@@ -9,6 +9,7 @@ import { buttonPrimary, buttonQuiet, buttonSmall } from "../components/ui/styles
 import { useAuth } from "./AuthProvider";
 
 import Login from "../views/Login";
+import SecurityDialog from "../components/SecurityDialog";
 import Dashboard from "../App";
 
 
@@ -127,6 +128,8 @@ function AuthenticatedDashboard() {
   const [logoutError, setLogoutError] =
     useState("");
 
+  const [showSecurity, setShowSecurity] = useState(false);
+
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -163,6 +166,15 @@ function AuthenticatedDashboard() {
             </span>
           </p>
 
+          <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setShowSecurity(true)}
+            className={`${buttonQuiet} ${buttonSmall}`}
+          >
+            Two-step sign-in
+          </button>
+
           <button
             type="button"
             onClick={() => void handleLogout()}
@@ -179,6 +191,7 @@ function AuthenticatedDashboard() {
 
             {loggingOut ? "Signing out…" : "Sign out"}
           </button>
+          </div>
         </div>
 
         {logoutError && (
@@ -194,6 +207,8 @@ function AuthenticatedDashboard() {
         )}
       </header>
 
+
+      {showSecurity && <SecurityDialog onClose={() => setShowSecurity(false)} />}
 
       {/* Existing dashboard */}
       <Dashboard />

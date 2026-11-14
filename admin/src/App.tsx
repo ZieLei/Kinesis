@@ -27,6 +27,7 @@ import Cashiers from "./views/Cashiers";
 import Terminals from "./views/Terminals";
 import Console from "./views/Console";
 import Database from "./views/Database";
+import Services from "./views/Services";
 import Settings from "./views/Settings";
 
 import { API_BASE_URL, apiRequest } from "./lib/api";
@@ -35,6 +36,7 @@ import { API_BASE_URL, apiRequest } from "./lib/api";
 const tabs = [
   "Overview",
   "Stock",
+  "Services",
   "Cashiers",
   "Terminals",
   "Console",
@@ -597,6 +599,7 @@ export default function Dashboard() {
         <main>
           {activeTab === "Overview" && <Overview />}
           {activeTab === "Stock" && <Stock />}
+          {activeTab === "Services" && <Services />}
           {activeTab === "Cashiers" && <Cashiers />}
           {activeTab === "Terminals" && <Terminals />}
           {activeTab === "Console" && <Console />}

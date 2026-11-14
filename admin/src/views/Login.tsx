@@ -10,8 +10,12 @@ import { buttonPrimary, inputClass, labelClass } from "../components/ui/styles";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../auth/AuthProvider";
 
-function getLoginError(error: unknown): string {
+function getLoginError(error: unknown, usedCode: boolean): string {
   if (error instanceof ApiError) {
+    if (error.status === 401 && usedCode) {
+      return "That verification code is not valid.";
+    }
+
     if (error.status === 401) {
       return "The username or password you entered is incorrect.";
     }
@@ -43,6 +47,8 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
+  const [otp, setOtp] = useState("");
 
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>,
@@ -63,11 +69,19 @@ export default function Login() {
       await login({
         username: normalizedUsername,
         password,
+        ...(needsCode ? { otp: otp.trim() } : {}),
       });
 
       setPassword("");
+      setOtp("");
     } catch (requestError) {
-      setError(getLoginError(requestError));
+      if (requestError instanceof ApiError && requestError.status === 428) {
+        // Password accepted; the account has two-factor authentication.
+        setNeedsCode(true);
+        setError("");
+      } else {
+        setError(getLoginError(requestError, needsCode));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -189,6 +203,43 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            {/* Second factor (shown after the password is accepted) */}
+            {needsCode && (
+              <div>
+                <label
+                  htmlFor="admin-otp"
+                  className={`${labelClass} mb-1.5`}
+                >
+                  Verification code
+                </label>
+
+                <input
+                  id="admin-otp"
+                  type="text"
+                  name="otp"
+                  value={otp}
+                  onChange={(event) => {
+                    setOtp(event.target.value);
+                    setError("");
+                  }}
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={32}
+                  required
+                  autoFocus
+                  disabled={busy}
+                  placeholder="6-digit code or recovery code"
+                  className={`${inputClass} !py-2`}
+                />
+
+                <p className="mt-1 text-xs text-ctp-subtext0">
+                  Open your authenticator app, or enter one of your recovery codes.
+                </p>
+              </div>
+            )}
 
             {/* Error */}
             {error && (

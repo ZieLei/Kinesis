@@ -123,6 +123,21 @@ export function revokeTerminalPairingChallenge(
   );
 }
 
+export type TerminalPairingStatus = {
+  id: number;
+  status: "pending" | "paired" | "revoked" | "expired";
+};
+
+export function fetchTerminalPairingChallengeStatus(
+  challengeId: number,
+  signal?: AbortSignal,
+): Promise<TerminalPairingStatus> {
+  return apiRequest<TerminalPairingStatus>(
+    `/api/admin/terminals/pairing-challenges/${challengeId}`,
+    { method: "GET", signal },
+  );
+}
+
 // --------------------------------------------------
 // Terminal connection metrics
 // --------------------------------------------------
@@ -169,6 +184,19 @@ export function updateTerminalMaintenance(
       body: JSON.stringify({
         maintenance_mode: maintenanceMode,
       }),
+    },
+  );
+}
+
+export function renameTerminal(
+  terminalId: number,
+  name: string,
+): Promise<TerminalActionResponse> {
+  return apiRequest<TerminalActionResponse>(
+    `/api/admin/terminals/${terminalId}/name`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
     },
   );
 }
