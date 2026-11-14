@@ -1,0 +1,14 @@
+# Counter Scanner experiments only. Nothing here is used by the backend or the
+# app, and it is installed into ml/.venv, never into the backend's venv.
+#
+# Install PyTorch (CPU build) first:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+timm
+numpy
+pandas
+scikit-learn
+matplotlib
+pillow
+pillow-heif   # iPhone photos are HEIC by default

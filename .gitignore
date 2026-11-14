@@ -86,3 +86,9 @@ backend/uploads/gcash/*
 
 # Agents
 .claude
+
+# Counter Scanner experiments (photos, caches, reports, venv)
+ml/.venv/
+ml/data/
+ml/reports/
+__pycache__/
