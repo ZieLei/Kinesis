@@ -9,6 +9,9 @@ import type { CounterCameraViewProps } from "./CounterCameraView";
 
 const CameraIcon = styledIcon(Camera);
 
+/** Side of the square guide, in CSS px. The cashier frames one item in it. */
+const GUIDE_SIZE = 196;
+
 type CameraState = "starting" | "live" | "error";
 
 /** Browser camera errors, in words a cashier can act on. */
@@ -114,11 +117,32 @@ export function CounterCameraView({
         captureRef.current = () => {
           if (video.readyState < 2 || video.videoWidth === 0) return null;
 
+          // The preview is cropped to fill its box ("cover"), and the guide
+          // sits in the middle of it, so the guide is also the middle of the
+          // full frame: convert its on-screen size to frame fractions.
+          const scale = Math.max(
+            video.clientWidth / video.videoWidth,
+            video.clientHeight / video.videoHeight,
+          );
+          const side = Math.min(
+            GUIDE_SIZE,
+            video.clientWidth * 0.9, // the guide's maxWidth on narrow screens
+            video.clientHeight,
+          );
+          const guideWidth = Math.min(1, side / scale / video.videoWidth);
+          const guideHeight = Math.min(1, side / scale / video.videoHeight);
+
           return {
             source: video,
             width: video.videoWidth,
             height: video.videoHeight,
             timestamp: Date.now(),
+            region: {
+              x: (1 - guideWidth) / 2,
+              y: (1 - guideHeight) / 2,
+              width: guideWidth,
+              height: guideHeight,
+            },
           };
         };
 
@@ -159,6 +183,18 @@ export function CounterCameraView({
           display: shownState === "live" ? "block" : "none",
         }}
       />
+
+      {shownState === "live" && (
+        <View
+          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center"
+        >
+          <View
+            style={{ width: GUIDE_SIZE, height: GUIDE_SIZE, maxWidth: "90%" }}
+            className="rounded-xl border-2 border-white/80"
+          />
+        </View>
+      )}
 
       {shownState !== "live" && (
         <View className="absolute inset-0 items-center justify-center px-5">

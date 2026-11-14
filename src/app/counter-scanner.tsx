@@ -23,26 +23,31 @@ type ScanStatus = "idle" | "scanning" | "done" | "error";
 
 let nextLineKey = 0;
 
-/** Turns detections into editable rows; the same product merges into one. */
-function detectionsToLines(
+/**
+ * Adds a scan's detections to the rows already on screen. The same product
+ * merges into one row (its quantity goes up), so scanning item after item
+ * builds the list. Rows the cashier edited keep their edits.
+ */
+function addDetections(
+  current: ScanLine[],
   detections: CounterDetection[],
   productIds: ReadonlySet<number>,
 ): ScanLine[] {
-  const lines = new Map<number, ScanLine>();
+  const lines = current.map((line) => ({ ...line }));
 
   for (const detection of detections) {
     const productId = detection.best.productId;
     if (!productIds.has(productId)) continue;
 
     const quantity = Math.max(1, Math.round(detection.quantity ?? 1));
-    const existing = lines.get(productId);
+    const existing = lines.find((line) => line.productId === productId);
 
     if (existing) {
       existing.quantity += quantity;
       continue;
     }
 
-    lines.set(productId, {
+    lines.push({
       key: `scan-${nextLineKey++}`,
       productId,
       quantity,
@@ -50,7 +55,7 @@ function detectionsToLines(
     });
   }
 
-  return [...lines.values()];
+  return lines;
 }
 
 export default function CounterScanner() {
@@ -125,12 +130,9 @@ export default function CounterScanner() {
 
       if (controller.signal.aborted) return;
 
-      setLines(
-        detectionsToLines(
-          detections,
-          new Set(inventory.map((product) => product.id)),
-        ),
-      );
+      const productIds = new Set(inventory.map((product) => product.id));
+
+      setLines((current) => addDetections(current, detections, productIds));
       setStatus("done");
     } catch {
       if (controller.signal.aborted) return;
@@ -192,8 +194,8 @@ export default function CounterScanner() {
         />
 
         <Text className="mt-3 font-inter-regular text-xs leading-5 text-ctp-subtext0">
-          Place the parts on the counter and point the camera at them. You
-          confirm every match before anything is added to the sale.
+          Put one item inside the box and tap Scan item. Each scan adds to
+          the list below, and nothing is added to the sale until you confirm.
         </Text>
 
         <Pressable
@@ -203,7 +205,7 @@ export default function CounterScanner() {
           className="mt-4 min-h-12 items-center justify-center rounded-lg bg-ctp-mauve px-4 disabled:opacity-50"
         >
           <Text className="font-inter-semibold text-sm text-ctp-crust">
-            {status === "scanning" ? "Scanning..." : "Scan counter"}
+            {status === "scanning" ? "Scanning..." : "Scan item"}
           </Text>
         </Pressable>
 
@@ -232,7 +234,7 @@ export default function CounterScanner() {
               {status === "error"
                 ? "The scan failed. Try again."
                 : status === "done"
-                  ? "No matching products were found. Scanning is not active in this version."
+                  ? "No matching product was found for that item. Scanning is not active in this version."
                   : "No matches yet."}
             </Text>
           )}

@@ -15,6 +15,11 @@ export type CounterFrame = {
   height: number;
   /** Capture time, milliseconds since the epoch. */
   timestamp: number;
+  /**
+   * The part of the frame the cashier framed in the guide box. A detector
+   * should look only inside it: one item per scan.
+   */
+  region?: CounterBox;
 };
 
 /** Region of the frame, as fractions (0 to 1) of its width and height. */
