@@ -9,8 +9,9 @@ implemented now (`backend/database_routes.py`,
 - **Manual backups exist.** A backup is created only when an administrator
   clicks **Create and download** (or **Download SQL**) on the admin
   console's **Database** page.
-- **Scheduled (automatic) backups do not exist.** Nothing in Kinesis
-  creates backups on a timer. The "Automatic backup schedule" value in
+- **Scheduled backups exist as a command and systemd units, but are not yet
+  installed automatically.** See "Scheduled backups" below. Until you
+  enable the timer, nothing in Kinesis creates backups on a timer. The "Automatic backup schedule" value in
   Settings → Database backups is stored but has no effect, and the page
   marks it **Not in effect**.
 
@@ -54,6 +55,37 @@ The backup folder is chosen in this order:
 The Database page lists the files in this folder but does not show its
 path.
 
+## Scheduled backups (`backend/backup_cli.py`)
+
+`python backup_cli.py backup` (run from `backend/` with the backend's
+environment) does one complete backup:
+
+1. writes a custom-format dump to the backup folder (`0600`);
+2. reads it back with `pg_restore --list` and checks that `products`,
+   `sales`, `sale_items` and `alembic_version` are in it, so a truncated or
+   corrupt dump fails the run instead of sitting unnoticed;
+3. archives the product-image and GCash-QR folders into
+   `kinesis_files_<time>.tar.gz` (the dump does not contain them);
+4. with `--copy-to DIR`, copies both files to a second location (a USB
+   drive, another computer's share) and checks the copied sizes;
+5. writes `last-backup.json` (success or the error) in the backup folder.
+
+It exits non-zero on any failure. `python backup_cli.py verify FILE` checks
+an existing dump the same way.
+
+Units: `deploy/services/systemd/kinesis-backup.{service,timer}` (system) and
+`deploy/services/systemd-user/kinesis-backup.{service,timer}.in` (user,
+placeholders as in the other `.in` files). The timer runs nightly at 23:30.
+Install by copying the files, `systemctl daemon-reload`, and
+`systemctl enable --now kinesis-backup.timer`. Not covered by a backup:
+configuration and the TLS keys in `pki/`; copy those by hand when they
+change.
+
+The restore path is exercised by `backend/tests/test_backup_restore.py`
+(dump, wipe, restore through the real endpoint, compare). It found that the
+restore request kept its own administrator-session transaction open, which
+made `pg_restore --clean` wait indefinitely; that is fixed.
+
 ## Retention: old backups are deleted automatically
 
 Every time the backup list is loaded or a backup is created, the backend
@@ -64,9 +96,9 @@ deletes managed backup files older than the retention period:
 - applies to normal backups **and** pre-restore snapshots;
 - only touches files named like Kinesis backups in that folder.
 
-There is no "always keep the newest N" rule. If no backup is created for
-longer than the retention period, the next time someone opens the backup
-list **every server-side backup is deleted**. The browser-downloaded
+The newest `KINESIS_DATABASE_BACKUP_KEEP_MINIMUM` (default 7) backup files
+are never deleted by age, so a long gap between backups no longer removes
+every server-side copy. The browser-downloaded
 copies are not affected.
 
 ## What a backup does not contain

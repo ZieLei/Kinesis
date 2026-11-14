@@ -136,9 +136,12 @@
 # --------------------------------------------------
 #
 # A device cannot use HTTPS before it trusts the Kinesis CA, so this page
-# is served over HTTP on the host's IP address (HSTS does not apply to IP
-# addresses). It exposes nothing but public CA material; users confirm the
-# root fingerprint against the host screen before trusting it.
+# is served over HTTP and opened by IP address (HSTS does not apply to IP
+# addresses; it does to kinesis.local). KINESIS_ONBOARDING_SITE is usually
+# "http://:<port>", which answers on every address of the host, so the
+# page is reachable over Wi-Fi and Ethernet alike. It exposes nothing but
+# public CA material; users confirm the root fingerprint against the host
+# screen before trusting it.
 
 {$KINESIS_ONBOARDING_SITE} {
 	header {

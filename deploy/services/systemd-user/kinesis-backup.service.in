@@ -1,0 +1,14 @@
+# Nightly database + uploads backup (user scope). Not yet installed by
+# install-kinesis.sh; see docs/deployment/BACKUPS.md.
+[Unit]
+Description=Back up the Kinesis database and uploads
+
+[Service]
+Type=oneshot
+Environment=KINESIS_ENV_FILE=@CONFIG@/kinesis.env
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=@CODE@/backend
+ExecStart=@CODE@/venv/bin/python backup_cli.py backup
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes

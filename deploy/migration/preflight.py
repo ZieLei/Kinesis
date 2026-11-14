@@ -118,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--caddy-env", required=True, type=Path)
     parser.add_argument("--pki-dir", type=Path, help="Default: <KINESIS_DATA_DIR>/pki from caddy.env.")
     parser.add_argument("--expect-ip", help="LAN address the host will serve on (must be in every site list).")
+    parser.add_argument("--expect-hostname", action="append", default=[],
+                        help="Host name terminals use, e.g. kinesis.local (must be in every site list; repeatable).")
     parser.add_argument("--skip-filesystem", action="store_true",
                         help="Only compare the files (for checking configs prepared on another machine).")
     args = parser.parse_args(argv)
@@ -194,10 +196,20 @@ def main(argv: list[str] | None = None) -> int:
                          f"{label} sites include {args.expect_ip}",
                          f"{label} sites do not include {args.expect_ip}")
 
+    for name in args.expect_hostname:
+        for label, sites in (("POS", pos_sites), ("admin", admin_sites)):
+            report.check(any(urlsplit(s).hostname == name for s in sites),
+                         f"{label} sites include {name}",
+                         f"{label} sites do not include {name}")
+
+    # Plain HTTP on every address ("http://:<port>") or on one IP address;
+    # never on a host name (HSTS makes browsers refuse http://kinesis.local).
     onboarding = caddy.get("KINESIS_ONBOARDING_SITE", "")
-    report.check(onboarding.startswith("http://") and is_ip(urlsplit(onboarding).hostname or ""),
-                 f"onboarding site is plain HTTP on an IP address ({onboarding})",
-                 "KINESIS_ONBOARDING_SITE must be http://<LAN-IP>:<port> (devices cannot use HTTPS before trusting the CA)")
+    onboarding_host = urlsplit(onboarding).hostname or ""
+    report.check(onboarding.startswith("http://") and (onboarding_host == "" or is_ip(onboarding_host))
+                 and urlsplit(onboarding).port is not None,
+                 f"onboarding site is plain HTTP on {'every address' if not onboarding_host else 'an IP address'} ({onboarding})",
+                 "KINESIS_ONBOARDING_SITE must be http://:<port> or http://<LAN-IP>:<port> (devices cannot use HTTPS before trusting the CA)")
 
     backend_address = caddy.get("KINESIS_BACKEND", "")
     report.check(backend_address.startswith(("127.0.0.1:", "localhost:", "[::1]:")),

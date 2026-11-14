@@ -123,26 +123,68 @@ Services (user scope; system scope has the same names without
 | `kinesis-caddy.service` | HTTPS 9443/9444, onboarding 9080, redirect 9081; admin API on a Unix socket | on failure, 3 s; `reload` without downtime |
 | `kinesis-pki-renew.timer` | daily 03:30 renewal check, then graceful Caddy reload | |
 | `kinesis-awake.service` | blocks sleep, idle suspend and lid-close suspend while Kinesis runs | |
-| `kinesis-mdns.service` | answers `kinesis.local` → `192.168.254.199` | on failure, 10 s |
+| `kinesis-mdns.service` | answers `kinesis.local` on every LAN interface in `192.168.254.0/24` (Wi-Fi, Ethernet or both); follows interfaces as they come and go, waits while none is up | on failure, 10 s (a missing interface is not a failure) |
 
 Logs are in the journal (`journalctl --user -u kinesis-backend`, rotated
 by journald).
 
-## 4. Addresses (unchanged)
+## 4. Addresses
 
 | | URL |
 |---|---|
-| POS | `https://192.168.254.199:9443`, `https://kinesis.local:9443` |
-| Admin | `https://192.168.254.199:9444` |
-| Onboarding (CA certificate) | `http://192.168.254.199:9080` |
+| POS (canonical) | **`https://kinesis.local:9443`**, over Wi-Fi or Ethernet |
+| Admin (canonical) | **`https://kinesis.local:9444`** |
+| Migration fallback | `https://192.168.254.199:9443` (POS), `:9444` (admin): only while the laptop holds `.199` |
+| Onboarding (CA certificate) | `http://<any laptop address>:9080`, e.g. `http://192.168.254.199:9080` or `http://192.168.254.134:9080` (`kinesisctl urls` lists them) |
 | Backend / PostgreSQL / Caddy admin | `127.0.0.1:8000` / `127.0.0.1:5433` / Unix socket: never on the LAN |
 
 Root CA fingerprint: `61:63:63:FB:DE:8E:21:5E:E5:53:F9:4E:BE:70:12:99:81:FD:B6:72:DA:24:93:C1:1C:9F:97:F4:6D:EF:6B:6A`.
 Phones that already trust this CA need nothing new.
 
-The laptop holds `192.168.254.199` on **Wi-Fi** (`wlan0`). Keep the router
-reservation as it is. If the laptop is moved to Ethernet, the reservation
-must follow the Ethernet MAC address: a router change, decided separately.
+### Wi-Fi, Ethernet or both
+
+`kinesis.local` does not depend on one address. `kinesis-mdns` advertises
+every laptop address inside `192.168.254.0/24` (today `wlan0` =
+`192.168.254.199` and `enp63s0` = `192.168.254.134`), on each of those
+interfaces separately, and updates within a few seconds when one drops,
+returns or changes address. With no interface up it waits instead of
+exiting. Caddy listens on all interfaces and picks the site by host name,
+and the certificate already covers `kinesis.local`: nothing is tied to
+`.199` any more except the fallback entries.
+
+`kinesisctl status` checks HTTPS, onboarding and an mDNS query **through
+each interface**; `kinesisctl urls` lists what is advertised where.
+
+The router must forward multicast between its Wi-Fi and wired ports (most
+home routers do; "AP/client isolation" or multicast filtering breaks it).
+Test once: with the laptop on Ethernet only, a phone on Wi-Fi must still
+open `https://kinesis.local:9443`.
+
+### Opening kinesis.local on the laptop itself
+
+Phones and other computers look `.local` names up over mDNS themselves.
+The laptop does not: its resolver (`/etc/nsswitch.conf`) has no mDNS client
+(no `nss-mdns`, `systemd-resolved` inactive). Its own browser therefore
+needs one line in `/etc/hosts`, pointing at loopback, which works on
+Wi-Fi, Ethernet or no network at all (Caddy also listens on 127.0.0.1, and
+the certificate and allowed origins already cover `kinesis.local`):
+
+```sh
+echo '127.0.0.1 kinesis.local' | sudo tee -a /etc/hosts
+```
+
+`kinesisctl doctor` warns while it is missing. Do not enable Avahi or
+`systemd-resolved` mDNS for this: they would add a second responder on
+UDP 5353 next to `kinesis-mdns`.
+
+### Moving terminals to kinesis.local (once per terminal)
+
+A terminal's pairing is stored in cookies that belong to the exact host
+name it was paired under. A phone paired at `https://192.168.254.199:9443`
+keeps working there (the fallback stays until a separate, explicitly
+approved change retires it), but it has to pair once more after switching
+to `https://kinesis.local:9443`. From then on it stays paired whichever
+interface the laptop uses.
 
 ## 5. Security notes
 
@@ -213,8 +255,8 @@ nothing by itself; `kinesisctl restart` afterwards.
   remains disabled. If Avahi is enabled later, both can share UDP 5353.
 * **Firewall**: none is active on the laptop today. If you enable `nftables`,
   `ufw` or `firewalld`, allow TCP 9443, 9444 and 9080 (and 9081 for the
-  redirect) plus UDP 5353 from `192.168.254.0/24` only. Never open 8000, 5432,
-  5433 or 2019.
+  redirect) plus UDP 5353 from `192.168.254.0/24` only, on **both** `wlan0`
+  and `enp63s0`. Never open 8000, 5432, 5433 or 2019.
 * **Power**: `kinesis-awake` blocks suspend while Kinesis runs, including
   when the lid is closed. Keep the laptop on mains power. Hyprland/idle
   daemons can still blank the screen.

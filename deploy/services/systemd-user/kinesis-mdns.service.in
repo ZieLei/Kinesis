@@ -1,4 +1,7 @@
 # Optional kinesis.local responder (user scope), installed with --mdns.
+# Follows the LAN interfaces by itself (Wi-Fi, Ethernet, both, neither):
+# it advertises every address inside the allowed subnets (--subnet) and
+# waits when there is none, so a missing interface is not a failure.
 [Unit]
 Description=Kinesis mDNS responder (@MDNS_HOSTNAME@)
 PartOf=kinesis.target
@@ -6,7 +9,7 @@ PartOf=kinesis.target
 [Service]
 Type=exec
 Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
-ExecStart=@CODE@/mdns-venv/bin/python @CODE@/deploy/mdns/kinesis_mdns.py --hostname @MDNS_HOSTNAME@ --ip @LAN_IP@ --port @MDNS_PORT@
+ExecStart=@CODE@/mdns-venv/bin/python @CODE@/deploy/mdns/kinesis_mdns.py --hostname @MDNS_HOSTNAME@ --port @MDNS_PORT@ @MDNS_SUBNET_ARGS@
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=yes

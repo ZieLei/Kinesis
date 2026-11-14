@@ -21,4 +21,4 @@ code), which is weaker.
 | `kinesis-caddy.service` | HTTPS/WSS; admin API on `$XDG_RUNTIME_DIR/kinesis-caddy/admin.sock` |
 | `kinesis-pki-renew.timer` | Daily certificate renewal check, then a graceful Caddy reload |
 | `kinesis-awake.service` | Blocks sleep and lid-close suspend while Kinesis runs |
-| `kinesis-mdns.service` | Optional `kinesis.local` responder (`--mdns`) |
+| `kinesis-mdns.service` | Optional `kinesis.local` responder (`--mdns`): every LAN interface inside `--mdns-subnet`, follows Wi-Fi/Ethernet changes |

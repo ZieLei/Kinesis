@@ -1,6 +1,9 @@
 # Optional: answer mDNS queries for kinesis.local (deploy/mdns). Values come
-# from /etc/kinesis/mdns.env (KINESIS_MDNS_HOSTNAME, KINESIS_MDNS_IP,
-# KINESIS_MDNS_PORT), written by the installer with --mdns.
+# from /etc/kinesis/mdns.env, written by the installer with --mdns:
+# KINESIS_MDNS_HOSTNAME, KINESIS_MDNS_PORT and KINESIS_MDNS_SUBNET_ARGS
+# (e.g. "--subnet 192.168.254.0/24"). The responder follows the LAN
+# interfaces itself (Wi-Fi, Ethernet, both, neither) and waits while none
+# is up, so a missing interface is not a failure.
 # Not needed when the host is itself named "kinesis" and runs Avahi.
 [Unit]
 Description=Kinesis mDNS responder (kinesis.local)
@@ -12,7 +15,7 @@ PartOf=kinesis.target
 Type=exec
 EnvironmentFile=/etc/kinesis/mdns.env
 Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/kinesis/mdns-venv/bin/python /opt/kinesis/deploy/mdns/kinesis_mdns.py --hostname ${KINESIS_MDNS_HOSTNAME} --ip ${KINESIS_MDNS_IP} --port ${KINESIS_MDNS_PORT}
+ExecStart=/opt/kinesis/mdns-venv/bin/python /opt/kinesis/deploy/mdns/kinesis_mdns.py --hostname ${KINESIS_MDNS_HOSTNAME} --port ${KINESIS_MDNS_PORT} $KINESIS_MDNS_SUBNET_ARGS
 Restart=on-failure
 RestartSec=10
 DynamicUser=yes

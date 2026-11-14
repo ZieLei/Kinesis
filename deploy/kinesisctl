@@ -66,6 +66,8 @@ while IFS='=' read -r key value; do
 done < "$CONF"
 : "${SCOPE:?}" "${CODE:?}" "${CONFIG:?}" "${DATA:?}"
 LAN_IP="${LAN_IP:-192.168.254.199}"
+MDNS_SUBNETS="${MDNS_SUBNETS:-192.168.254.0/24}"
+CANONICAL_HOST=kinesis.local
 
 # priv COMMAND...: as root when the installation needs it. A function, not
 # an array: bash 3.2 treats an empty array as unset under `set -u`.
@@ -103,6 +105,17 @@ fi
 
 caddy_env() { sed -n "s/^$1=//p" "$CONFIG/caddy.env" 2>/dev/null | head -1; }
 split_sites() { tr ',' '\n' <<<"$1" | sed 's/^ *//; s/ *$//' | sed '/^$/d'; }
+site_host() { sed -E 's#^https?://([^/:]*).*#\1#' <<<"$1"; }
+site_port() { sed -nE 's#^https?://[^/]*:([0-9]+).*#\1#p' <<<"$1"; }
+is_ipv4() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+
+# Eligible LAN interfaces, as the mDNS responder sees them (one source of
+# truth): "interface<TAB>address[<TAB>mdns-member|not-member]" per line.
+MDNS_TOOL="$APP/deploy/mdns/kinesis_mdns.py"
+if [[ -x "$CODE/mdns-venv/bin/python" ]]; then MDNS_PY="$CODE/mdns-venv/bin/python"; else MDNS_PY="$PY"; fi
+SUBNET_ARGS=()
+for subnet in $MDNS_SUBNETS; do SUBNET_ARGS+=(--subnet "$subnet"); done
+lan_addresses() { "$MDNS_PY" -I "$MDNS_TOOL" --list "${SUBNET_ARGS[@]}" 2>/dev/null || true; }
 
 if [[ -t 1 ]]; then OK=$'\033[32mOK\033[0m'; BAD=$'\033[31mFAIL\033[0m'; WARN=$'\033[33mWARN\033[0m'
 else OK=OK; BAD=FAIL; WARN=WARN; fi
@@ -227,17 +240,35 @@ unit_table() {
 CA="$DATA/onboarding/kinesis-root.crt"
 
 https_check() {
-    # https_check LABEL SITE EXPECT_CODE PATH
-    local label="$1" site="$2" expect="$3" path="${4:-/}" host port code
-    host="$(sed -E 's#^https?://([^/:]+).*#\1#' <<<"$site")"
-    port="$(sed -nE 's#^https?://[^/:]+:([0-9]+).*#\1#p' <<<"$site")"
+    # https_check LABEL SITE EXPECT_CODE PATH [ADDRESS [VIA]]
+    # Sites are checked against this computer (--resolve ADDRESS, default
+    # 127.0.0.1), so the check does not depend on mDNS. With an interface
+    # address it proves the site answers through that interface.
+    local label="$1" site="$2" expect="$3" path="${4:-/}" address="${5:-127.0.0.1}" via="${6:+ via $6}" host port code
+    host="$(site_host "$site")"
+    port="$(site_port "$site")"
     port="${port:-443}"
-    # Name-based sites are checked against this computer (--resolve), so the
-    # check does not depend on mDNS.
     code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --cacert "$CA" \
-        --resolve "$host:$port:127.0.0.1" "https://$host:$port$path" 2>/dev/null || true)"
-    if [[ "$code" == "$expect" ]]; then pass "$label https://$host:$port$path -> $code"
-    else fail "$label https://$host:$port$path -> ${code:-no answer} (expected $expect)"; fi
+        --resolve "$host:$port:$address" "https://$host:$port$path" 2>/dev/null || true)"
+    if [[ "$code" == "$expect" ]]; then pass "$label https://$host:$port$path$via -> $code"
+    else fail "$label https://$host:$port$path$via -> ${code:-no answer} (expected $expect)"; fi
+}
+
+# site_checks LABEL SITE PATH EXPECT LAN: the home page of one site through
+# every way terminals reach it.
+site_checks() {
+    local label="$1" site="$2" path="$3" expect="$4" lan="$5" host iface ip _
+    host="$(site_host "$site")"
+    if is_ipv4 "$host"; then
+        if holds_ip "$host"; then https_check "$label" "$site" "$expect" "$path" "$host" "fallback"
+        else caution "$label $site: fallback address not on this computer now (terminals use https://$CANONICAL_HOST)"; fi
+    elif [[ -z "$lan" ]]; then
+        fail "$label $site: no eligible LAN interface (subnets $MDNS_SUBNETS)"
+    else
+        while IFS=$'\t' read -r iface ip _; do
+            [[ -n "$ip" ]] && https_check "$label" "$site" "$expect" "$path" "$ip" "$iface"
+        done <<<"$lan"
+    fi
 }
 
 live_checks() {
@@ -250,24 +281,60 @@ live_checks() {
         caution "no CA certificate at $CA; HTTPS checks skipped"
         return 0
     fi
+    local lan first="" iface ip member host port url answers
+    lan="$(lan_addresses)"
     while read -r site; do
         [[ -n "$site" ]] || continue
-        https_check "POS  " "$site" 200 /
+        site_checks "POS  " "$site" / 200 "$lan"
+        # Routing does not depend on the interface: the API checks run once.
         # 401 from the backend proves the POS API is proxied; /api/health is
         # admin-origin only and must be refused (404) here.
-        https_check "POS  " "$site" 401 /api/terminals/session
-        https_check "POS  " "$site" 404 /api/health
+        if [[ -z "$first" && ! "$(site_host "$site")" =~ ^[0-9.]+$ ]]; then
+            first="$site"
+            https_check "POS  " "$site" 401 /api/terminals/session
+            https_check "POS  " "$site" 404 /api/health
+        fi
     done < <(split_sites "$(caddy_env KINESIS_POS_SITES)")
+    first=""
     while read -r site; do
         [[ -n "$site" ]] || continue
-        https_check "admin" "$site" 200 /
-        https_check "admin" "$site" 200 /api/health
+        site_checks "admin" "$site" / 200 "$lan"
+        if [[ -z "$first" && ! "$(site_host "$site")" =~ ^[0-9.]+$ ]]; then
+            first="$site"
+            https_check "admin" "$site" 200 /api/health
+        fi
     done < <(split_sites "$(caddy_env KINESIS_ADMIN_SITES)")
     site="$(caddy_env KINESIS_ONBOARDING_SITE)"
     if [[ -n "$site" ]]; then
-        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$site/kinesis-root.crt" 2>/dev/null || true)"
-        if [[ "$code" == 200 ]]; then pass "onboarding $site/kinesis-root.crt -> 200"
-        else fail "onboarding $site/kinesis-root.crt -> ${code:-no answer}"; fi
+        host="$(site_host "$site")"
+        port="$(site_port "$site")"
+        if [[ -n "$host" ]]; then
+            urls="$site"
+        else
+            # "http://:<port>": every address of this computer.
+            urls="$(while IFS=$'\t' read -r iface ip _; do [[ -n "$ip" ]] && echo "http://$ip:${port:-80}"; done <<<"$lan")"
+        fi
+        while read -r url; do
+            [[ -n "$url" ]] || continue
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$url/kinesis-root.crt" 2>/dev/null || true)"
+            if [[ "$code" == 200 ]]; then pass "onboarding $url/kinesis-root.crt -> 200"
+            else fail "onboarding $url/kinesis-root.crt -> ${code:-no answer}"; fi
+        done <<<"$urls"
+    fi
+    if [[ "${MDNS:-0}" == 1 ]]; then
+        # mDNS is link-local: ask through each interface separately.
+        while IFS=$'\t' read -r iface ip member; do
+            [[ -n "$ip" ]] || continue
+            if [[ "$member" == not-member ]]; then
+                fail "mDNS: nothing listens for $CANONICAL_HOST on $iface ($ip)"
+                continue
+            fi
+            if answers="$("$MDNS_PY" -I "$MDNS_TOOL" --hostname "$CANONICAL_HOST" --query "$ip" 2>/dev/null)"; then
+                pass "mDNS $CANONICAL_HOST via $iface -> $answers"
+            else
+                fail "mDNS $CANONICAL_HOST via $iface ($ip): no answer (kinesisctl logs mdns)"
+            fi
+        done <<<"$lan"
     fi
 }
 
@@ -297,9 +364,9 @@ wait_healthy() {
     return 1
 }
 
-holds_lan_ip() {
-    if [[ "$OS" == Darwin ]]; then ifconfig 2>/dev/null | grep -q "inet ${LAN_IP//./\\.} "
-    else ip -4 -o addr show 2>/dev/null | grep -q " $LAN_IP/"; fi
+holds_ip() {
+    if [[ "$OS" == Darwin ]]; then ifconfig 2>/dev/null | grep -q "inet ${1//./\\.} "
+    else ip -4 -o addr show 2>/dev/null | grep -q " $1/"; fi
 }
 
 listens_beyond_loopback() {
@@ -311,13 +378,40 @@ listens_beyond_loopback() {
     fi
 }
 
+print_site_list() {
+    local site host
+    while read -r site; do
+        [[ -n "$site" ]] || continue
+        host="$(site_host "$site")"
+        if [[ "$host" == "$CANONICAL_HOST" ]]; then echo "  $site   <- use this (Wi-Fi and Ethernet)"
+        elif is_ipv4 "$host"; then echo "  $site   (migration fallback; only while this computer holds $host)"
+        else echo "  $site"; fi
+    done < <(split_sites "$1")
+}
+
 print_urls() {
+    local lan site host port iface ip _
+    lan="$(lan_addresses)"
     echo "POS (phones, tablets, cashier PCs):"
-    split_sites "$(caddy_env KINESIS_POS_SITES)" | sed 's/^/  /'
+    print_site_list "$(caddy_env KINESIS_POS_SITES)"
     echo "Admin console:"
-    split_sites "$(caddy_env KINESIS_ADMIN_SITES)" | sed 's/^/  /'
-    echo "Device onboarding (trust the Kinesis CA once per device):"
-    echo "  $(caddy_env KINESIS_ONBOARDING_SITE)"
+    print_site_list "$(caddy_env KINESIS_ADMIN_SITES)"
+    echo "Device onboarding (trust the Kinesis CA once per device; open by IP address):"
+    site="$(caddy_env KINESIS_ONBOARDING_SITE)"
+    host="$(site_host "$site")"; port="$(site_port "$site")"
+    if [[ -n "$host" ]]; then echo "  $site"
+    else
+        while IFS=$'\t' read -r iface ip _; do [[ -n "$ip" ]] && echo "  http://$ip:${port:-80}   ($iface)"; done <<<"$lan"
+        [[ -n "$lan" ]] || echo "  (no eligible LAN interface right now)"
+    fi
+    if [[ "${MDNS:-0}" == 1 ]]; then
+        echo "$CANONICAL_HOST is advertised on:"
+        if [[ -n "$lan" ]]; then
+            while IFS=$'\t' read -r iface ip _; do [[ -n "$ip" ]] && echo "  $iface $ip"; done <<<"$lan"
+        else
+            echo "  (nothing yet: waiting for an interface in $MDNS_SUBNETS)"
+        fi
+    fi
     if [[ -r "$DATA/onboarding/fingerprint.txt" ]]; then
         echo "Root CA fingerprint (compare on each device):"
         sed 's/^/  /' "$DATA/onboarding/fingerprint.txt"
@@ -431,7 +525,8 @@ case "$COMMAND" in
         echo "Configuration:"
         tmp="$(mktemp "${TMPDIR:-/tmp}/kinesis-doctor.XXXXXX")"
         if priv "$PY" -I "$APP/deploy/migration/preflight.py" \
-            --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP" >"$tmp" 2>&1; then
+            --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP" \
+            --expect-hostname "$CANONICAL_HOST" >"$tmp" 2>&1; then
             pass "preflight: $(tail -1 "$tmp")"
         else
             fail "preflight:"; grep -E 'FAIL|failure' "$tmp" | sed 's/^/        /' || true
@@ -482,8 +577,28 @@ case "$COMMAND" in
             else fail "lingering off: services stop at logout (kinesisctl enable)"; fi
         fi
         echo "Network:"
-        if holds_lan_ip; then pass "this computer holds $LAN_IP"
-        else fail "$LAN_IP is not assigned to this computer: phones cannot reach it"; fi
+        lan="$(lan_addresses)"
+        if [[ -z "$lan" ]]; then
+            fail "no LAN interface in $MDNS_SUBNETS: terminals cannot reach Kinesis (connect Wi-Fi or Ethernet)"
+        else
+            while IFS=$'\t' read -r iface ip _; do
+                [[ -n "$ip" ]] && pass "LAN interface $iface $ip (https://$CANONICAL_HOST:$(caddy_env KINESIS_HTTPS_PORT) reachable through it)"
+            done <<<"$lan"
+        fi
+        # The host's own browser: Linux resolves .local only with an mDNS
+        # client (nss-mdns/resolved), which the shop laptop does not run.
+        if [[ "$OS" != Darwin ]]; then
+            if getent hosts "$CANONICAL_HOST" >/dev/null 2>&1; then pass "this computer resolves $CANONICAL_HOST (its own browser can open it)"
+            else caution "this computer cannot resolve $CANONICAL_HOST, so its own browser cannot open it: echo '127.0.0.1 $CANONICAL_HOST' | sudo tee -a /etc/hosts"; fi
+        fi
+        if holds_ip "$LAN_IP"; then pass "fallback address $LAN_IP is on this computer"
+        else caution "fallback address $LAN_IP is not on this computer now: only terminals not yet moved to https://$CANONICAL_HOST are affected"; fi
+        if [[ "${MDNS:-0}" == 1 && "$MANAGER" == systemd ]]; then
+            if "${SYSTEMCTL[@]}" is-active --quiet kinesis-mdns.service; then pass "kinesis-mdns is running"
+            else fail "kinesis-mdns is not running: $CANONICAL_HOST does not resolve (kinesisctl logs mdns)"; fi
+        elif [[ "${MDNS:-0}" != 1 ]]; then
+            caution "no mDNS responder installed: $CANONICAL_HOST resolves only if the OS advertises it (installer --mdns)"
+        fi
         for port in 8000 "${PG_PORT:-5432}" 2019; do
             if listens_beyond_loopback "$port"; then fail "port $port listens beyond loopback"; fi
         done

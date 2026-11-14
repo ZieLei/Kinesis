@@ -574,7 +574,9 @@ if [ -f "$ROOT/pki/server.crt" ] || { [ "$APPLY" -eq 0 ] && [ -n "$PKI_SOURCE" ]
     run as_proxy "$PKI_VENV/bin/python" "$PKI_TOOL" --pki-dir "$ROOT/pki" renew --no-reload \
         --reload-command "\"$ROOT/bin/caddy\" reload --config \"$ROOT/app/deploy/caddy/Caddyfile\" --adapter caddyfile --force" \
         --reload-env-file "$CONFIG/caddy.env"
-    run as_proxy "$PKI_VENV/bin/python" "$PKI_TOOL" --pki-dir "$ROOT/pki" export-ca --out "$ROOT/onboarding"
+    APP_PORT="$(sed -n 's/^KINESIS_HTTPS_PORT=//p' "$ROOT/app/deploy/config/shop/caddy.macos.env" | head -1)"
+    APP_URL="https://kinesis.local"; [[ -z "$APP_PORT" || "$APP_PORT" == 443 ]] || APP_URL="$APP_URL:$APP_PORT"
+    run as_proxy "$PKI_VENV/bin/python" "$PKI_TOOL" --pki-dir "$ROOT/pki" export-ca --out "$ROOT/onboarding" --app-url "$APP_URL"
     run as_proxy "$PKI_VENV/bin/python" "$PKI_TOOL" --pki-dir "$ROOT/pki" verify --expect-ip "$LAN_IP" --expect-hostname kinesis.local
 else
     warn "No certificates in $ROOT/pki: re-run with --pki-dir <folder> (existing PKI, phones keep trusting it), or create a CA (deploy/README-tls.md)."

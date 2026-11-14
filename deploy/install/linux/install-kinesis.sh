@@ -47,8 +47,14 @@
 #                          init output). user scope: linked in place as
 #                          <DATA>/pki (keys are not copied); system scope:
 #                          copied into /var/lib/kinesis/pki for kinesis-proxy
-#   --lan-ip IP            host LAN address (default 192.168.254.199)
-#   --mdns                 also run the kinesis.local mDNS responder
+#   --lan-ip IP            fallback LAN address in the certificate and site
+#                          lists (default 192.168.254.199). Terminals use
+#                          https://kinesis.local:<port>; this computer need
+#                          not hold the address
+#   --mdns                 also run the kinesis.local mDNS responder; it
+#                          follows Wi-Fi/Ethernet by itself
+#   --mdns-subnet CIDR     LAN subnet kinesis.local may point into
+#                          (repeatable; default 192.168.254.0/24)
 #   --no-awake             do not block sleep/lid-close suspend while running
 #   --enable               start Kinesis at boot (kinesis.target)
 #   --start                start (or restart) Kinesis when done
@@ -76,6 +82,7 @@ DB_USER="kinesis_app"
 PKI_SOURCE=""
 LAN_IP="192.168.254.199"
 MDNS=0
+MDNS_SUBNETS=()
 AWAKE=1
 ENABLE=0
 START=0
@@ -111,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         --pki-dir) PKI_SOURCE="$2"; shift ;;
         --lan-ip) LAN_IP="$2"; shift ;;
         --mdns) MDNS=1 ;;
+        --mdns-subnet) MDNS_SUBNETS+=("$2"); shift ;;
         --no-awake) AWAKE=0 ;;
         --enable) ENABLE=1 ;;
         --start) START=1 ;;
@@ -183,6 +191,12 @@ case "$PG_MODE" in system|own) ;; *) die "--pg must be system or own" ;; esac
 [[ "$DB_NAME" =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "--db-name must be a lower-case SQL identifier"
 [[ "$DB_USER" =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "--db-user must be a lower-case SQL identifier"
 [[ "$LAN_IP" =~ ^(10|172|192)\.[0-9.]+$ ]] || die "--lan-ip must be a private (RFC 1918) IPv4 address"
+[[ ${#MDNS_SUBNETS[@]} -gt 0 ]] || MDNS_SUBNETS=(192.168.254.0/24)
+MDNS_SUBNET_ARGS=""
+for subnet in "${MDNS_SUBNETS[@]}"; do
+    [[ "$subnet" =~ ^(10|172|192)\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]{1,2}$ ]] || die "--mdns-subnet must be a private IPv4 network such as 192.168.254.0/24"
+    MDNS_SUBNET_ARGS="${MDNS_SUBNET_ARGS:+$MDNS_SUBNET_ARGS }--subnet $subnet"
+done
 
 if [[ $SCOPE == system ]]; then
     CODE=/opt/kinesis
@@ -225,10 +239,12 @@ if command -v nvidia-smi >/dev/null 2>&1 || [[ -e /proc/driver/nvidia ]]; then
     note "NVIDIA GPU present: not used. Kinesis needs no GPU, CUDA or GPU libraries."
 fi
 
+# Terminals use https://kinesis.local:<port> on whichever interface is up;
+# LAN_IP is only the fallback address (certificate and site lists).
 if ip -4 -o addr show 2>/dev/null | grep -q " $LAN_IP/"; then
-    note "This computer currently holds $LAN_IP: it will serve the shop's existing addresses."
+    note "This computer currently holds the fallback address $LAN_IP."
 else
-    warn "$LAN_IP is not assigned to this computer right now. Phones reach Kinesis only once it is (router DHCP reservation)."
+    note "The fallback address $LAN_IP is not on this computer right now; terminals reach it as kinesis.local (with --mdns)."
 fi
 
 if [[ $SCOPE == user ]]; then
@@ -566,7 +582,7 @@ if [[ $MDNS -eq 1 ]]; then
     MDNS_PORT="$(sed -n 's/^KINESIS_HTTPS_PORT=//p' "$CADDY_ENV_SOURCE" | head -1)"
     MDNS_PORT="${MDNS_PORT:-443}"
     if [[ $SCOPE == system ]]; then
-        run_sh "write $CONFIG/mdns.env" "printf 'KINESIS_MDNS_HOSTNAME=%s\nKINESIS_MDNS_IP=%s\nKINESIS_MDNS_PORT=%s\n' '$MDNS_HOSTNAME' '$LAN_IP' '$MDNS_PORT' > '$CONFIG/mdns.env' && chmod 0644 '$CONFIG/mdns.env'"
+        run_sh "write $CONFIG/mdns.env" "printf 'KINESIS_MDNS_HOSTNAME=%s\nKINESIS_MDNS_PORT=%s\nKINESIS_MDNS_SUBNET_ARGS=%s\n' '$MDNS_HOSTNAME' '$MDNS_PORT' '$MDNS_SUBNET_ARGS' > '$CONFIG/mdns.env' && chmod 0644 '$CONFIG/mdns.env'"
     fi
 fi
 
@@ -586,6 +602,7 @@ LAN_IP=$LAN_IP
 SVC_USER=$SVC_USER
 PROXY_USER=$PROXY_USER
 MDNS=$MDNS
+MDNS_SUBNETS=${MDNS_SUBNETS[*]}
 AWAKE=$AWAKE
 VERSION=${VERSION:-unknown}
 COMMIT=${COMMIT:-unknown}"
@@ -636,7 +653,9 @@ if [[ -f "$DATA/pki/server.crt" || ( $APPLY -eq 0 && -n "$PKI_SOURCE" ) ]]; then
             --reload-command "$CADDY_BIN reload --config $CODE/deploy/caddy/Caddyfile --adapter caddyfile --force" \
             --reload-env-file "$CONFIG/caddy.env"
     fi
-    run as_proxy "${PKI[@]}" export-ca --out "$DATA/onboarding"
+    APP_PORT="$(sed -n 's/^KINESIS_HTTPS_PORT=//p' "$CADDY_ENV_SOURCE" | head -1)"
+    APP_URL="https://kinesis.local"; [[ -z "$APP_PORT" || "$APP_PORT" == 443 ]] || APP_URL="$APP_URL:$APP_PORT"
+    run as_proxy "${PKI[@]}" export-ca --out "$DATA/onboarding" --app-url "$APP_URL"
     run as_proxy "${PKI[@]}" verify --expect-ip "$LAN_IP" --expect-hostname kinesis.local
 else
     warn "No certificates in $DATA/pki. Kinesis cannot serve HTTPS until they exist:
@@ -690,6 +709,7 @@ else
                 -e "s|@PYTHON_HOME_BIND@|$PYTHON_HOME|g" -e "s|@TARGET_WANTS@|$WANTS|g" \
                 -e "s|@BACKEND_PG_DEPS@|$BACKEND_PG_DEPS|g" -e "s|@LAN_IP@|$LAN_IP|g" \
                 -e "s|@MDNS_HOSTNAME@|${MDNS_HOSTNAME:-kinesis.local}|g" -e "s|@MDNS_PORT@|${MDNS_PORT:-443}|g" \
+                -e "s|@MDNS_SUBNET_ARGS@|$MDNS_SUBNET_ARGS|g" \
                 "$template" > "$UNIT_DIR/$unit.tmp"
             ! grep -q '@[A-Z_]*@' "$UNIT_DIR/$unit.tmp" || die "Unfilled placeholder in $unit"
             mv "$UNIT_DIR/$unit.tmp" "$UNIT_DIR/$unit"
@@ -784,9 +804,10 @@ if [[ $APPLY -eq 1 ]]; then
     # service accounts).
     "$CODE/pki-venv/bin/python" -I "$CODE/deploy/migration/preflight.py" \
         --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP" \
+        --expect-hostname kinesis.local \
         || warn "Preflight reported problems (above). Fix them before serving terminals."
 else
-    show preflight.py --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP"
+    show preflight.py --kinesis-env "$CONFIG/kinesis.env" --caddy-env "$CONFIG/caddy.env" --expect-ip "$LAN_IP" --expect-hostname kinesis.local
 fi
 
 # --------------------------------------------------------------------------

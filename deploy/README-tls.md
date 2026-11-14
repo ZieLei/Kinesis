@@ -19,7 +19,9 @@ Each device trusts that CA **once**.
 The commands below use the Linux layout and the template's default ports
 as examples. For the shop's host, use the paths in
 `docs/deployment/MIGRATION.md` (section 3) and the shop's ports: POS 9443,
-admin 9444, onboarding `http://<LAN-IP>:9080`.
+admin 9444, onboarding `http://<LAN-IP>:9080` (any of the host's LAN
+addresses). Terminals open **`https://kinesis.local:9443`**, which works over
+the host's Wi-Fi and Ethernet alike; the IP address is a fallback.
 
 Requirements: Python 3.11+ with
 `pip install --require-hashes --only-binary :all: -r deploy/pki/requirements.lock`.
@@ -49,10 +51,13 @@ place, as `~/.local/share/kinesis-host/pki`.
      the passphrase separately, offline.** They're only needed every few
      years, to replace the issuing CA, or after a compromise.
    - Write down the **SHA-256 fingerprint** printed at the end.
-4. Write the onboarding files that Caddy serves on `http://<LAN-IP>:8080`:
+4. Write the onboarding files that Caddy serves on `http://<LAN-IP>:8080`
+   (every address of the host when `KINESIS_ONBOARDING_SITE=http://:8080`);
+   `--app-url` is the address the page tells devices to open:
 
    ```sh
-   python deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki export-ca --out /var/lib/kinesis/onboarding
+   python deploy/pki/kinesis_pki.py --pki-dir /var/lib/kinesis/pki export-ca --out /var/lib/kinesis/onboarding \
+       --app-url https://kinesis.local:9443
    ```
 
 5. Check the result at any time (read-only; also run it on a new host after
@@ -86,7 +91,8 @@ the server.
 3. Open **Settings → General → About → Certificate Trust Settings** and turn
    on **Kinesis Local Root CA**. Without this step Safari still refuses the
    connection.
-4. Open `https://kinesis.local` in Safari, then **Share → Add to Home Screen**.
+4. Open `https://kinesis.local:9443` (the shop's port) in Safari, then
+   **Share → Add to Home Screen**.
 5. **Open Kinesis from the Home Screen and pair the terminal there.**
    Home-screen apps keep their own cookies, separate from Safari, so a
    terminal paired in a Safari tab is not paired in the home-screen app.
@@ -101,6 +107,9 @@ Local Root CA → Remove Profile**.
    Encryption & credentials → Install a certificate → CA certificate**. The
    wording varies by manufacturer; search Settings for "CA certificate".
 3. Select the downloaded `kinesis-root.crt`.
+4. In Chrome, open `https://kinesis.local:9443` (Android 12+ resolves
+   `.local` names) and pair the terminal there. If it does not open, the
+   phone or router is not passing mDNS: use the IP fallback and report it.
 
 The native Kinesis app trusts user-installed CAs **only** for the Kinesis
 server names (see `plugins/withKinesisNetworkSecurity.js`). Build it with

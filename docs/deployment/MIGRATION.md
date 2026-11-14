@@ -227,6 +227,10 @@ The phase 0 baseline (2026-11-08) confirmed:
 * **Paired browser terminals** stay paired. Their HttpOnly cookie is tied
   to the host name (`192.168.254.199` / `kinesis.local`), which does not
   change. The matching credential hash moves with the database.
+  `kinesis.local` is the canonical name and survives any change of host
+  address or interface; a terminal still on the IP pairs once more after
+  switching to `https://kinesis.local:9443` (cookies belong to one host
+  name). The IP stays as a fallback until a separate change retires it.
 * **CSRF tokens** change, because the host gets a new auth secret. The POS
   web app (v1.4.0+) fetches a fresh token automatically when the server
   rejects the old one, so open tabs recover on their own. This was
@@ -242,9 +246,9 @@ The phase 0 baseline (2026-11-08) confirmed:
 
 | Port | Use | Firewall |
 |---|---|---|
-| TCP 9443 | POS (`https://192.168.254.199:9443`, `https://kinesis.local:9443`) | open to the LAN |
-| TCP 9444 | Admin console (`https://192.168.254.199:9444`) | open to the LAN (or only the owner's PC) |
-| TCP 9080 | Device onboarding (CA certificate only, HTTP) | open to the LAN |
+| TCP 9443 | POS (`https://kinesis.local:9443`; fallback `https://192.168.254.199:9443`) | open to the LAN |
+| TCP 9444 | Admin console (`https://kinesis.local:9444`; fallback `https://192.168.254.199:9444`) | open to the LAN (or only the owner's PC) |
+| TCP 9080 | Device onboarding (CA certificate only, HTTP, on every host address) | open to the LAN |
 | UDP 5353 | mDNS (`kinesis.local`) | handled by the OS (Bonjour on macOS) |
 | TCP 8000 / 5432 / 2019 | backend / PostgreSQL / Caddy admin API | **closed**: loopback only |
 
@@ -330,7 +334,7 @@ address until the cutover.
    ```sh
    $K renew --no-reload --reload-command "\"<caddy binary>\" reload --config \"<CODE>/deploy/caddy/Caddyfile\" --adapter caddyfile --force" --reload-env-file "<CONFIG>/caddy.env"
    $K verify --expect-ip 192.168.254.199 --expect-hostname kinesis.local
-   $K export-ca --out "<DATA>/onboarding"
+   $K export-ca --out "<DATA>/onboarding" --app-url https://kinesis.local:9443
    ```
    `verify` must print the same root fingerprint as on Shimamura
    (`61:63:63:FB:…:6B:6A`). `renew` only records the reload command; the

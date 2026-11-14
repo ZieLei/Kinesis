@@ -43,7 +43,7 @@ To move an existing installation to a dedicated shop PC, follow
 | Services | systemd system units (`deploy/services/systemd`), systemd user units with lingering (`deploy/services/systemd-user`), launchd (`deploy/services/launchd`), WinSW + `sc.exe` + Task Scheduler (`deploy/services/windows`) | Start at boot without a login, restart on failure, stop gracefully (uvicorn logs "Application shutdown complete"). systemd hosts group everything in `kinesis.target`. `kinesis-awake` blocks sleep and lid-close suspend while Kinesis runs. |
 | Python runtime | Linux: private CPython 3.14 from `uv` (default) or the system Python; macOS: python.org 3.13 universal2 | On Arch, a `pacman -Syu` to a new Python minor version would break venvs built on `/usr/bin/python3`; the private runtime is unaffected. |
 | Name resolution | Certificate covers `kinesis.local`, `<computer-name>.local` and the LAN IP | iPhones/iPads/Macs resolve `.local` via Bonjour on any host OS. Android 12+ resolves `.local` in the system resolver; older devices use the IP. |
-| `kinesis.local` | `deploy/mdns/kinesis_mdns.py` (python-zeroconf), **spike** | Windows only advertises its computer name, and Avahi/Bonjour need OS-specific setup. Verified on Linux (no Avahi): answers A queries. **Still to test**: coexistence with Avahi, Bonjour and the Windows mDNS responder on UDP 5353. Fallback: `<computer-name>.local` or the IP. |
+| `kinesis.local` | `deploy/mdns/kinesis_mdns.py` (python-zeroconf): the **canonical** terminal address | Windows only advertises its computer name, and Avahi/Bonjour need OS-specific setup. Multi-interface: advertises every eligible address (private IPv4 inside `--subnet`, real interfaces only) on each interface separately, follows changes via Linux netlink plus polling, waits when none is up, keeps one registration, and refuses to take the name over from another device. Answers carry all published addresses (zeroconf has no per-interface answers), so keep `--subnet` to the shop LAN. Verified on Linux (no Avahi) with Wi-Fi and Ethernet on the same subnet, including interfaces dropping and returning. **Still to test**: coexistence with Avahi, Bonjour and the Windows mDNS responder on UDP 5353. Fallback: `<computer-name>.local` or the IP. |
 | Docker | Optional, Linux only | Docker Desktop on Windows/macOS runs a VM. LAN multicast (mDNS) doesn't reach containers, it needs extra RAM, and it has licence terms. Not recommended for shop owners. |
 
 ## Data and configuration (separate from code)
@@ -127,7 +127,9 @@ off-host copy: [BACKUPS.md](BACKUPS.md).
 3. Create the database and restore the dump with `pg_restore`.
 4. Run `alembic upgrade head`.
 5. Install the services.
-6. Keep the same LAN address (DHCP reservation), or run `renew --ip`.
+6. Terminals use `https://kinesis.local:<port>`, which follows the host's
+   addresses (`kinesis-mdns`). Keep the old LAN address (DHCP reservation)
+   only if terminals still use the IP fallback, or run `renew --ip`.
 
 Devices keep working because the root CA is unchanged.
 
@@ -140,7 +142,8 @@ Devices keep working because the root CA is unchanged.
 
 ### Firewall
 Open the ports configured in `caddy.env`: every POS and admin site port,
-the onboarding port, optionally `KINESIS_HTTP_PORT`, and UDP 5353 (mDNS).
+the onboarding port, optionally `KINESIS_HTTP_PORT`, and UDP 5353 (mDNS),
+on every LAN interface terminals may use (Wi-Fi and Ethernet).
 The template defaults are 443, 8443, 8080 and 80. The shop uses 9443,
 9444 and 9080 (`docs/deployment/MIGRATION.md`). Open them on the
 **private** network profile only. Never open 8000 (backend) or 5432
@@ -163,5 +166,7 @@ HTTPS against a `*_test` database.
 5. `kinesis_pki.py renew --force`, then confirm the browser shows the new
    certificate without a Caddy restart.
 6. From an iPhone: `https://kinesis.local` (with the mDNS responder running),
-   then `https://<computer-name>.local`, then `https://<IP>`.
+   then `https://<computer-name>.local`, then `https://<IP>`. With two
+   interfaces, repeat with each one disconnected in turn: `kinesis.local`
+   must keep working and `kinesisctl status` must stay green.
 7. Run `python deploy/tools/check_web_build.py <dist> --caddyfile deploy/caddy/Caddyfile`.

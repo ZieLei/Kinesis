@@ -1,0 +1,26 @@
+# Nightly database + uploads backup (system scope). Not yet installed by
+# install-kinesis.sh: copy to /etc/systemd/system and enable the timer
+# (see docs/deployment/BACKUPS.md). Exits non-zero, so the unit shows as
+# failed, if the dump cannot be written or read back.
+[Unit]
+Description=Back up the Kinesis database and uploads
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=kinesis
+Group=kinesis
+Environment=KINESIS_ENV_FILE=/etc/kinesis/kinesis.env
+Environment=PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/opt/kinesis/backend
+# Add "--copy-to /mnt/kinesis-backup" (a USB drive or another computer) to
+# keep a copy off this machine.
+ExecStart=/opt/kinesis/venv/bin/python backup_cli.py backup
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kinesis/backups
+ReadOnlyPaths=/var/lib/kinesis/uploads
+InaccessiblePaths=-/var/lib/kinesis/pki -/run/kinesis-caddy

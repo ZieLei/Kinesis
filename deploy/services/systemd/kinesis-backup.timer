@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Kinesis backup
+PartOf=kinesis.target
+
+[Timer]
+OnCalendar=*-*-* 23:30:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=kinesis.target
